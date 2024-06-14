@@ -1,0 +1,21 @@
+.main{
+    display: flex;
+    flex-wrap: wrap;
+    color: #b0b0b0;
+    font-size: 0.66rem;
+    margin-top: 1.2rem;
+    line-height: 0.9rem;
+    max-width: 20rem;
+    font-weight: 250;
+}
+
+.TagText{
+    border-radius: 1rem;
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    margin-right: 0.3rem;
+    margin-bottom: 0.3rem;
+    box-shadow: inset 0 0 0 1px #999999,0 2px 8px rgba(0, 0, 0, 0.101);
+}

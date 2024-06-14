@@ -1,0 +1,175 @@
+.main{
+    justify-content: center; /* Center contents horizontally */
+    align-items: center;     /* Center contents vertically */
+    position: fixed;      /* Ensure relative positioning for absolute children */
+    top: 1.5rem;
+    margin: auto;
+    align-self: center;
+    z-index: 1000;
+    width: 100%;
+}
+
+.logo{
+    position: absolute;
+    left: 3rem;
+}
+
+.nav{
+    border-radius: 2rem;
+    box-shadow: inset 0 0 0 1px #999999,0 2px 8px rgba(0, 0, 0, 0.101);
+    
+    background-color: rgba(0,0,0, 70%);
+    backdrop-filter: blur(5px);
+    
+    margin:auto;
+    
+    padding-top: 0.8rem;
+    padding-bottom: 0.8rem;
+    padding-left: 4rem;
+    padding-right: 4rem;
+    
+    font-size: 1rem;
+    font-weight: 250;
+    
+    color: #b0b0b0;
+    
+    max-width: 60rem;
+    
+    display: flex;
+    justify-content: space-between;
+}
+
+.navTrim{
+    background-color: transparent;
+    max-width: 60rem;
+    height: 1rem;
+    margin: auto;
+    margin-top: -1.25rem;
+    display: flex;
+}
+
+.navTrimPortfolio{
+    background-color: transparent;
+    max-width: 30.5rem;
+    flex-grow: 1;
+    height: 1rem;
+    margin-left: 4.75rem;
+}
+
+.navTrimRightBarPortfolio{
+    height: 50%;
+    width: 0.05rem;
+    background-color: #999999;
+}
+
+.navTrimLeftBarPortfolio{
+    height: 50%;
+    width: 0.05rem;
+    background-color: #999999;
+    float: right;
+}
+
+.navTrimLeftBarPortfolio{
+    height: 50%;
+    width: 0.05rem;
+    background-color: #999999;
+    float: right;
+}
+
+.navTrimCrossbarPortfolio{
+    height: 0.05rem;
+    width: 100%;
+    background-color: #999999;
+    float: left;
+    margin-top: -1.5rem;
+}
+
+.navTrimCentrebarPortfolio{
+    height: 50%;
+    width: 0.05rem;
+    background-color: #999999;
+    margin: auto;
+    margin-top: -1.5rem;
+}
+
+.navTrimTextPortfolio{
+    background-color: transparent;
+    color: #999999;
+    margin: auto;
+    text-align: center;
+    margin-top: -1.75rem;
+    padding-top: 0.125rem;
+    font-size: 0.75rem;
+}
+
+.navTrimPersonal{
+    background-color: transparent;
+    max-width: 12.5rem;
+    flex-grow: 1;
+    height: 1rem;
+    margin-left: 2.5rem;
+}
+
+.navTrimRightBarPersonal{
+    height: 50%;
+    width: 0.05rem;
+    background-color: #5EB0FC;
+}
+
+.navTrimLeftBarPersonal{
+    height: 50%;
+    width: 0.05rem;
+    background-color: #5EB0FC;
+    float: right;
+}
+
+.navTrimLeftBarPersonal{
+    height: 50%;
+    width: 0.05rem;
+    background-color: #5EB0FC;
+    float: right;
+}
+
+.navTrimCrossbarPersonal{
+    height: 0.05rem;
+    width: 100%;
+    background-color: #5EB0FC;
+    float: left;
+    margin-top: -1.5rem;
+}
+
+.navTrimCentrebarPersonal{
+    height: 50%;
+    width: 0.05rem;
+    background-color: #5EB0FC;
+    margin: auto;
+    margin-top: -1.5rem;
+}
+
+.navTrimTextPersonal{
+    background-color: transparent;
+    color: #5EB0FC;
+    margin: auto;
+    text-align: center;
+    margin-top: -1.75rem;
+    padding-top: 0.125rem;
+    font-size: 0.75rem;
+}
+
+.active{
+    font-weight: 400;
+    color: white;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+}
+
+.inactive{
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+}
+
+.inactive:hover{
+    color: white;    
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+}
