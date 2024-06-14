@@ -30,6 +30,25 @@ export default function Navbar(){
         }
     }, [pathname]);
 
+
+    const [scrolled, setScrolled] = useState(false);
+
+    useEffect(() => {
+        const handleScroll = () => {
+        if (window.scrollY > 0) {
+            setScrolled(true);
+        } else {
+            setScrolled(false);
+        }
+        };
+
+        window.addEventListener('scroll', handleScroll);
+
+        return () => {
+        window.removeEventListener('scroll', handleScroll);
+        };
+    }, []);
+
     // Function to check if the current path matches the given path
     const isActive = (path: any) => pathname === path;
 
@@ -43,7 +62,7 @@ export default function Navbar(){
                     height={50}
                 />
             </a>
-            <nav className={styles.nav}>
+            <nav className= {styles.nav}>
                 <a href="/" className={isActive('/') ? (activeSection === 'hero' ? styles.active : styles.inactive) : styles.inactive}>
                     ✨ About me
                 </a>
@@ -67,7 +86,7 @@ export default function Navbar(){
                 </Link>
             </nav>
             <br />
-            <div className={styles.navTrim}>
+            <div className={scrolled ? styles.navTrimScrolled : styles.navTrim}>
                 <div className={styles.navTrimPortfolio}>
                     <div className={styles.navTrimLeftBarPortfolio} />
                     <div className={styles.navTrimRightBarPortfolio} />

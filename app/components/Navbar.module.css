@@ -48,6 +48,10 @@
     display: flex;
 }
 
+.navTrimScrolled{
+    display: none;
+}
+
 .navTrimPortfolio{
     background-color: transparent;
     max-width: 30.5rem;

@@ -1,5 +1,8 @@
+'use client'
+
 import styles from "./ExperiencePill.module.css"
 import { LinkPreview } from "./link-preview"
+import { useState } from "react"
 
 export default function ExperiencePill(){
     return(

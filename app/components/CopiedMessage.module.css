@@ -1,0 +1,12 @@
+.copied-message {
+  position: absolute;
+  background-color: red;
+  color: white;
+  padding: 5px;
+  width: 20rem;
+  height: 20rem;
+  border-radius: 5px;
+  z-index: 1000;
+  transform: translateX(-50%);
+  pointer-events: none; /* Prevents it from blocking mouse events */
+}

@@ -6,10 +6,26 @@
     padding-top: 1.1rem;
     padding-bottom: 1.1rem;
     margin: auto;
+}
+
+.Heading{
+    width: 100%;
     display: flex;
 }
 
-.breakline{
+.SubHeading{
+    color: #b0b0b0;
+    margin-top: -0.5rem;
+    font-size: 1.2rem;
+    letter-spacing: -0.75px;
+    font-weight: 200;
+}
+
+.main h1{
+    white-space: nowrap;
+}
+
+.BreakLine{
     width: 100%;
     height: 0.05rem;
     margin-top: 1.9rem;

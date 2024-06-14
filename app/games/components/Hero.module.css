@@ -1,0 +1,97 @@
+.main{
+    margin: auto;
+    max-width: 58rem;
+    margin-top: 11rem;
+}
+
+.SteamContent{
+    display: flex;
+    color: white;
+}
+
+.SteamContent steam-user{
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+    width: 24rem;
+    margin-right: -0.5rem;
+    margin-top: -2rem;
+    margin-left: -0.5rem;
+}
+
+.CounterText{
+    background-color: transparent;
+    float: right;
+}
+
+.SteamContent span{
+    font-size: 3.2rem;
+    display: flex;
+    font-weight: 500;
+    margin-top:  -0.5rem;
+    margin-bottom: 0.9rem;
+    margin-right: -0.5rem;
+    margin-left: 0rem;
+    margin-bottom: -1rem;
+    margin-top: 0rem;
+    max-width: 29rem;
+    line-height: 3rem;
+    text-align: right;
+}
+
+.SteamContent h1{
+    font-size: 3.2rem;
+    display: flex;
+    left: 45rem;
+    font-weight: 500;
+    margin-top:  -0.5rem;
+    margin-bottom: 0.9rem;
+    margin-right: -0.5rem;
+    margin-left: 0.25rem;
+    max-width: 29rem;
+    line-height: 3rem;
+}
+
+.FixedText{
+    position: absolute;
+    top:11rem;
+    padding-left: 5.5rem;
+}
+
+.SteamContent h2{
+    font-size: 1.8rem;
+    font-weight: 250;
+    margin-top:  -0.25rem;
+    margin-bottom: 0.9rem;
+    margin-right: -0.5rem;
+    margin-left: 0.25rem;
+    margin-top: -0.6rem;
+    max-width: 29rem;
+    line-height: 3rem;
+}
+
+
+.PageDescription{
+    margin-top: 0.5rem;
+    padding: 1.4rem;
+    border-radius: 1rem;
+    box-shadow: inset 0 0 0 1px #b0b0b0,0 2px 8px rgba(0, 0, 0, 0.101);
+    
+    background-color: rgba(0,0,0, 70%);
+    backdrop-filter: blur(5px);
+    
+    color: #b0b0b0;
+    font-weight: 225;
+    font-size: 1rem;
+    letter-spacing: -0.0225rem;
+    line-height: 1.2rem;
+}
+
+.PageDescription h1{
+    color: white;
+    font-size: 2.4rem;
+    font-weight: 175;
+    max-width: 58rem;
+    padding-top: 0.75rem;
+    padding-bottom: 1.5rem;
+}

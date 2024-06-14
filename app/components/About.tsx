@@ -2,7 +2,7 @@
 
 import styles from "./About.module.css"
 import { LinkPreview } from "./link-preview";
-
+import ContactWidget from "./ContactWidget";
 
 export default function About(){
     return(

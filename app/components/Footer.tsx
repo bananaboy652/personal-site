@@ -1,15 +1,18 @@
+'use client'
+
 import styles from "./Footer.module.css"
 import Image from "next/image"
 import ContactWidget from "./ContactWidget"
 
 export default function Footer(){
     return(
+        <div>
         <div className={styles.main}>
             <div className={styles.UpperContent}>
                 <div className={styles.ContactContainer}>
                     <h1 className={styles.h1}>Contact me<span className={styles.Highlight}>!</span></h1>
                     <h3 className={styles.h4}>I'm never too busy for a quick chat :)</h3>
-                    <div className={styles.Contact}><ContactWidget /></div>
+                        <ContactWidget />
                 </div>
                 <div className={styles.PagesContainer}>
                     <div className={styles.Collumn}>
@@ -46,5 +49,6 @@ export default function Footer(){
                 <h3 className={styles.h3}>Copyright © Will Donnelly 2024, all rights reserved.</h3>
             </div>
         </div>
+    </div>
     )
 }
