@@ -40,6 +40,12 @@
     position: relative;
 }
 
+.ContactWidgetf{
+    margin-left: 0.5rem;
+    padding-left: 0rem;
+    background-color: transparent;
+}
+
 .PagesContainer{
     display: flex;
     margin-right: -1rem;
@@ -102,7 +108,7 @@
     font-size: 0.85rem;
     letter-spacing: -0.0225rem;
     line-height: 1.2rem;
-
+    
 }
 
 .h4{

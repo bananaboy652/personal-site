@@ -11,9 +11,9 @@ export default function Hero(){
                 <steam-user style-border="max" steamid="76561198136358808"></steam-user>
                 <div className={styles.CounterText}>
                     <SteamHours />
-                    <h1 className={styles.FixedText}>Hours</h1>
                     <h2>And counting...</h2>
                 </div>
+                    <h1 className={styles.Hours}>Hours</h1>
             </div>
             <div className={styles.PageDescription}>
                 <h1>My Favourite Games</h1>

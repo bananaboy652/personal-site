@@ -11,8 +11,8 @@ export default function Footer(){
             <div className={styles.UpperContent}>
                 <div className={styles.ContactContainer}>
                     <h1 className={styles.h1}>Contact me<span className={styles.Highlight}>!</span></h1>
-                    <h3 className={styles.h4}>I'm never too busy for a quick chat :)</h3>
-                        <ContactWidget />
+                    <h3 className={styles.h4}>{"I'm never too busy for a quick chat :)"}</h3>
+                    <div className={styles.ContactWidgetf}><ContactWidget /></div>
                 </div>
                 <div className={styles.PagesContainer}>
                     <div className={styles.Collumn}>

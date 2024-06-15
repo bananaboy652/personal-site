@@ -15,7 +15,6 @@ export const MousePositionProvider: React.FC<{ children: ReactNode }> = ({ child
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       setMousePosition({ x: event.clientX, y: event.clientY, scrollX: window.scrollX, scrollY: window.scrollY });
-      console.log(event.clientX, event.clientY, window.scrollX, window.scrollY);
     };
 
     window.addEventListener('mousemove', handleMouseMove);

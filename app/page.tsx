@@ -18,15 +18,15 @@ export default function Home() {
           <About />
         </section>
         <section id="project">
-          <ContentBreaker title="Projects" />
+          <ContentBreaker title="Projects" subheading="" />
           <Projects />
         </section>
         <section id="tools">
-          <ContentBreaker title="Tools" />
+          <ContentBreaker title="Tools" subheading="" />
           <ToolsPill />
         </section>
         <section id="experience">
-          <ContentBreaker title="Experience" />
+          <ContentBreaker title="Experience" subheading="" />
           <ExperiencePill />
         </section>
         <Footer />

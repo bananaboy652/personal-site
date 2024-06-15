@@ -7,6 +7,9 @@ import { useState } from "react"
 export default function ExperiencePill(){
     return(
         <div className={styles.main}>
+            <h1 className={styles.Heading}>🚀 Organised and ran the first ever <LinkPreview url="https://photos.app.goo.gl/AhxLzi7zTFaNwsUZ7" className="Link">Patch Robot Wars</LinkPreview> competition</h1>
+            <h2 className={styles.SubHeading}>a competition which brought Patch allumni of all years back together to make and battle custom fighting robots</h2>
+
             <h1 className={styles.Heading}>🚀 Participant in <span className="Link"><LinkPreview url="https://joinpatch.org" className="Link">Patch 2023</LinkPreview></span></h1>
             <h2 className={styles.SubHeading}>the origin of where Induct was founded</h2>
 
