@@ -1,12 +1,12 @@
 'use client'
 
-import ContentBreaker from "../components/ContentBreaker"
-import Footer from "../components/Footer"
-import styles from "./page.module.css"
-import Hero from "./components/Hero"
+// import ContentBreaker from "../components/ContentBreaker"
+// import Footer from "../components/Footer"
+// import Hero from "./components/Hero"
 import GameList from "./components/GameList"
-import { MousePositionProvider } from "../components/MousePositionContext";
-import NintendoGames from "./components/NintendoGames"
+// import { MousePositionProvider } from "../components/MousePositionContext";
+// import NintendoGames from "./components/NintendoGames"
+
 
 const Stier = [
     '753640',  // OuterWilds
@@ -75,19 +75,19 @@ const Btier = [
 export default function Games(){
     
     return(
-        <MousePositionProvider>
-            <div className={styles.main}>
-                <Hero />
-                <ContentBreaker title="S-Tier" subheading="The greatest of all time (in my oppinion at least...) 🐐"/>
+        // <MousePositionProvider>
+            <div>
+                {/* <Hero /> */}
+                {/* <ContentBreaker title="S-Tier" subheading="The greatest of all time (in my oppinion at least...) 🐐"/> */}
                 <GameList games={Stier}/>
-                <ContentBreaker title="A-Tier" subheading="More than worth your time."/>
+                {/* <ContentBreaker title="A-Tier" subheading="More than worth your time."/> */}
                 <GameList games={Atier}/>
-                <ContentBreaker title="B-Tier" subheading="If you’re even mildly interested in any of these then I say give them a go."/>
+                {/* <ContentBreaker title="B-Tier" subheading="If you’re even mildly interested in any of these then I say give them a go."/> */}
                 <GameList games={Btier}/>
-                <ContentBreaker title="Nintendo games" subheading="It's dangerous to go alone. Play these!" />
-                <NintendoGames/>
-                <Footer/>
+                {/* <ContentBreaker title="Nintendo games" subheading="It's dangerous to go alone. Play these!" /> */}
+                {/* <NintendoGames/> */}
+                {/* <Footer/> */}
             </div>
-        </MousePositionProvider>
+        // </MousePositionProvider>
     )
 }

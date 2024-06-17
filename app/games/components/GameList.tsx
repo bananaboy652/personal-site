@@ -1,3 +1,5 @@
+'use client'
+
 import { useEffect, useState } from "react";
 import styles from "./GameList.module.css";
 import "steamwidgets.js";
@@ -19,7 +21,6 @@ export default function GameList({ games }: Props) {
         const loadNextGame = () => {
             if (currentIndex < games.length) {
                 const appId = games[currentIndex];
-                const onlineCount = ":count currently in-game";
                 const content = (
                      <iframe src={"https://store.steampowered.com/widget/"+appId+"/"} frameBorder="0" width="565px" height="210"></iframe>
                     //<steam-app appid={appId} onlinecount={onlineCount}/>
