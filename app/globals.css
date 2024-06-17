@@ -42,7 +42,12 @@
     color: #1033e0; /* Text color for other browsers */
 }
 
+/* styles/globals.css */
 
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Regular.ttf') format('ttf')
+}
 
 body {
   background-image: var(--background-image);
@@ -51,7 +56,7 @@ body {
   background-repeat: no-repeat;
   background-color: black;
   background-attachment: fixed;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Inter', Arial, sans-serif;
 }
 
 .Link{
