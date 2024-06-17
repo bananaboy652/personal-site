@@ -1,5 +1,3 @@
-'use client'
-
 import styles from './NintendoGames.module.css'
 
 export default function NintendoGames(){

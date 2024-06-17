@@ -1,10 +1,25 @@
 'use client'
 
 import styles from './Hero.module.css';
-import 'steamwidgets.js';
+import React, { useEffect } from 'react';
+
 import SteamHours from './SteamHours';
 
 export default function Hero(){
+
+useEffect(() => {
+        if (typeof window !== 'undefined') {
+            import('steamwidgets.js')
+                .then(module => {
+                    // Initialize or use module here
+                })
+                .catch(error => {
+                    console.error('Failed to load steamwidgets.js', error);
+                });
+        }
+    }, []);
+
+
     return(
         <div className={styles.main}>
             <div className={styles.SteamContent}>

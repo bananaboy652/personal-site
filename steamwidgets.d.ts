@@ -6,3 +6,5 @@ declare namespace JSX {
     'steam-user': React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement> & {'steamid': string};
   }
 }
+
+declare module 'steamwidgets.js';
