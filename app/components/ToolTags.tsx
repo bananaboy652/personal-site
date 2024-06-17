@@ -4,7 +4,7 @@ interface props{
     tags: string[];
 }
 
-export default function({ tags }: props){
+export default function ToolTags({ tags }: props){
     
     const tagList = [];
 

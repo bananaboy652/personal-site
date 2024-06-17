@@ -72,7 +72,7 @@ const Btier = [
     '250760',  // Shovel Knight
 ]
 
-export default function games(){
+export default function Games(){
     
     return(
         <MousePositionProvider>

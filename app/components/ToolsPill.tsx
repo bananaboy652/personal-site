@@ -5,9 +5,9 @@ export default function ToolsPill(){
     return(
         <div className={styles.main}>
             <div className={styles.Icons}>
-                <span className={styles.Title}>Software</span>
+                <span className={styles.Title}>{"Software"}</span>
                 <div className={styles.Segment}>
-                    <div className={styles.SubTitle}>// CAD/CAM Software</div>
+                    <div className={styles.SubTitle}>{"// CAD/CAM Software"}</div>
                     <div className={styles.IconRow}>
                     <a href="https://www.autodesk.com/products/fusion-360/overview" target="_blank" rel="noopener noreferrer">
                         <Image
@@ -68,7 +68,7 @@ export default function ToolsPill(){
                 </div>
 
                 <div className={styles.Segment}>
-                <span className={styles.SubTitle}>// 3D Modeling</span>
+                <span className={styles.SubTitle}>{"// 3D Modeling"}</span>
                 <div className={styles.IconRow}>
                 <a href="https://www.blender.org/" target="_blank" rel="noopener noreferrer">
                     <Image
@@ -93,7 +93,7 @@ export default function ToolsPill(){
                 </div>
                 
                 <div className={styles.Segment}>
-                <span className={styles.SubTitle}>// Video Editing</span>
+                <span className={styles.SubTitle}>{"// Video Editing"}</span>
                 <div className={styles.IconRow}>
                 <a href="https://www.blackmagicdesign.com/products/davinciresolve/" target="_blank" rel="noopener noreferrer">
                     <Image
@@ -109,7 +109,7 @@ export default function ToolsPill(){
                 </div>
                 
                 <div className={styles.Segment}>
-                    <span className={styles.SubTitle}>// UI/UX Design</span>
+                    <span className={styles.SubTitle}>{"// UI/UX Design"}</span>
                 <div className={styles.IconRow}>
                     <a href="https://www.figma.com/" target="_blank" rel="noopener noreferrer">
                     <Image
@@ -144,7 +144,7 @@ export default function ToolsPill(){
                 </div>
                 
                 <div className={styles.Segment}>
-                    <span className={styles.SubTitle}>// Software Development</span>
+                    <span className={styles.SubTitle}>{"// Software Development"}</span>
                     <div className={styles.IconRow}>
                         <a href="https://docs.microsoft.com/en-us/dotnet/csharp/" target="_blank" rel="noopener noreferrer">
                     <Image
@@ -232,7 +232,7 @@ export default function ToolsPill(){
                 </div>
                 
                 <div className={styles.Segment}>
-                <span className={styles.SubTitle}>// IDEs</span>
+                <span className={styles.SubTitle}>{"// IDEs"}</span>
                 <div className={styles.IconRow}>
                     <a href="https://code.visualstudio.com/" target="_blank" rel="noopener noreferrer">
                     <Image
@@ -274,7 +274,7 @@ export default function ToolsPill(){
                 </div>
             </div>
             <div className={styles.Hardware}>
-                <span className={styles.Title}>Hardware</span>
+                <span className={styles.Title}>{"Hardware"}</span>
                 <p className={styles.List}>
                     Creality Ender3 S3 Pro - FDM 3D Printer<br/>
                     Elegoo Mars 2 - MSLA 3D Printer<br/>
