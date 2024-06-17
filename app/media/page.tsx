@@ -1,86 +1,104 @@
-'use client'
+"use client";
 
-import Hero from "./components/Hero"
-import ContentBreaker from "../components/ContentBreaker"
-import Footer from "../components/Footer"
-import YouTubeChannels from "./components/YouTubeChannels"
+import Hero from "./components/Hero";
+import ContentBreaker from "../components/ContentBreaker";
+import Footer from "../components/Footer";
+import YouTubeChannels from "./components/YouTubeChannels";
 import { MousePositionProvider } from "../components/MousePositionContext";
+import { useEffect, useState } from "react";
+import BookInfo from './components/BookInfo';
 
-export default function games(){
-
-    const channelIds = [
-        'UC2C_jShtL725hvbm1arSV9w', // CGPGrey Channel ID
+const channelIds = [
+        'UC2CjShtL725hvbm1arSV9w', // CGPGrey Channel ID
         'UC6nSFpj9HTCZ5t-N3Rm3-HA',  // VSauce
         'UCHnyfMqiRRG1u-2MsSQLbXA',  // Veritasium
         'UCsXVk37bltHxD1rDPwtNM8Q',  // Kurzgesagt
-        //'UCu6mIX6Z8LUu2t44WN_sTrQ',  // Steve Mould
+        'UCEIwxahdLz7bap-VDs9h35A',  // Steve Mould
         'UCXuqSBlHAE6Xw-yeJA0Tunw',  // Linus Tech Tips
-        // 'UC2LXXN8IzJJbN1LsWN1bx4w',  // Stephen Hawes
+        'UCMf49SMPnhxdLormhEpfyfg',  // Stephen Hawes
         'UC0e3QhIYukixgh5VVpKHH9Q',  // Code Bullet
         'UCYbK_tjZ2OrIZFBvU6CCMiA',  // Brackeys
-        // 'UCuWNFETh4wAK1ODbnyan0lg',  // DIY Perks
+        'UCUQo7nzH1sXVpzL92VesANw',  // DIY Perks
         'UCqJ-Xo29CKyLTjn6z2XwYAw',  // Game Maker's Toolkit
         'UC6mIxFTvXkWQVEHPsEdflzQ',  // GreatScott!
-        // 'UCrYsa9bwHB1GC_q4VZOCjWw',  // Phil's Lab
-        // 'UCuKxpKGAqXr-7O1en6NSM8A',  // EEVblog
+        'UCVryWqJ4cSlbTSETBHpBUWw',  // Phil's Lab
+        'UC2DjFE7Xf11URZqWBigcVOQ',  // EEVblog
         'UCl2mFZoRqjw_ELax4Yisf6w',  // Louis Rossmann
-        // 'UC3w6iBFr-GdCeV0JQWDh9jQ',  // element14 presents
+        'UChturLXwYxwTOf_5krs0qvA',  // element14 presents
         'UCYeF244yNGuFefuFKqxIAXw',  // The Royal Institution
         'UCR1IuLEqb6UEA_zQ81kwXfg',  // Real Engineering
-        // 'UCuCOAX8emBkNGhUnyQYGL-Q',  // BobbyBroccoli
-        // 'UCE6qE5jNqpF0LyiMkueEXnQ',  // Will Cogley
-        // 'UCVHOgH4uvFOLrKSKu3dWeKQ',  // PolyMars
+        'UCSPLhwvj0gBufjDRzSQb3GQ',  // BobbyBroccoli
+        'UCkUD_8b1JoTL2ipOVtxfNKw',  // Will Cogley
+        'UCl7dSJloxuCa9IBFml7sakw',  // PolyMars
         'UCUHW94eEFW7hkUMVaZz4eDg',  // MinutePhysics
-        // 'UCc4OEi7I1cqAp1a9yitp2jQ',  // RC Life On
-        // 'UCiIrO-EpNHlGLG42w_-6I9A',  // Shank Mods
-        // 'UCQWLB2fK9RU8FTwoW0ZAG6g',  // Cody's Lab
+        'UC873OURVczg_utAk8dXx_Uw',  // RC Life On
+        'UCUCo_G9HneFK4Luncw6v-Bw',  // Shank Mods
+        'UCu6mSoMNzHQiBIOCkHUa2Aw',  // Cody's Lab
         'UCp68_FLety0O-n9QU6phsgw',  // colinfurze
         'UC7yF9tV4xWEMZkel7q8La_w',  // PeterSripol
-        // 'UCUHqnmTxQ7N89t-jTvzTC-g',  // Carykh
-        // 'UCR-QxEaj4Vn5GEyuOBAnRQw',  // Jeff Geerling
-        // 'UCfYo1VBIcVFr_GfGNVX1hpw',  // Acerola
-        'UC0M0rxSz3IF0CsSour1iWmw',  // LiveOverflow
-        // 'UCv1XUiTIW5VofEEnFE2i7ZQ',  // AlphaPhoenix
-        // 'UCm4C4slpkFq5k7TLxOHmoxg',  // Sebastian Lague
+        'UC9z7EZAbkphEMg0SP7rw44A',  // Carykh
+        'UCR-DXc1voovS8nhAvccRZhg',  // Jeff Geerling
+        'UCQG40havu4kNpB4pxUDQhYQ',  // Acerola
+        'UClcE-kVhqyiHCcjYwcpfj9w',  // LiveOverflow
+        'UCCWeRTgd79JL0ilH0ZywSJA',  // AlphaPhoenix
+        'UCmtyQOKKmrMVaKuRXz02jbQ',  // Sebastian Lague
         'UCbfYPyITQ-7l4upoX8nvctg',  // Two Minute Papers
         'UCYO_jab_esuFRV4b17AJtAw',  // 3Blue1Brown
-        // 'UC8QUtH8gkNQs4jQP79OHfkg',  // Barji
+        'UCz3l6nyODzXLzTxIkARZ8rw',  // Barji
         'UC9-y-6csu5WGm29I7JiwpnA',  // Computerphile
-        // 'UCR1DpgY8kmNOsLCcqFF5KVA',  // Michael Reeves
-        // 'UC1D3yD4wlPMico0dss264OA',  // NileRed
-        // 'UCf9kaxmi01hNMFd2lbaCq7w',  // NileBlue
+        'UCtHaxi4GTYDpJgMSGy7AeSw',  // Michael Reeves
+        'UCFhXFikryT4aFcLkLw2LBLA',  // NileRed
+        'UC1D3yD4wlPMico0dss264XA',  // NileBlue
         'UCoxcjq-8xIDTYp3uz647V5A',  // Numberphile
-        // 'UCO8dKRGwnetVqW3wMbhH4pA',  // People Make Games
+        'UCZB6V9fUov0Mx_us3MWWILg',  // People Make Games
         'UC9RM-iSvTu1uPJb8X5yp3EQ',  // Wendover Productions
         'UCimiUgDLbi6P17BdaCZpVbg',  // Exurb1a
-        'UCttFk8-Nysnyw59aNlWOWzw',  // Pursuit of Wonder
+        'UC-tLyAaPbRZiYrOJxAGB7dQ',  // Pursuit of Wonder
         'UCSju5G2aFaWMqn-_0YBtq5A',  // Stand-up Maths
-        // 'UC9ZWVZ46kL1oKtbm6FW3kQA',  // Ben Eater
-        'UCvmINlrza7JHB1zkIOuXEbw',  // Fireship
-        // 'UC7dZRwrHRlhGbZ6bmffp0VA',  // James Bruton
-        // 'UCsl42VeSWgG8z8wNlkD2mcQ',  // Tom Stanton
+        'UCS0N5baNlQWJCUrhCEo8WlA',  // Ben Eater
+        'UCsBjURrPoezykLs9EqgamOA',  // Fireship
+        'UCUbDcUPed50Y_7KmfCXKohA',  // James Bruton
+        'UC67gfx2Fg7K2NSHqoENVgwA',  // Tom Stanton
         'UCiDJtJKMICpb9B1qf7qjEOA',  // AvE
         'UCBa659QWEk1AI4Tg--mrJ2A',  // Tom Scott
-        // 'UCt1Pb5_JrRY_bH6ukmjRJtA',  // Primer
-        // 'UCGEbpYlEypz7xZK1yPbk4SA',  // Stuff Made Here
-        // 'UCk8QbZzGdR43x3ZtLEzPGxQ',  // ElectroBOOM
-        // 'UCbFXsnErdd203Hz6w8dIG0w',  // TheBackyardScientist
+        'UCKzJFdi57J53Vr_BkTfN3uQ',  // Primer
+        'UCj1VqrHhDte54oLgPG4xpuQ',  // Stuff Made Here
+        'UCJ0-OtVpF0wOKEqT2Z1HEtA',  // ElectroBOOM
+        'UC06E4Y_-ybJgBUMtXx8uNNw',  // TheBackyardScientist
         'UC6107grRI4m0o2-emgoDnAA',  // SmarterEveryday
         'UCfMJ2MchTSW2kWaT0kK94Yw',  // William Osman
-        'UCJLZe_NoiG0hT7QCX_9vmqw',   // I did a thing
-        'UCRC6cNamj9tYAO6h_RXd5xA', // RTGame Channel ID
-        
-    ];
+        'UCJLZe_NoiG0hT7QCX_9vmqw',  // I did a thing
+        'UCRC6cNamj9tYAO6h_RXd5xA',  // RTGame Channel ID
 
-    return(
-        <MousePositionProvider>
-            <main>
-                <Hero />
-                <ContentBreaker title="YouTube" subheading="These days 20 minutes is all you need to know more about a topic than 90% of the population"/>
-                <YouTubeChannels channelIds={channelIds} />
-                <ContentBreaker title="Books" subheading="I should definitely read more..." />
-                <Footer/>
-            </main>
-        </MousePositionProvider>
-    )
+];
+
+const isbns = [
+    '9781473695993',  // Brief answers to big questions
+    '9780735211292',  // Atomic Habits
+    '9780593715833',  // The diary of a pretencious knob-head
+    '9780345391827',  // Life the universe and everything
+    '9780345391810',  // The restaurant at the end of the universe
+    '9781529046137',  // The hitchhikers guide to the galaxy
+    '9781408865255',  // Paper Towns
+    '9781101911594',  // To be a machine
+    '9780399576447',  // The world in a grain
+    '9781783962433',  // Prisoners of Geography
+    '9781982172008',  // Chip war
+    '9781501144325',  // Why we sleep
+    '9781541701366',  // The Dictator's Handbook
+  ];
+
+export default function Media() {
+  return (
+    <MousePositionProvider>
+      <main>
+        <Hero />
+        <ContentBreaker title="YouTube" subheading="These days 20 minutes is all you need to know more about a topic than 90% of the population" />
+        <YouTubeChannels channelIds={channelIds} />
+        <ContentBreaker title="Books" subheading="I should definitely read more..." />
+        <BookInfo isbns={isbns} /> {/* Example ISBN */}
+        <Footer />
+      </main>
+    </MousePositionProvider>
+  );
 }

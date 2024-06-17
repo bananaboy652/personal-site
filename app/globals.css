@@ -33,13 +33,13 @@
 }
 
 ::-webkit-selection {
-    background-color: transparent; /* Background color for WebKit browsers */
-    color: #5EB0FC; /* Text color for WebKit browsers */
+    background-color: #fffffff0; /* Background color for WebKit browsers */
+    color: #1033e0; /* Text color for WebKit browsers */
 }
 
 ::selection {
-    background-color: transparent; /* Background color for other browsers */
-    color: #5EB0FC; /* Text color for other browsers */
+    background-color: #fffffff0; /* Background color for other browsers */
+    color: #1033e0; /* Text color for other browsers */
 }
 
 

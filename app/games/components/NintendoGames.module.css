@@ -1,0 +1,63 @@
+.main{
+    display: flex;
+    margin: auto;
+    position: relative;
+    max-width: 72rem;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.game{
+    border-radius: 1rem;
+    box-shadow: inset 0 0 0 1px #b0b0b0,0 2px 8px rgba(0, 0, 0, 0.101);
+    width: 35.5rem;
+    
+    display: flex;
+
+    background-color: rgba(0,0,0, 70%);
+    backdrop-filter: blur(5px);
+    
+    color: #b0b0b0;
+    font-weight: 225;
+    font-size: 1rem;
+    letter-spacing: -0.0225rem;
+    line-height: 1.2rem;
+
+    height: 210px;
+
+    margin-bottom: 1rem;
+}
+
+.game img{
+    border-radius: 1rem 0rem 0rem 1rem;
+    padding: 1px;
+}
+
+.game h1{
+    color: white;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 1.2rem;
+    letter-spacing: -0.0225rem;
+    font-weight: 400;
+    background-color: transparent;
+    width: auto;
+    line-height: 1.2rem;
+}
+
+.game p{
+    color: #b0b0b0;
+    font-weight: 225;
+    font-size: 1rem;
+    margin-top: 0.5rem;
+    margin-right: 1rem;
+    letter-spacing: -0.0225rem;
+    line-height: 1.2rem;
+    height: auto;
+    margin-bottom: 1rem;
+}
+
+.GameText{
+    padding: 0.5rem;
+}

@@ -10,12 +10,14 @@
 
 
 .channel {
-    border-radius: 1rem;
+    border-radius: 3rem;
     box-shadow: inset 0 0 0 1px #b0b0b0,0 2px 8px rgba(0, 0, 0, 0.101);
+    display: flex;
     
     padding: 1.5rem;
-    margin-bottom: 1.25rem;
-    width: 18.5rem;
+    margin-bottom: 0.5rem;
+    width: 19rem;
+    height: fit-content;
 
     color: white;
 
@@ -23,50 +25,38 @@
     backdrop-filter: blur(5px);
 }
 
-.ChannelTitle{
-    display: flex;
-    margin-bottom: 1rem;
-    margin-top: -0.25rem;
-}
-
-.ChannelTitle h3{
+.channel h3{
     color: white;
-    margin-top: 0.3rem;
+    text-decoration: none;
+    margin-top: 0.5rem;
     margin-left: 0.5rem;
-    font-size: 1rem;
-    letter-spacing: 0px;
-    font-weight: 400;
-}
-
-.channel h4{
-    color: white;
-    background-color: transparent;
-    font-weight: 225;
-    font-size: 1rem;
-    width: 15.5rem;
-    height: 2.45rem;
     margin-bottom: 0.5rem;
+    font-size: 1.2rem;
     letter-spacing: -0.0225rem;
+    font-weight: 450;
+    background-color: transparent;
+    width: 12.5rem;
+    height: 1.3rem;
     line-height: 1.2rem;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
-    -webkit-line-clamp: 2; /* number of lines to show */
+    -webkit-line-clamp: 1; /* number of lines to show */
     -webkit-box-orient: vertical;
 }
 
-.channel img {
-  width: 35px;
-  height: 35px;
+.Link{
+    text-decoration: none;
+    color: red;
+}
+
+.Icon {
+  width: 2.2rem;
+  height: 2.2rem;
   border-radius: 50%;
 }
 
-.latestVideo img {
-    border-radius: 0.5rem;
-    border-style: solid;
-    border-width: 0.05rem;
-    width: 15.5rem;
-    height: 8.5rem;
-    object-fit: cover;
-    border-color: #b0b0b0;
+.Spacer{
+    height: 0rem;
+    width: 18.5rem;
 }

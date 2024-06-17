@@ -1,22 +1,45 @@
-'use client'
-
-import styles from "./GameList.module.css"
-import "steamwidgets.js"
-    
-interface props{
+import { useEffect, useState } from "react";
+import styles from "./GameList.module.css";
+import "steamwidgets.js";
+interface Props {
     games: string[];
 }
 
-export default function GameList( { games }: props){
+export default function GameList({ games }: Props) {
+    const [gameList, setGameList] = useState<any[]>([]);
 
-    const gameList: any = [];
+    useEffect(() => {
+        loadGamesSequentially();
+    }, [games]);
 
-    for(let i = 0; i < games.length; i++){
-        gameList.push(<steam-app appid={games[i]} onlinecount=":count currently in-game"></steam-app>)
+    function loadGamesSequentially() {
+        const loadedGames: any[] = [];
+        let currentIndex = 0;
+
+        const loadNextGame = () => {
+            if (currentIndex < games.length) {
+                const appId = games[currentIndex];
+                const onlineCount = ":count currently in-game";
+                const content = (
+                     <iframe src={"https://store.steampowered.com/widget/"+appId+"/"} frameBorder="0" width="565px" height="210"></iframe>
+                    //<steam-app appid={appId} onlinecount={onlineCount}/>
+                );
+                loadedGames.push(content);
+                currentIndex++;
+                setTimeout(loadNextGame, 0); // Adjust delay time here if needed
+            } else {
+                setGameList(loadedGames);
+            }
+        };
+
+        loadNextGame();
     }
-    return(
-    <div className={styles.main}>
-        {gameList}
-    </div>
-    )
+
+    return (
+        <div className={styles.main}>
+            {gameList}
+            <div className={styles.spacer}></div>
+        </div>
+    );
 }
+

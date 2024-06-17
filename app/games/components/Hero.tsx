@@ -20,7 +20,7 @@ export default function Hero(){
                 <p>I probably play far far far too many games, but to me they are the highest art form. 
                     Below is a tier list of some of my favourites. If you have any interest in gaming at all, 
                     then I strongly recommend each and every game on this list. Most of these can be found on 
-                    Steam, but I recommend the Yuzu/Dolphin emulators for those made by Nintendo.
+                    Steam, but I recommend the Ryujinx/Dolphin emulators for those made by Nintendo.
                 </p>
             </div>
         </div>

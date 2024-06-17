@@ -1,114 +1,77 @@
 import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import styles from './YouTubeChannels.module.css';
+import { LinkPreview } from '@/app/components/link-preview';
 
-type YouTubeChannelData = {
-  id: string;
-  name: string;
-  profileImageUrl?: string;
-  recentVideo?: {
-    title: string;
-    videoUrl: string;
-  };
-  channelUrl: string;
-};
-
-type YouTubeChannelsProps = {
+interface YouTubeChannelsProps {
   channelIds: string[];
-};
+}
+
+interface ChannelData {
+  channelId: string;
+  channelName: string;
+  channelImage: string;
+}
+
+const API_KEY = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY;
 
 const YouTubeChannels: React.FC<YouTubeChannelsProps> = ({ channelIds }) => {
-  const [channels, setChannels] = useState<YouTubeChannelData[]>([]);
+  const [channelsData, setChannelsData] = useState<ChannelData[]>([]);
 
   useEffect(() => {
-    const fetchChannelData = async (channelId: string) => {
-      try {
-        const apiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY;
-        
-        // Fetch the channel details
-        const channelResponse = await fetch(
-          `https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${channelId}&key=${apiKey}`
-        );
-        const channelData = await channelResponse.json();
+    const fetchChannelData = async () => {
+      const fetchedData: ChannelData[] = [];
 
-        if (!channelResponse.ok || !channelData.items || channelData.items.length === 0) {
-          throw new Error(`Failed to fetch data for channel ID: ${channelId}`);
-        }
+      await Promise.all(
+        channelIds.map(async (channelId) => {
+          try {
+            const channelResponse = await axios.get(
+              `https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${channelId}&key=${API_KEY}`
+            );
 
-        const channelInfo = channelData.items[0].snippet;
-        const channelName = channelInfo.title;
+            if (channelResponse.data.items.length === 0) {
+              // Skip invalid channel IDs
+              console.warn(`Channel ID ${channelId} is invalid or not found.`);
+              return;
+            }
 
-        try {
-          // Fetch the most recent video
-          const response = await fetch(
-            `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=1&order=date&type=video&key=${apiKey}`
-          );
-          const data = await response.json();
-
-          if (!response.ok || !data.items || data.items.length === 0) {
-            throw new Error(`Failed to fetch data for channel ID: ${channelId}`);
+            const channel = channelResponse.data.items[0];
+            const channelData: ChannelData = {
+              channelId: channelId,
+              channelName: channel.snippet.title,
+              channelImage: channel.snippet.thumbnails.default.url,
+            };
+            
+            fetchedData.push(channelData);
+          } catch (error) {
+            console.error(`Error fetching data for channel ID ${channelId}:`, error);
           }
+        })
+      );
 
-          const videoInfo = data.items[0].snippet;
-
-          setChannels((prevChannels) => [
-            ...prevChannels,
-            {
-              id: channelId,
-              name: channelName,
-              profileImageUrl: channelInfo.thumbnails.high.url,
-              recentVideo: {
-                title: videoInfo.title,
-                videoUrl: `https://www.youtube.com/watch?v=${data.items[0].id.videoId}`,
-              },
-              channelUrl: `https://www.youtube.com/channel/${channelId}`
-            },
-          ]);
-        } catch (videoError) {
-          console.error(videoError instanceof Error ? videoError.message : 'An unknown error occurred while fetching the recent video');
-          setChannels((prevChannels) => [
-            ...prevChannels,
-            {
-              id: channelId,
-              name: channelName,
-              channelUrl: `https://www.youtube.com/channel/${channelId}`
-            },
-          ]);
-        }
-      } catch (channelError) {
-        console.error(channelError instanceof Error ? channelError.message : 'An unknown error occurred while fetching the channel details');
-      }
+      // Sort fetched data based on the order of channelIds
+      const sortedData = channelIds.map((id) => fetchedData.find((item) => item?.channelId === id));
+      setChannelsData(sortedData.filter(Boolean) as ChannelData[]);
     };
 
-    channelIds.forEach((id) => {
-      fetchChannelData(id);
-    });
+    fetchChannelData();
   }, [channelIds]);
 
+  const openChannelPage = (channelId: string) => {
+    window.open(`https://www.youtube.com/channel/${channelId}`, '_blank');
+  };
+
   return (
-    <div>
-      {channels.map((channel) => (
-        <div key={channel.id} style={{ marginBottom: '20px' }}>
-          <h2>{channel.name}</h2>
-          {channel.profileImageUrl && (
-            <img
-              src={channel.profileImageUrl}
-              alt={`${channel.name} profile`}
-              style={{ width: '100px', height: '100px' }}
-            />
-          )}
-          {channel.recentVideo ? (
-            <>
-              <h3>Recent Video: {channel.recentVideo.title}</h3>
-              <a href={channel.recentVideo.videoUrl} target="_blank" rel="noopener noreferrer">
-                Watch Video
-              </a>
-            </>
-          ) : (
-            <a href={channel.channelUrl} target="_blank" rel="noopener noreferrer">
-              Visit Channel
-            </a>
-          )}
+    <div className={styles.main}>
+      {channelsData.map((channel, index) => (
+        <div key={index} className={styles.channel}>
+          <LinkPreview url={`https://www.youtube.com/channel/${channelIds[index+1]}`}>
+            <img className={styles.Icon} src={channel.channelImage} alt={`${channel.channelName} profile`} />
+          </LinkPreview>
+          <LinkPreview className={styles.Link} url={`https://www.youtube.com/channel/${channelIds[index+1]}`}><h3>{channel.channelName}</h3></LinkPreview>
         </div>
       ))}
+      <div className={styles.Spacer}></div>
     </div>
   );
 };

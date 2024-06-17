@@ -28,7 +28,7 @@ export default function ExperiencePill(){
             <h1 className={styles.Heading}>🏆 Won runners-up at <span className="Link"><LinkPreview url="https://scifest.ie/" className="Link">Sci-Fest Ireland</LinkPreview></span></h1>
             <h2 className={styles.SubHeading}>for a project analysing propeller efficiency in a vacuum</h2>
 
-            <h1 className={styles.Heading}>🏆 Won mock Dragons-den at Blackrock College for <span className="Link"><a href="">Sizzle</a></span></h1>
+            <h1 className={styles.Heading}>🏆 Won mock Dragons-den at Blackrock College for Sizzle</h1>
             <h2 className={styles.SubHeading}>an app which recommends local groceries for new recipes to try</h2>
 
             <h1 className={styles.Heading}>🏅 <span className="Link"><LinkPreview url="https://www.academyofsurfing.com/" className="Link">ASI Level-1</LinkPreview></span> certified SUP instructor</h1>
