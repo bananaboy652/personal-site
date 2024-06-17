@@ -1,3 +1,5 @@
+'use client'
+
 import ContentBreaker from "../components/ContentBreaker"
 import Footer from "../components/Footer"
 import Hero from "./components/Hero"
