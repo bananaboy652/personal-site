@@ -17,7 +17,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
         <Link href="/construction">
           <Image
-            src="/images/projects/ThisSite.png"
+            src="/images/Projects/ThisSite.png"
             height="1000"
             width="1000"
             alt="thumbnail"
@@ -62,7 +62,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/Induct.png"
+              src="/images/Projects/Induct.png"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -94,7 +94,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/FPVdrone.jpg"
+              src="/images/Projects/FPVdrone.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -126,7 +126,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/RoomRender.png"
+              src="/images/Projects/RoomRender.png"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -158,7 +158,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/ConsoleRev4.jpg"
+              src="/images/Projects/ConsoleRev4.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -190,7 +190,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/Csgo.jpg"
+              src="/images/Projects/Csgo.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -222,7 +222,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/BionicHand.png"
+              src="/images/Projects/BionicHand.png"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -254,7 +254,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/ConsoleRev3.jpg"
+              src="/images/Projects/ConsoleRev3.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -286,7 +286,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/Mircoscope.jpg"
+              src="/images/Projects/Mircoscope.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -318,7 +318,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/HardwareHacking.jpg"
+              src="/images/Projects/HardwareHacking.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -350,7 +350,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/ConsoleRev2.jpg"
+              src="/images/Projects/ConsoleRev2.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -382,7 +382,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/Hal.jpg"
+              src="/images/Projects/Hal.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -414,7 +414,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/Figurine.jpg"
+              src="/images/Projects/Figurine.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -446,7 +446,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/ConsoleRev1.jpg"
+              src="/images/Projects/ConsoleRev1.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -478,7 +478,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/MonitorBacklighting.jpg"
+              src="/images/Projects/MonitorBacklighting.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -510,7 +510,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/projects/3DPrinters.jpg"
+              src="/images/Projects/3DPrinters.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
