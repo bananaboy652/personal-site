@@ -286,7 +286,7 @@ export function Projects() {
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/Projects/Mircoscope.jpg"
+              src="/images/projects/Mircoscope.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
