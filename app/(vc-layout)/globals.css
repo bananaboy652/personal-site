@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background-image: url("/images/outerWildsBackground.jpg");
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 55, 55, 220;
+  --background-end-rgb: 55, 150, 255;
+}
+
+/* styles/globals.css */
+
+/* WebKit Browsers (Chrome, Safari) */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #555;
+  border-radius: 6px;
+  border: 3px solid #1e1e1e;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #555 #1e1e1e;
+}
+
+::-webkit-selection {
+    background-color: #fffffff0; /* Background color for WebKit browsers */
+    color: #1033e0; /* Text color for WebKit browsers */
+}
+
+::selection {
+    background-color: #fffffff0; /* Background color for other browsers */
+    color: #1033e0; /* Text color for other browsers */
+}
+
+/* styles/globals.css */
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Regular.ttf') format('ttf')
+}
+
+body {
+  background-color: black;
+  background-attachment: fixed;
+  font-family: 'Inter', Arial, sans-serif;
+}
+
+.Link{
+  color:#5EB0FC;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.Link:hover{
+  color:white;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.LinkPreview{
+  border-radius: 0.5rem;
+  display: block;
+  padding: 0.05rem;
+  background-color: #999999;
+  border-width: 0.05rem;
+  border: transparent;
+}
+
+.LinkPreview:hover{
+  border-radius: 0.5rem;
+  display: block;
+  padding: 0.1rem;
+  background-color: #ffffff;
+  border-width: 0.1rem;
+  border: transparent;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

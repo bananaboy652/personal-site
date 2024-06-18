@@ -1,8 +1,8 @@
 // pages/api/youtube.ts
 import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
-import { getCachedData, setCachedData } from '../../utils/cache';
-import allowCors from '../../utils/cors';
+import { getCachedData, setCachedData } from '../../../utils/cache';
+import allowCors from '../../../utils/cors';
 
 const fetchYouTubeData = async (channelId: string, apiKey: string) => {
   const cacheKey = `channel_${channelId}`;

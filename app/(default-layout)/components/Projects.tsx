@@ -15,7 +15,7 @@ export function Projects() {
       <CardBody className={styles.CardBody}>
         <div className={styles.BackgroundBlur} />
         <CardItem translateZ="60" className={styles.CardImageContainer}>
-        <Link href="/construction">
+        <Link href="https://github.com/bananaboy652/personal-site" target="_blank" rel="noopener noreferrer">
           <Image
             src="/images/Projects/ThisSite.png"
             height="1000"
@@ -29,7 +29,7 @@ export function Projects() {
           translateZ="50"
           className={styles.TitleText}
         >
-        <Link href="/construction">
+        <Link href="https://github.com/bananaboy652/personal-site" target="_blank" rel="noopener noreferrer">
           This Portfolio Website
         </Link>
         </CardItem>
@@ -60,7 +60,7 @@ export function Projects() {
       <CardBody className={styles.CardBody}>
         <div className={styles.BackgroundBlur} />
         <CardItem translateZ="60" className={styles.CardImageContainer}>
-          <Link href="/construction">
+          <Link href="https://induct.ie/" target="_blank" rel="noopener noreferrer">
             <Image
               src="/images/Projects/Induct.png"
               height="1000"
@@ -71,7 +71,7 @@ export function Projects() {
           </Link>
         </CardItem>
         <CardItem translateZ="50" className={styles.TitleText}>
-          <Link href="/construction">
+          <Link href="https://induct.ie/" target="_blank" rel="noopener noreferrer">
             Induct Access Control
           </Link>
         </CardItem>

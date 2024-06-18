@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios'
 import styles from './YouTubeChannels.module.css';
-import { LinkPreview } from '@/app/components/link-preview';
+import { LinkPreview } from '@/app/(default-layout)/components/link-preview';
 
 interface YouTubeChannelsProps {
   channelIds: string[];

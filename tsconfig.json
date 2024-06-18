@@ -21,6 +21,6 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "app/games/components/SteamApp.jsx", "app/games/components/SteamApp.jsx"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "app/default-layout/games/components/SteamApp.jsx", "app/default-layout/games/components/SteamApp.jsx"],
   "exclude": ["node_modules"]
 }

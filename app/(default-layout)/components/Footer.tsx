@@ -5,6 +5,11 @@ import Image from "next/image"
 import ContactWidget from "./ContactWidget"
 
 export default function Footer(){
+
+    const currentDate = new Date()
+
+    const currentYear = currentDate.getFullYear()
+
     return(
         <div>
         <div className={styles.main}>
@@ -46,7 +51,7 @@ export default function Footer(){
                         height={20}
                     />
                 </div>
-                <h3 className={styles.h3}>Copyright © Will Donnelly 2024, all rights reserved.</h3>
+                <h3 className={styles.h3}>Copyright © Will Donnelly {currentYear}, all rights reserved.</h3>
             </div>
         </div>
     </div>

@@ -75,7 +75,7 @@ const Btier = [
 export default function Games(){
     
     return(
-        // <MousePositionProvider>
+        <MousePositionProvider>
             <div>
                 <Hero />
                 <ContentBreaker title="S-Tier" subheading="The greatest of all time (in my opinion at least...) 🐐"/>
@@ -88,6 +88,6 @@ export default function Games(){
                 <NintendoGames/>
                 <Footer/>
             </div>
-        // </MousePositionProvider>
+        </MousePositionProvider>
     )
 }
