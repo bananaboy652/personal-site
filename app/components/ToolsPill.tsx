@@ -11,7 +11,7 @@ export default function ToolsPill(){
                     <div className={styles.IconRow}>
                     <a href="https://www.autodesk.com/products/fusion-360/overview" target="_blank" rel="noopener noreferrer">
                         <Image
-                            src="/images/icons/fusion360.png"
+                            src="/images/icons/Fusion360.png"
                             height="40"
                             width="40"
                             alt="Fusion 360"

@@ -78,7 +78,7 @@ export default function Games(){
         // <MousePositionProvider>
             <div>
                 <Hero />
-                <ContentBreaker title="S-Tier" subheading="The greatest of all time (in my oppinion at least...) 🐐"/>
+                <ContentBreaker title="S-Tier" subheading="The greatest of all time (in my opinion at least...) 🐐"/>
                 <GameList games={Stier}/>
                 <ContentBreaker title="A-Tier" subheading="More than worth your time."/>
                 <GameList games={Atier}/>
