@@ -22,6 +22,11 @@
     padding: 1.5rem;
 }
 
+.Spacer{
+    height: 0rem;
+    width: 18rem;
+}
+
 .book h2{
     color: white;
     margin-top: 0.5rem;
@@ -75,4 +80,31 @@
 
 .book img{
     border-radius: 0.5rem;
+}
+
+.status{
+    width: 18rem;
+
+    margin-bottom: 1rem;
+    margin: auto;
+    width: 100%;
+    max-width: 58rem;
+
+    box-shadow: inset 0 0 0 1px #b0b0b0,0 2px 8px rgba(0, 0, 0, 0.101);
+    
+    background-color: rgba(0,0,0, 70%);
+    backdrop-filter: blur(5px);
+
+    border-radius: 1rem;
+
+    padding: 1.5rem;
+
+    color: #b0b0b0;
+    font-weight: 225;
+    font-size: 1rem;
+    letter-spacing: -0.0225rem;
+    line-height: 1.2rem;
+
+    height: auto;
+    margin-bottom: 1rem;
 }

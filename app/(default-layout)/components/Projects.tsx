@@ -119,14 +119,14 @@ export function Projects() {
       </CardBody>
     </CardContainer>
 
-    {/* Blender */}
+    {/* Bionic hand */}
     <CardContainer className={styles.CardContainer}>
       <CardBody className={styles.CardBody}>
         <div className={styles.BackgroundBlur} />
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/Projects/RoomRender.png"
+              src="/images/Projects/BionicHand.png"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -136,17 +136,17 @@ export function Projects() {
         </CardItem>
         <CardItem translateZ="50" className={styles.TitleText}>
           <Link href="/construction">
-            Blender 3D Modeling
+            Bionic Hand
           </Link>
         </CardItem>
         <CardItem translateZ="50" className={styles.StatusText}>
-          Status: Ongoing
+          Status: Shelved
         </CardItem>
         <CardItem as="p" translateZ="60" className={styles.DescriptionText}>
-          A gallery of all the things which I've modeled, simulated, and animated in Blender.
+          A scale 1:1 recreation of a hand with full range of motion. Fully modeled, shelved during assembly so I could join Patch.
         </CardItem>
         <CardItem translateZ={30} className={styles.ToolTags}>
-          <ToolTags tags={['Blender', '3D Modeling', 'Animation', 'Fluid Simulation']} />
+          <ToolTags tags={['Electronics', 'Fusion360', 'SLA Printing', 'Arduino']} />
         </CardItem>
       </CardBody>
     </CardContainer>
@@ -215,14 +215,14 @@ export function Projects() {
       </CardBody>
     </CardContainer>
 
-    {/* Bionic hand */}
+    {/* Hardware Hacking */}
     <CardContainer className={styles.CardContainer}>
       <CardBody className={styles.CardBody}>
         <div className={styles.BackgroundBlur} />
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/Projects/BionicHand.png"
+              src="/images/Projects/HardwareHacking.jpg"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -232,17 +232,17 @@ export function Projects() {
         </CardItem>
         <CardItem translateZ="50" className={styles.TitleText}>
           <Link href="/construction">
-            Bionic Hand
+            Hardware Hacking
           </Link>
         </CardItem>
         <CardItem translateZ="50" className={styles.StatusText}>
-          Status: Shelved
+          Status: Completed
         </CardItem>
         <CardItem as="p" translateZ="60" className={styles.DescriptionText}>
-          A scale 1:1 recreation of a hand with full range of motion. Fully modeled, shelved during assembly so I could join Patch.
+          Installing custom firmware and expanded hardware on the Nintendo Game & Watch anniversary edition.
         </CardItem>
         <CardItem translateZ={30} className={styles.ToolTags}>
-          <ToolTags tags={['Electronics', 'Fusion360', 'SLA Printing', 'Arduino']} />
+          <ToolTags tags={['Electronics', 'Linux', 'SMD Reflow', 'Hacking', 'Open-Source']} />
         </CardItem>
       </CardBody>
     </CardContainer>
@@ -311,14 +311,14 @@ export function Projects() {
       </CardBody>
     </CardContainer>
 
-    {/* Hardware Hacking */}
+    {/* Blender */}
     <CardContainer className={styles.CardContainer}>
       <CardBody className={styles.CardBody}>
         <div className={styles.BackgroundBlur} />
         <CardItem translateZ="60" className={styles.CardImageContainer}>
           <Link href="/construction">
             <Image
-              src="/images/Projects/HardwareHacking.jpg"
+              src="/images/Projects/RoomRender.png"
               height="1000"
               width="1000"
               alt="thumbnail"
@@ -328,17 +328,17 @@ export function Projects() {
         </CardItem>
         <CardItem translateZ="50" className={styles.TitleText}>
           <Link href="/construction">
-            Hardware Hacking
+            Blender 3D Modeling
           </Link>
         </CardItem>
         <CardItem translateZ="50" className={styles.StatusText}>
-          Status: Completed
+          Status: Ongoing
         </CardItem>
         <CardItem as="p" translateZ="60" className={styles.DescriptionText}>
-          Installing custom firmware and expanded hardware on the Nintendo Game & Watch anniversary edition.
+          A gallery of all the things which I've modeled, simulated, and animated in Blender.
         </CardItem>
         <CardItem translateZ={30} className={styles.ToolTags}>
-          <ToolTags tags={['Electronics', 'Linux', 'SMD Reflow', 'Hacking', 'Open-Source']} />
+          <ToolTags tags={['Blender', '3D Modeling', 'Animation', 'Fluid Simulation']} />
         </CardItem>
       </CardBody>
     </CardContainer>

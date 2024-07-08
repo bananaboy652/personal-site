@@ -2,7 +2,7 @@ import styles from "./ContentBreaker.module.css"
 
 interface props{
     title: string;
-    subheading: string;
+    subheading: any;
 }
 
 export default function ContentBreaker({ title, subheading }: props) {

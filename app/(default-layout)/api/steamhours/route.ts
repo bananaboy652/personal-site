@@ -24,7 +24,6 @@ export async function GET(req: NextRequest) {
 
     const data: SteamResponse = await response.json();
     const games = data.response.games;
-
     const totalHours = games.reduce((acc, game) => acc + game.playtime_forever, 0) / 60;
 
     return NextResponse.json({ totalHours });

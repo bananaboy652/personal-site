@@ -42,7 +42,7 @@ const BookInfoList: React.FC<BookInfoListProps> = ({ isbns }) => {
         const validBooks = booksResults.filter((book) => book !== null) as BookData[];
         setBooksData(validBooks);
       } catch (err) {
-        setError('Error fetching book data.');
+        setError('Error fetching book data. It\'s quite likely that the cause of this error is from OpenLibrary being temporarily offline either for maintenance or as a result of an ongoing legal battle :/');
       } finally {
         setLoading(false);
       }
@@ -52,11 +52,11 @@ const BookInfoList: React.FC<BookInfoListProps> = ({ isbns }) => {
   }, [isbns]);
 
   if (loading) {
-    return <div>Loading...</div>;
+    return <div className={styles.status}>Loading...</div>;
   }
 
   if (error) {
-    return <div>{error}</div>;
+    return <div className={styles.status}>{error}</div>;
   }
 
   return (
@@ -69,6 +69,7 @@ const BookInfoList: React.FC<BookInfoListProps> = ({ isbns }) => {
           <a className={styles.Buy} href={`https://www.amazon.com/s?k=${book.isbn}`} target="_blank" rel="noopener noreferrer">Buy on Amazon</a>
         </div>
       ))}
+      <div className={styles.Spacer}></div>
     </div>
   );
 };

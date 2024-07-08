@@ -19,7 +19,7 @@ export default function ExperiencePill(){
             <h1 className={styles.Heading}>💻 1 month work experience at <span className="Link"><LinkPreview url="https://www.ericsson.com/en" className="Link">Ericsson Ireland</LinkPreview></span></h1>
             <h2 className={styles.SubHeading}>learnt about their Agile dev-ops strategies, and about VOIP infrastructure</h2>
 
-            <h1 className={styles.Heading}>💻 Worked in <span className="Link"><LinkPreview url="https://www.columbusclub.ie/" className="Link">Columbus clubs</LinkPreview></span> summer camp</h1>
+            <h1 className={styles.Heading}>💻 3 months work in <span className="Link"><LinkPreview url="https://www.columbusclub.ie/" className="Link">Columbus clubs</LinkPreview></span> summer camp</h1>
             <h2 className={styles.SubHeading}>teaching computer programming to children (Scratch then later Python)</h2>
 
             <h1 className={styles.Heading}>💻 Made a <span className="Link"><LinkPreview url="https://www.blackrockcollegegcc.com/" className="Link">custom website</LinkPreview></span> for my school (Blackrock College)</h1>

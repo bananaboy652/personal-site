@@ -81,7 +81,7 @@ export default function Navbar(){
                 <Link href="/media" className={isActive('/media') ? styles.active : styles.inactive}>
                     🍿 Media
                 </Link>
-                <Link href="/construction" className={isActive('/cv') ? styles.active : styles.inactive}>
+                <Link href="/cv" className={isActive('/cv') ? styles.active : styles.inactive}>
                     📄 CV
                 </Link>
             </nav>

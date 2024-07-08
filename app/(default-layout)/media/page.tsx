@@ -73,6 +73,7 @@ const channelIds = [
 ];
 
 const isbns = [
+    '9781035022724',  // Unstressable
     '9781473695993',  // Brief answers to big questions
     '9780735211292',  // Atomic Habits
     '9780593715833',  // The diary of a pretencious knob-head
