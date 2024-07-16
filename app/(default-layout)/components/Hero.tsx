@@ -27,14 +27,14 @@ export default function Hero(){
                 <TypewriterText text={['Hi there.', 'Greetings traveller!', 'Welcome.', 'Hello World!', 'Salutations!', 'Wassup?', 'Ciao.', 'Howdy!', 'Don\'t panic.', 'The answer is 42.', 'The cake is a lie.', 'Arise, Tarnished.', 'Praise the sun!', 'Good morning 47.', 'Buy a defuser.', 'Snake? Snake!', 'Still reading?', 'Well.', 'I hope you\'re -', 'having a nice day!']} />
             </div>
             <ContactWidget />
-            <Link href="/this-is-satire">
+            {/* <Link href="/this-is-satire">
             <div className={styles.VCButton}>
                 <div className={styles.VCButtonFrame}>
                     <div className={styles.VCButtonDot} />
                 </div>
                 <p>I am a venture capitalist</p>
             </div>
-            </Link>
+            </Link> */}
         </div>
         <InfoPill />
     </div>
