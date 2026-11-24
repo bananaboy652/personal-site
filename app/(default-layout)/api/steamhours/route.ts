@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Without this the route is rendered once at build time, so the total stays
+// frozen at whatever it was on the day of the last deploy. Refresh it hourly.
+export const revalidate = 3600;
+
 type SteamGame = {
   playtime_forever: number;
 };

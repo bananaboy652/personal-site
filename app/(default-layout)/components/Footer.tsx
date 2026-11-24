@@ -11,7 +11,14 @@ export default function Footer(){
     const currentYear = currentDate.getFullYear()
 
     return(
-        <div>
+        <>
+        {/* The bottom bar of the site's frame. It stays docked to the bottom of the
+            window while you scroll, and at the end of the page it rides up on top of
+            the footer, so the frame simply grows downwards into it. */}
+        <div className={`${styles.dock} frameDock`} aria-hidden="true">
+            <div className={styles.dockBar} />
+        </div>
+        <footer className={styles.slab}>
         <div className={styles.main}>
             <div className={styles.UpperContent}>
                 <div className={styles.ContactContainer}>
@@ -29,13 +36,12 @@ export default function Footer(){
                     <div className={styles.Collumn}>
                         <h2 className={styles.h2}><a href="/games">🎮 Video games</a></h2>
                         <h2 className={styles.h2}><a href="/media">🍿 Media</a></h2>
-                        <h2 className={styles.h2}><a href="/cv">📄 CV</a></h2>
                     </div>
                 </div>
             </div>
             <div className={styles.LowerContent}>
                 <div className={styles.NoIdea}>
-                    <Image 
+                    <Image
                         src="/images/bisexualheart.png"
                         alt="bisexual heart emoji"
                         className={styles.Heart}
@@ -43,7 +49,7 @@ export default function Footer(){
                         height={12}
                     />
                     <h3 className={styles.h3}>I have no idea what I'm doing</h3>
-                    <Image 
+                    <Image
                         src="/images/bisexualheart.png"
                         alt="bisexual heart emoji"
                         className={styles.Heart}
@@ -54,6 +60,7 @@ export default function Footer(){
                 <h3 className={styles.h3}>Copyright © Will Donnelly {currentYear}, all rights reserved.</h3>
             </div>
         </div>
-    </div>
+        </footer>
+        </>
     )
 }

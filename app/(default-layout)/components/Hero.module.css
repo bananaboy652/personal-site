@@ -7,32 +7,52 @@
     justify-content: space-between;
 }
 
+/* The portrait sits in its own resin frame: the photo is the picture, the
+   padding is the frame. */
 .img{
-    border-radius: 1rem;
-    border-style: solid;
-    border-width: 0.05rem;
-    border-color: #b0b0b0;
+    box-sizing: border-box;
+    width: 240px;
+    height: 240px;
+    padding: 14px;
+    border-radius: 28px;
+    background-image: var(--frame-card);
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    box-shadow: var(--frame-shadow);
+    object-fit: cover;
 }
 
 .profile{
-    color: #b0b0b0;
+    font-family: var(--font-label);
+    color: var(--ink-muted);
     text-align: center;
-    font-weight: 250;
-    font-size: 0.75rem;
+    font-weight: 400;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+}
+
+.profile h3{
+    margin-top: 0.55rem;
 }
 
 .titlecard{
-    color: white;
-    font-size: 4.8rem;
-    font-weight: 290;
+    font-family: var(--font-display);
+    color: var(--ink);
+    font-size: 4.9rem;
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    line-height: 1.1;
     margin-left: -2rem;
-    margin-top: -1.5rem;
+    margin-top: 0.4rem;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
 }
 
 .titlecard_h2{
-    font-size: 2.7rem;
-    font-weight: 175;
-    margin-top:  -0.7rem;
+    font-size: 2.6rem;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    color: var(--ink-soft);
+    margin-top: 0.1rem;
     margin-bottom: 0.9rem;
     margin-right: -0.5rem;
     margin-left: 0.05rem;
@@ -76,5 +96,5 @@
 }
 
 .highlight{
-    color: #5EB0FC;
+    color: var(--accent);
 }

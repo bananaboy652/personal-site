@@ -1,28 +1,28 @@
 .main{
+    composes: glassFrame from global;
+
     margin: auto;
     margin-top: 0.5rem;
     max-width: 58rem;
-    padding: 1.4rem;
-    border-radius: 1rem;
-    box-shadow: inset 0 0 0 1px #b0b0b0,0 2px 8px rgba(0, 0, 0, 0.101);
+    padding: calc(var(--ft) + 1.1rem) calc(var(--ft) + 1.3rem);
     position: relative;
-    
-    background-color: rgba(0,0,0, 70%);
-    backdrop-filter: blur(5px);
-    
-    color: #b0b0b0;
-    font-weight: 225;
+
+    color: var(--ink-soft);
+    font-weight: 400;
     font-size: 1rem;
-    letter-spacing: -0.0225rem;
-    line-height: 1.2rem;
+    line-height: 1.35rem;
 }
 
 .Heading{
-    color: white;
-    font-weight: 400;
+    color: var(--ink);
+    font-weight: 500;
 }
 
 .SubHeading{
     margin-left: 1.6rem;
     margin-bottom: 1rem;
+}
+
+.SubHeading:last-child{
+    margin-bottom: 0.2rem;
 }

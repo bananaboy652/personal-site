@@ -8,10 +8,11 @@
     margin-bottom: 1rem;
 }
 
-.main steam-app{
-    padding: 0;
-    margin: 0;
-    width: 24rem;
+/* Steam's own store widgets. The page is dark-only, and a browser gives an
+   iframe an opaque white backdrop when its colour scheme differs from the
+   page around it; matching Steam's (light) scheme keeps it transparent. */
+.main iframe{
+    color-scheme: light;
 }
 
 .spacer{

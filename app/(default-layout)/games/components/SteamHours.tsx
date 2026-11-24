@@ -43,15 +43,10 @@ export default function SteamHours() {
     }
   }, [totalHours, count]);
 
-  return (
-    <div style={{ textAlign: 'right', direction: 'rtl', paddingRight: '4.9rem'}}>
-      {totalHours !== null ? (
-        <motion.h1 style={{color: '#5EB0FC', textAlign: 'right'}}>
-          {formatted}
-        </motion.h1>
-      ) : (
-        <h1 style={{color: '#5EB0FC', textAlign: 'right'}}>0</h1>
-      )}
-    </div>
+  // Size and alignment come from the hero's counter line; this only supplies the number.
+  return totalHours !== null ? (
+    <motion.h1 style={{ color: 'var(--accent)' }}>{formatted}</motion.h1>
+  ) : (
+    <h1 style={{ color: 'var(--accent)' }}>0</h1>
   );
 }
