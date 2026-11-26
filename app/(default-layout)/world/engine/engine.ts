@@ -79,6 +79,8 @@ export interface Level {
   update(dt: number, time: number): void;
   /** draw anything of its own on the interface layer */
   hud?(hud: Hud): void;
+  /** what happens here once every world's signal has been answered (the first world's job) */
+  finale?(): void;
   /** named actions offered in the debug menu */
   debug?: [string, () => void][];
   /** times of day or kinds of weather the debug menu can switch between: [id, label] */
@@ -137,6 +139,8 @@ export class Engine {
   shotName = 'home';
   /** a gate was used: go to another world */
   onTravel: ((world: string) => void) | null = null;
+  /** all five signals are answered and the gate was asked for what comes next */
+  onFinale: (() => void) | null = null;
   onCursor: ((pointing: boolean) => void) | null = null;
   /** looking through a telescope began or ended */
   onScope: ((on: boolean) => void) | null = null;

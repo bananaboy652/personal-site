@@ -84,6 +84,7 @@ export class Runtime {
       this.onChange?.();
     };
     e.onTravel = (id) => void this.travel(id);
+    e.onFinale = () => void this.finale();
     e.audio.onChange = () => this.onChange?.();
     this.listen();
   }
@@ -149,6 +150,12 @@ export class Runtime {
       this.travelling = false;
       this.onChange?.();
     }
+  }
+
+  /** Every signal is answered: go to the first world, where the tower is, and let it respond. */
+  async finale() {
+    if (this.world !== WORLDS[0].id) await this.travel(WORLDS[0].id);
+    this.level?.finale?.();
   }
 
   /** Play the current world's opening again, from the top. */

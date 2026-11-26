@@ -218,14 +218,17 @@ export class Gate {
   open() {
     const here = this.engine.level?.id;
     const found = store.signals;
+    const items = WORLDS.map((w) => ({
+      label: w.title,
+      hint: w.id === here ? 'here' : w.ready === false ? 'soon' : found.includes(w.id) ? G.rune(w.rune) : G.mid,
+      disabled: w.id === here || w.ready === false,
+      pick: () => this.engine.onTravel?.(w.id),
+    }));
+    // with every signal answered, the gate has one more thing to offer
+    if (store.hasAll(WORLDS.map((w) => w.id))) items.push({ label: 'Answer them all', hint: G.rune(5), disabled: false, pick: () => this.engine.onFinale?.() });
     this.engine.hud.open({
       title: 'The gate',
-      items: WORLDS.map((w) => ({
-        label: w.title,
-        hint: w.id === here ? 'here' : w.ready === false ? 'soon' : found.includes(w.id) ? G.rune(w.rune) : G.mid,
-        disabled: w.id === here || w.ready === false,
-        pick: () => this.engine.onTravel?.(w.id),
-      })),
+      items,
       footer: `Signals answered ${found.filter((id) => WORLDS.some((w) => w.id === id)).length}/${WORLDS.length}`,
     });
   }
@@ -359,6 +362,7 @@ export function answerSignal(engine: Engine): boolean {
   if (!id || !store.find(id)) return false;
   const n = store.signals.filter((s) => WORLDS.some((w) => w.id === s)).length;
   engine.hud.toast(`${G.rune(worldOf(id).rune)}  Signal answered  ${n}/${WORLDS.length}`, 6);
+  if (n === WORLDS.length) engine.hud.toast(`${G.rune(5)}  All five. Ask the gate.`, 10);
   engine.audio.ui('found');
   return true;
 }

@@ -47,6 +47,11 @@ export const store = {
     write(v);
     return true;
   },
+  /** Every one of these worlds' signals has been answered. */
+  hasAll(worlds: string[]) {
+    const have = read().signals;
+    return worlds.every((w) => have.includes(w));
+  },
   forget() {
     write({ ...read(), signals: [] });
   },

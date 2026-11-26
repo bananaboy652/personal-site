@@ -28,14 +28,17 @@ import type { AudioSpec } from '../../engine/audio';
 import { Builder } from '../../engine/builder';
 import type { Engine, Interactable, IntroKind, Level, Shot } from '../../engine/engine';
 import { FlameBatch, GlowBatch, Particles, morse } from '../../engine/fx';
+import { G } from '../../engine/font';
 import type { Hud } from '../../engine/hud';
-import { MUTED } from '../../engine/hud';
+import { EMBER as HUD_EMBER, MUTED } from '../../engine/hud';
 import { Gate, Radio, answerSignal } from '../../engine/kit';
 import { type RGB, TAU, clamp, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
 import { psxMaterial, waterMaterial } from '../../engine/shaders';
+import { store } from '../../engine/store';
 import { Sky } from '../../engine/sky';
 import { type Textures, createTextures } from '../../engine/textures';
 import { Timeline, easeOut } from '../../engine/timeline';
+import { WORLDS } from '../../engine/worlds';
 import { MOODS, MOOD_ORDER, type Mood } from './moods';
 import { PATH, SEA, brinkZ, buildSea, buildTerrain, heightAt, plantPines } from './terrain';
 
@@ -97,6 +100,7 @@ export default class Overlook implements Level {
     ['Wake the tower', () => this.wake()],
     ['Let it sleep', () => this.sleep()],
     ['Answer (3 stokes)', () => this.acknowledge()],
+    ['All five answered', () => this.finale(true)],
   ];
 
   private tex: Textures;
@@ -124,6 +128,13 @@ export default class Overlook implements Level {
   private mistMat!: ShaderMaterial;
   private beamMat!: ShaderMaterial;
   private ring!: Object3D;
+  private ringTilt!: Object3D;
+  private mendMat!: ShaderMaterial;
+  /** every world's signal is answered: the ring is whole again. `mend` follows it. */
+  private whole = 0;
+  private mend = 0;
+  private runesT = 0;
+  private topPos = new Vector3();
   private boat!: Object3D;
   private birds!: { mesh: Mesh; pos: Float32Array; list: { r: number; h: number; ph: number; sp: number; flap: number }[] };
   private owl!: { head: Object3D; pos: Vector3; facing: number; yaw: number; want: number; spin: number; blink: number; hold: number; eyes: number[] };
@@ -160,6 +171,7 @@ export default class Overlook implements Level {
   private towerDir = new Vector3();
   private tmp = new Vector3();
   private tmp2 = new Vector3();
+  private at = { x: 0, y: 0 };
 
   constructor(private engine: Engine) {
     const shared = engine.shared;
@@ -200,9 +212,29 @@ export default class Overlook implements Level {
       { id: 'tower', label: 'Hail the tower', dir: this.towerDir, angle: rad(2.6), onClick: () => this.hailTower() },
     );
     this.applyMood(this.now);
+    this.whole = this.mend = store.hasAll(WORLDS.map((w) => w.id)) ? 1 : 0;
   }
 
   subtitle = () => this.now.label;
+
+  /** Every world has been answered. The broken ring closes, the beam whitens,
+   *  and the five signs stand over the tower for a while. */
+  finale(force = false) {
+    if (!force && !store.hasAll(WORLDS.map((w) => w.id))) return;
+    const e = this.engine;
+    const audio = e.audio;
+    if (this.mood !== 'night') this.setMood('night', 3);
+    this.wake();
+    this.pulse = 1;
+    const t = (this.timeline = new Timeline());
+    t.at(0.2, () => audio.tone({ f: [audio.hz(-24), audio.hz(-12)], dur: 3, type: 'sine', gain: 0.14, attack: 1.2, send: 1 }));
+    t.at(1.2, () => (this.whole = 1));
+    t.at(1.4, () => (this.runesT = 18));
+    t.at(2.0, () => [0, 7, 12, 14, 19, 24, 26].forEach((n, i) => audio.chime(n, { at: i * 0.2, gain: 0.12, decay: 5 })));
+    t.at(5.5, () => (this.pulse = 1));
+    t.at(7.5, () => e.hud.title('All five answered', 'The tower knows you now', 10));
+    t.at(18, () => undefined);
+  }
 
   /* ---- the opening ---- */
 
@@ -707,11 +739,21 @@ export default class Overlook implements Level {
     }
     const ringMesh = new Mesh(ringB.build(), mat);
     ringMesh.frustumCulled = false;
+    // the missing pieces, made of light: they show once every signal is answered
+    const mendB = new Builder();
+    for (const i of [3, 4, 9]) mendB.reset().rotateY((i / SEG) * TAU).translate(R, -5, 0).box(10, 10, 2 * R * Math.sin(Math.PI / SEG) * 1.03, [1, 1, 1]);
+    this.mendMat = psxMaterial(shared, { map: this.tex.white, lit: false, blend: 'add', twoSided: true, alpha: 0, tint: [0.7, 1.2, 1.35], fogScale: 0.3 });
+    const mendMesh = new Mesh(mendB.build(), this.mendMat);
+    mendMesh.frustumCulled = false;
+    mendMesh.renderOrder = 13;
+    ringMesh.add(mendMesh);
     const tilt = new Group();
     tilt.position.set(tx, TOWER_BASE + TOWER_H * 0.64, tz);
     tilt.rotation.set(0.3, 0, 0.17);
     tilt.add(ringMesh);
     this.ring = ringMesh;
+    this.ringTilt = tilt;
+    this.topPos.set(tx, TOWER_BASE + TOWER_H + 150, tz);
     this.root.add(tilt);
     for (const i of [0, 2, 6, 8, 11]) {
       const a = (i / SEG) * TAU;
@@ -926,7 +968,13 @@ export default class Overlook implements Level {
       const k = (0.55 + 0.45 * Math.sin(time * 0.7 + g.ph)) * (0.5 + a * 1.4) * shaft;
       this.glows.setColor(g.id, 1.0 * k, 0.82 * k, 0.55 * k);
     }
-    this.ring.rotation.y += dt * (0.06 + a * 0.2 + beat * 0.5);
+    // once every signal is answered the ring is whole: it levels out and runs true
+    this.mend = still ? this.whole : this.mend + (this.whole - this.mend) * (1 - Math.exp(-dt * 0.5));
+    this.runesT = Math.max(0, this.runesT - dt);
+    this.mendMat.uniforms.uAlpha.value = this.mend * (0.75 + 0.25 * Math.sin(time * 1.7));
+    this.ringTilt.rotation.set(lerp(0.3, 0.22, this.mend), 0, lerp(0.17, 0.09, this.mend));
+    (this.beamMat.uniforms.uTint.value as Vector3).set(lerp(3.2, 3.5, this.mend), lerp(2.2, 3.1, this.mend), lerp(1.5, 2.6, this.mend));
+    this.ring.rotation.y += dt * (0.06 + a * 0.2 + beat * 0.5 + this.mend * 0.12);
     this.ring.updateWorldMatrix(true, false);
     for (const g of this.ringGlows) {
       const p = this.tmp.copy(g.local).applyMatrix4(this.ring.matrixWorld);
@@ -948,7 +996,7 @@ export default class Overlook implements Level {
     const drawn = clamp((this.wakeT - 3.2) * 1.3, 0, this.sky.lineCount + 1);
     const lk = a * dark;
     this.sky.setLines(lk > 0.02 ? drawn : 0, 0.55 * lk, 0.85 * lk, 1.0 * lk);
-    this.updateMeteors(dt, (0.25 + m.stars) * (1 + this.a * 10 * dark));
+    this.updateMeteors(dt, (0.25 + m.stars) * (1 + this.a * 10 * dark) * (this.runesT > 0 ? 2.5 : 1));
 
     // sky turning, cloud drifting, boat rocking, birds wheeling
     this.sky.update(dt);
@@ -967,6 +1015,15 @@ export default class Overlook implements Level {
 
   hud(hud: Hud) {
     this.radio.hud(hud);
+    if (this.runesT > 0 && !this.engine.inScope && hud.place(this.topPos, this.at)) {
+      // the five signs, one after another, standing over the tower
+      const u = hud.unit;
+      const shown = Math.min(WORLDS.length, Math.floor((18 - this.runesT) / 0.7) + 1);
+      const fade = Math.ceil(Math.min(1, this.runesT / 1.5) * 4) / 4;
+      const gap = 22 * u;
+      const x0 = Math.round(this.at.x - ((WORLDS.length - 1) * gap) / 2 - 7 * u);
+      for (let i = 0; i < shown; i++) hud.text(G.rune(WORLDS[i].rune), x0 + i * gap, Math.round(this.at.y), [HUD_EMBER[0], HUD_EMBER[1], HUD_EMBER[2], fade], 2);
+    }
     if (this.engine.inScope) {
       const msg = this.engine.touch ? 'Tap to step back' : 'Click to step back';
       hud.text(msg, Math.round(hud.w / 2 - hud.measure(msg) / 2), Math.round(hud.h * 0.9), MUTED);
