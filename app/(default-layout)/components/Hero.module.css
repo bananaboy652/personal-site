@@ -62,20 +62,6 @@
     white-space: nowrap;
 }
 
-@media (max-width: 46rem) {
-    .main{
-        flex-direction: column;
-        gap: 0.6rem;
-    }
-    .titlecard{
-        font-size: 3.4rem;
-        margin-left: 0.3rem;
-    }
-    .titlecard_h2{
-        font-size: 2rem;
-        line-height: 2.4rem;
-    }
-}
 
 .titlecard_h2{
     font-size: 2.6rem;
@@ -127,4 +113,36 @@
 
 .highlight{
     color: var(--accent);
+}
+
+/* On a phone the first screen is a title screen: the top of it is left clear
+   as a window on the world, and the portrait, name and links sit at its foot. */
+@media (max-width: 46rem) {
+    .main{
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 0.55rem;
+        box-sizing: border-box;
+        margin-top: 0;
+        min-height: 100vh;
+        min-height: 100svh;
+        padding-bottom: 1.6rem;
+    }
+    .frame{
+        width: 104px;
+        height: 104px;
+    }
+    .profile h3{
+        display: none;
+    }
+    .titlecard{
+        font-size: min(3.3rem, 13.6vw);
+        margin-top: 0;
+        margin-left: 0.2rem;
+    }
+    .titlecard_h2{
+        font-size: 1.7rem;
+        line-height: 2.1rem;
+        margin-bottom: 0.6rem;
+    }
 }

@@ -2,30 +2,11 @@
 // two of them is a straight blend, and adding another is one more entry here.
 // Colours are picked to sit with the site's own palette: warm dark neutrals
 // and the one ember accent, which the campfire carries in every mood.
-import { type RGB, hex, lerp, scaleRGB } from '../../engine/math';
+import type { Atmos } from '../../engine/atmos';
+import { type RGB, hex, scaleRGB } from '../../engine/math';
 
-export interface Mood {
+export interface Mood extends Atmos {
   label: string;
-  zenith: RGB;
-  mid: RGB;
-  horCool: RGB;
-  horWarm: RGB;
-  glowCore: RGB;
-  /** compass bearing (degrees right of straight ahead) of the brightest horizon */
-  glowAz: number;
-  glowWidth: number;
-  fogDensity: number;
-  fogMax: number;
-  mistTop: number;
-  mistRange: number;
-  mist: number;
-  ambient: RGB;
-  hemi: RGB;
-  sunAz: number;
-  sunEl: number;
-  sunCol: RGB;
-  fillCol: RGB;
-  rim: RGB;
   stars: number;
   moonAz: number;
   moonEl: number;
@@ -47,6 +28,42 @@ export interface Mood {
 const k = (h: string, s = 1) => scaleRGB(hex(h), s);
 
 export const MOODS: Record<string, Mood> = {
+  day: {
+    label: 'Long afternoon',
+    zenith: k('#1f4580'),
+    mid: k('#4f84bd'),
+    horCool: k('#9dbbd0'),
+    horWarm: k('#f0dfbb'),
+    glowCore: k('#fff3d6'),
+    glowAz: 12,
+    glowWidth: 1.7,
+    fogDensity: 0.00042,
+    fogMax: 0.88,
+    mistTop: -28,
+    mistRange: 24,
+    mist: 0.25,
+    ambient: k('#46546f'),
+    hemi: k('#7388ad', 0.6),
+    sunAz: 44,
+    sunEl: 36,
+    sunCol: k('#fff0d2', 1.0),
+    fillCol: k('#5774a4', 0.45),
+    rim: k('#ffffff', 0.18),
+    stars: 0,
+    moonAz: 27,
+    moonEl: 31,
+    moonSize: 1.5,
+    moonTint: k('#dfe8f5', 0.6),
+    moonLight: [0.6, 0.1, 0.5],
+    waterDeep: k('#12325a'),
+    waterTint: [0.9, 0.95, 1],
+    glitter: k('#fff4d6', 0.85),
+    cloudLit: k('#ffffff', 0.98),
+    cloudShade: k('#8fa3c0'),
+    clouds: 1,
+    aurora: 0,
+    mistTint: k('#c9d6e4'),
+  },
   dusk: {
     label: 'Ember hour',
     zenith: k('#0a0e1d'),
@@ -116,7 +133,7 @@ export const MOODS: Record<string, Mood> = {
     cloudLit: k('#7096ba'),
     cloudShade: k('#0c1426'),
     clouds: 0.85,
-    aurora: 0.85,
+    aurora: 0.4,
     mistTint: k('#4a6f8c'),
   },
   dawn: {
@@ -157,18 +174,5 @@ export const MOODS: Record<string, Mood> = {
   },
 };
 
-export const MOOD_ORDER = ['dusk', 'night', 'dawn'];
-
-export function blendMood(a: Mood, b: Mood, t: number): Mood {
-  const out = { ...a } as unknown as Record<string, unknown>;
-  const ra = a as unknown as Record<string, unknown>;
-  const rb = b as unknown as Record<string, unknown>;
-  for (const key of Object.keys(ra)) {
-    const va = ra[key];
-    const vb = rb[key];
-    if (typeof va === 'number' && typeof vb === 'number') out[key] = lerp(va, vb, t);
-    else if (Array.isArray(va) && Array.isArray(vb)) out[key] = va.map((v, i) => lerp(v as number, vb[i] as number, t));
-    else out[key] = t < 0.5 ? va : vb;
-  }
-  return out as unknown as Mood;
-}
+/** The order the moon turns the hours in. */
+export const MOOD_ORDER = ['night', 'dawn', 'day', 'dusk'];

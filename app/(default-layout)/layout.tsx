@@ -23,6 +23,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={mono.variable}>
+        {/* Runs before anything is painted: tells the styles that the live
+            world is on its way (so the still image is held back) and that
+            this is a first arrival (so the page makes its entrance). */}
+        <script dangerouslySetInnerHTML={{ __html: "document.documentElement.dataset.world='boot';document.documentElement.dataset.enter='first'" }} />
         <World />
         <Analytics/>
         <SpeedInsights/>

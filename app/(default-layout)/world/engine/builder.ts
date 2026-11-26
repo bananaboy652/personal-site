@@ -29,7 +29,16 @@ export interface BlobOptions {
   uvScale?: number;
 }
 
+/** A lamp whose light is worked out once, when the level is built. */
+export interface BakedLight {
+  pos: V3;
+  color: RGB;
+  /** metres at which the light has faded to nothing */
+  range: number;
+}
+
 export class Builder {
+  private lit: number[] | null = null;
   private pos: number[] = [];
   private nor: number[] = [];
   private uv: number[] = [];
@@ -186,12 +195,43 @@ export class Builder {
     return this;
   }
 
+  /** Work out, for every vertex added so far (or since triangle `from`), the
+   *  light it gets from a set of fixed lamps, and store it on the vertex. Use
+   *  with psxMaterial({ baked: true }). There are no shadows: like the old
+   *  games, a lamp lights whatever is near it. */
+  bake(lights: BakedLight[], from = 0) {
+    const lit = this.lit ?? (this.lit = []);
+    while (lit.length < this.pos.length) lit.push(0);
+    for (let i = from * 9; i < this.pos.length; i += 3) {
+      const [px, py, pz] = [this.pos[i], this.pos[i + 1], this.pos[i + 2]];
+      const [nx, ny, nz] = [this.nor[i], this.nor[i + 1], this.nor[i + 2]];
+      for (const l of lights) {
+        const dx = l.pos[0] - px;
+        const dy = l.pos[1] - py;
+        const dz = l.pos[2] - pz;
+        const len = Math.hypot(dx, dy, dz);
+        if (len >= l.range) continue;
+        const att = 1 - len / l.range;
+        const face = 0.3 + 0.7 * Math.max((nx * dx + ny * dy + nz * dz) / Math.max(len, 1e-3), 0);
+        const k = att * att * face;
+        lit[i] += l.color[0] * k;
+        lit[i + 1] += l.color[1] * k;
+        lit[i + 2] += l.color[2] * k;
+      }
+    }
+    return this;
+  }
+
   build() {
     const g = new BufferGeometry();
     g.setAttribute('position', new Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new Float32BufferAttribute(this.nor, 3));
     g.setAttribute('uv', new Float32BufferAttribute(this.uv, 2));
     g.setAttribute('color', new Float32BufferAttribute(this.col, 3));
+    if (this.lit) {
+      while (this.lit.length < this.pos.length) this.lit.push(0);
+      g.setAttribute('light', new Float32BufferAttribute(this.lit, 3));
+    }
     g.computeBoundingSphere();
     return g;
   }

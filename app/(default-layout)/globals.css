@@ -247,6 +247,60 @@ body:has(.frameDock) .siteFrame {
   background-image: var(--site-open);
 }
 
+/* While the live world is on its way or running, the still image is held
+   back and the page starts from black: the world dissolves in by itself. The
+   still is for browsers that cannot draw the world (data-world="still") and
+   for pages with scripts turned off (no attribute at all). */
+html[data-world="boot"] body,
+html[data-world="live"] body {
+  background-image: none;
+  background-color: #04050a;
+}
+
+/* ── The page's entrance ─────────────────────────────────────────────────
+   On a first arrival the world comes up alone for a moment; then the bezel,
+   the nav and the panels step into place one after another. Moving between
+   pages afterwards, the new page's panels simply rise, quickly. */
+@keyframes enter-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes enter-drop {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes enter-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html[data-enter="first"] .siteFrame {
+    animation: enter-fade 1.3s 0.25s both;
+  }
+  html[data-enter="first"] nav {
+    animation: enter-drop 0.75s 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  html[data-enter] main > :not(#hero),
+  html[data-enter] main > #hero > * {
+    --enter-base: 0.02s;
+    --enter-step: 0.07s;
+    animation: enter-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(var(--enter-base) + var(--enter-i, 0) * var(--enter-step));
+  }
+  html[data-enter="first"] main > :not(#hero),
+  html[data-enter="first"] main > #hero > * {
+    --enter-base: 1.35s;
+    --enter-step: 0.22s;
+    animation-duration: 0.85s;
+  }
+  html[data-enter] main > #hero > :nth-child(2),
+  html[data-enter] main > :nth-child(2):not(#hero) { --enter-i: 1; }
+  html[data-enter] main > :nth-child(3) { --enter-i: 2; }
+  html[data-enter] main > :nth-child(4) { --enter-i: 3; }
+  html[data-enter] main > :nth-child(n + 5) { --enter-i: 4; }
+}
+
 /* "Hide page" in the scene-select menu: the world on its own. */
 html[data-world-only] body > *:not([data-world]) {
   opacity: 0;

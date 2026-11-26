@@ -1,6 +1,7 @@
 // The runtime: owns the renderer, the low-resolution frame, the camera rig,
-// picking and the frame loop. A level plugs into it; nothing here knows what
-// the level contains, so more levels (or a playable one) can be added later.
+// picking, sound, the in-frame interface and the frame loop. A level plugs
+// into it; nothing here knows what any level contains, so worlds can be
+// swapped at will (and one of them could one day be walked around in).
 import {
   Camera,
   ColorManagement,
@@ -12,38 +13,78 @@ import {
   Scene,
   type ShaderMaterial,
   Vector3,
+  type Vector4,
   WebGLRenderTarget,
   WebGLRenderer,
 } from 'three';
+import { clearLights } from './atmos';
+import { AudioEngine, type AudioSpec } from './audio';
+import { Hud, isHidden } from './hud';
 import { clamp, lerp, rad, smooth } from './math';
 import { createShared, postMaterial } from './shaders';
 
 export interface Interactable {
   id: string;
-  label: string;
+  /** what the prompt says; a function if it changes ("Radio: on") */
+  label: string | (() => string);
   /** A ball in the world... */
   center?: Vector3;
   radius?: number;
   /** ...or a direction in the sky and an angular radius in radians. */
   dir?: Vector3;
   angle?: number;
+  /** where the prompt and marker are drawn, if not just above the ball */
+  anchor?: Vector3;
+  /** false for things that should not advertise themselves (secrets) */
+  marker?: boolean;
+  /** not there at the moment (cannot be picked, shows no marker) */
+  hidden?: boolean | (() => boolean);
   onClick: () => void;
 }
 
-/** A camera position. Angles are in degrees; yaw is positive to the right. */
+/** A camera position. Angles are in degrees; yaw is positive to the right.
+ *  Without `look`, yaw is an offset from the bearing the engine works out to
+ *  put the level's subject in the clear part of the window. With `look`, the
+ *  camera aims at that point and yaw and pitch are offsets from it. */
 export interface Shot {
   pos: [number, number, number];
   yaw: number;
   pitch: number;
   fov: number;
+  look?: [number, number, number];
 }
 
+/** How a level should open: the full cutscene (first visit), a short arrival
+ *  (repeat visits, and coming through a gate), or already settled (when the
+ *  visitor has asked for no motion). */
+export type IntroKind = 'full' | 'quick' | 'none';
+
 export interface Level {
+  readonly id: string;
+  /** shown on the place-name card, e.g. "The Overlook" */
+  readonly title: string;
+  subtitle?: () => string;
   interactables: Interactable[];
   shots: Record<string, Shot>;
+  /** the same views composed for a phone held upright */
+  portraitShots?: Record<string, Shot>;
   /** compass bearing of the thing the view is composed around */
   focusAz: number;
+  /** where across an upright phone that thing should sit (0..1, default 0.5) */
+  portraitFocus?: number;
+  audio: AudioSpec;
+  intro(kind: IntroKind): void;
+  /** the visitor clicked or scrolled during the opening: get on with it */
+  hurry?(): void;
   update(dt: number, time: number): void;
+  /** draw anything of its own on the interface layer */
+  hud?(hud: Hud): void;
+  /** named actions offered in the debug menu */
+  debug?: [string, () => void][];
+  /** times of day or kinds of weather the debug menu can switch between: [id, label] */
+  moods?: [string, string][];
+  mood?: string;
+  setMood?(name: string, seconds?: number): void;
   dispose(): void;
 }
 
@@ -62,14 +103,18 @@ export interface Settings {
   motion: boolean;
 }
 
-export const DEFAULTS: Settings = { lines: 300, snap: 1, affine: 1, dither: 1, levels: 32, motion: true };
+export const DEFAULTS: Settings = { lines: 480, snap: 1, affine: 1, dither: 1, levels: 32, motion: true };
 
-export interface Hover {
-  id: string;
-  label: string;
+interface Pose {
   x: number;
   y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  fov: number;
 }
+
+const deg = (r: number) => (r * 180) / Math.PI;
 
 export class Engine {
   readonly renderer: WebGLRenderer;
@@ -77,11 +122,27 @@ export class Engine {
   readonly camera = new PerspectiveCamera(50, 1, 0.3, 14000);
   readonly shared = createShared();
   readonly settings: Settings;
+  readonly audio = new AudioEngine();
+  readonly hud: Hud;
   readonly stats = { fps: 0, ms: 0, w: 0, h: 0, scale: 1, calls: 0, tris: 0 };
   level: Level | null = null;
   time = 0;
-  onHover: ((h: Hover | null) => void) | null = null;
+  /** the window is taller than it is wide (a phone held upright) */
+  portrait = false;
+  /** the last input was a finger, not a mouse */
+  touch = false;
+  /** the thing under the pointer, if any */
+  hovered: Interactable | null = null;
+  /** the name of the view the current page wants ("home", "games", ...) */
+  shotName = 'home';
+  /** a gate was used: go to another world */
+  onTravel: ((world: string) => void) | null = null;
+  onCursor: ((pointing: boolean) => void) | null = null;
+  /** looking through a telescope began or ended */
+  onScope: ((on: boolean) => void) | null = null;
   onFirstFrame: (() => void) | null = null;
+  /** the debug fly-about camera */
+  readonly free = { on: false, x: 0, y: 2, z: 0, yaw: 0, pitch: 0, fov: 50, f: 0, r: 0, u: 0, fast: false };
 
   private target: WebGLRenderTarget;
   private postScene = new Scene();
@@ -94,11 +155,16 @@ export class Engine {
   private pointer = { x: 0, y: 0, tx: 0, ty: 0, nx: 0, ny: 0, ui: true };
   private scroll = { t: 0, target: 0 };
   private focus = { x: 0.63, target: 0.63, set: false };
-  private from: Shot = { pos: [0, 2, 0], yaw: 0, pitch: 0, fov: 50 };
-  private to: Shot = this.from;
+  private fromPose: Pose = { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, fov: 50 };
+  private to: Shot = { pos: [0, 2, 0], yaw: 0, pitch: 0, fov: 50 };
+  private toNamed = true;
+  private pose: Pose = { ...this.fromPose };
   private shotT = 1;
   private shotDur = 1;
-  private hover: Interactable | null = null;
+  private shotEase: (k: number) => number = (k) => smooth(0, 1, k);
+  private scope = { on: false, t: 0 };
+  private fade = { v: 0, from: 0, to: 0, t: 1, dur: 1, done: null as (() => void) | null };
+  private flashV = new Vector3();
   private observer: ResizeObserver;
   private ray = new Vector3();
   private tmp = new Vector3();
@@ -119,6 +185,7 @@ export class Engine {
     quad.frustumCulled = false;
     this.postScene.add(quad);
     this.camera.rotation.order = 'YXZ';
+    this.hud = new Hud(this);
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.resize();
@@ -127,10 +194,19 @@ export class Engine {
 
   /* ---- lifecycle ---- */
 
-  setLevel(level: Level, shot = 'home') {
+  /** Swap a level in. The one before, if any, should already be disposed. */
+  setLevel(level: Level, shot = this.shotName) {
+    clearLights(this.shared);
     this.level = level;
-    this.from = this.to = level.shots[shot] ?? Object.values(level.shots)[0];
+    this.shotName = shot;
+    this.hovered = null;
+    this.hud.menu = null;
+    this.scope.on = false;
+    this.scope.t = 0;
+    this.to = this.named(shot);
+    this.toNamed = true;
     this.shotT = 1;
+    this.audio.setSpec(level.audio);
   }
 
   start() {
@@ -150,11 +226,15 @@ export class Engine {
     this.observer.disconnect();
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.level?.dispose();
+    this.level = null;
+    this.audio.dispose();
+    this.hud.dispose();
     this.target.dispose();
     this.renderer.dispose();
   }
 
   private onVisibility = () => {
+    this.audio.pause(document.hidden);
     if (document.hidden) this.stop();
     else this.start();
   };
@@ -177,6 +257,14 @@ export class Engine {
     this.canvas.style.width = `${(w * scale) / dpr}px`;
     this.canvas.style.height = `${(h * scale) / dpr}px`;
     this.camera.aspect = w / h;
+    this.postMat.uniforms.uAspect.value = w / h;
+    this.hud.resize(w, h, scale / dpr);
+    const portrait = w / h < 0.8;
+    if (portrait !== this.portrait) {
+      this.portrait = portrait;
+      if (this.level && this.toNamed) this.to = this.named(this.shotName);
+    }
+    this.hud.centred = portrait;
     this.applySettings();
   }
 
@@ -201,11 +289,13 @@ export class Engine {
    *  content, which always wins over the scene behind it. */
   setPointer(clientX: number, clientY: number, overUi: boolean) {
     const p = this.pointer;
+    const moved = Math.abs(clientX - (p.nx * 0.5 + 0.5) * window.innerWidth) + Math.abs(clientY - (0.5 - p.ny * 0.5) * window.innerHeight) > 2;
     p.nx = (clientX / window.innerWidth) * 2 - 1;
     p.ny = -((clientY / window.innerHeight) * 2 - 1);
     p.tx = p.nx;
     p.ty = p.ny;
     p.ui = overUi;
+    if (!overUi && moved) this.hud.nudge(this.touch ? 5 : 2.6);
   }
 
   clearPointer() {
@@ -214,52 +304,89 @@ export class Engine {
     this.pointer.ui = true;
   }
 
+  /** Is the pointer over the world (not the page)? If so, `out` is set to the
+   *  direction it points in; the ray starts at camera.position. */
+  pointerRay(out: Vector3): boolean {
+    out.set(this.pointer.nx, this.pointer.ny, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
+    return !this.pointer.ui;
+  }
+
   setScroll(t: number) {
     this.scroll.target = clamp(t);
+    if (this.scope.on && t > 0.04) this.exitScope();
   }
 
   /** Where across the window (0 left, 1 right) the level's subject should sit. */
   setFocus(x: number) {
-    this.focus.target = clamp(x, 0.3, 0.85);
+    this.focus.target = clamp(x, 0.2, 0.85);
     if (!this.focus.set) this.focus.x = this.focus.target;
     this.focus.set = true;
   }
 
   /** Click at the last pointer position. Returns true if something took it. */
   click(): boolean {
+    const [hx, hy] = this.hudXY();
+    if (this.hud.click(hx, hy)) return true;
+    this.level?.hurry?.();
+    if (this.scope.on) {
+      this.exitScope();
+      return true;
+    }
     const hit = this.pick();
     if (!hit) return false;
     hit.onClick();
     return true;
   }
 
-  goTo(shot: string, seconds = 2.4) {
-    const next = this.level?.shots[shot];
-    if (!next || next === this.to) return;
-    this.from = this.shotNow();
-    this.to = next;
-    this.shotT = 0;
-    this.shotDur = seconds;
+  /** A key was pressed. Returns true if the world used it. */
+  key(key: string): boolean {
+    if (this.hud.key(key)) return true;
+    if (key === 'Escape' && this.scope.on) {
+      this.exitScope();
+      return true;
+    }
+    return false;
+  }
+
+  private hudXY(): [number, number] {
+    return [(this.pointer.nx * 0.5 + 0.5) * this.stats.w, (0.5 - this.pointer.ny * 0.5) * this.stats.h];
+  }
+
+  /** Where a point in the world lands on the frame, in frame pixels. */
+  project(world: Vector3, out: { x: number; y: number }): boolean {
+    const v = this.tmp.copy(world).applyMatrix4(this.camera.matrixWorldInverse);
+    if (v.z > -0.2) return false;
+    v.applyMatrix4(this.camera.projectionMatrix);
+    out.x = (v.x * 0.5 + 0.5) * this.stats.w;
+    out.y = (0.5 - v.y * 0.5) * this.stats.h;
+    return true;
   }
 
   private pick(): Interactable | null {
     const level = this.level;
-    if (!level || this.pointer.ui) return null;
+    if (!level || this.pointer.ui || this.hud.menu || this.scope.on) return null;
     const cam = this.camera;
     const dir = this.ray.set(this.pointer.nx, this.pointer.ny, 0.5).unproject(cam).sub(cam.position).normalize();
+    // Of everything the pointer is over, take the one whose middle it is
+    // nearest to (measured against that thing's own size), so a small thing
+    // beside a big one can still be picked. Things in the sky come last.
     let best: Interactable | null = null;
-    let bestT = Infinity;
+    let bestScore = 1;
     for (const it of level.interactables) {
+      if (isHidden(it)) continue;
       if (it.center && it.radius) {
         const oc = this.tmp.copy(it.center).sub(cam.position);
         const t = oc.dot(dir);
         if (t <= 0) continue;
         const d2 = oc.lengthSq() - t * t;
-        if (d2 <= it.radius * it.radius && t < bestT) {
+        // small far things are given a little help: never smaller than about 1.3 degrees
+        const r = Math.max(it.radius, t * 0.023);
+        const score = d2 / (r * r);
+        if (score <= bestScore) {
           best = it;
-          bestT = t;
+          bestScore = score;
         }
-      } else if (it.dir && it.angle && bestT === Infinity) {
+      } else if (it.dir && it.angle && !best) {
         if (dir.dot(it.dir) >= Math.cos(it.angle)) best = it;
       }
     }
@@ -267,34 +394,148 @@ export class Engine {
   }
 
   private updateHover() {
-    const hit = this.pick();
-    if (hit === this.hover && !hit) return;
-    this.hover = hit;
-    if (!hit) {
-      this.onHover?.(null);
-      return;
+    const [hx, hy] = this.hudXY();
+    const overMenu = !this.pointer.ui && this.hud.pointer(hx, hy);
+    const hit = overMenu ? null : this.pick();
+    if (hit !== this.hovered) {
+      this.hovered = hit;
+      this.onCursor?.(!!hit);
     }
-    const cam = this.camera;
-    const p = hit.center ? this.tmp.copy(hit.center) : this.tmp.copy(hit.dir as Vector3).multiplyScalar(1000).add(cam.position);
-    p.project(cam);
-    this.onHover?.({ id: hit.id, label: hit.label, x: (p.x * 0.5 + 0.5) * window.innerWidth, y: (-p.y * 0.5 + 0.5) * window.innerHeight });
   }
 
   /* ---- camera ---- */
 
-  private shotNow(): Shot {
-    const t = this.shotT >= 1 ? 1 : smooth(0, 1, this.shotT);
-    const a = this.from;
-    const b = this.to;
-    return {
-      pos: [lerp(a.pos[0], b.pos[0], t), lerp(a.pos[1], b.pos[1], t), lerp(a.pos[2], b.pos[2], t)],
-      yaw: lerp(a.yaw, b.yaw, t),
-      pitch: lerp(a.pitch, b.pitch, t),
-      fov: lerp(a.fov, b.fov, t),
-    };
+  private named(name: string): Shot {
+    const l = this.level;
+    if (!l) return this.to;
+    return (this.portrait ? l.portraitShots?.[name] ?? l.portraitShots?.home : undefined) ?? l.shots[name] ?? l.shots.home ?? Object.values(l.shots)[0];
   }
 
-  private updateCamera(dt: number) {
+  /** Move to one of the level's named views (the page changed). */
+  goTo(name: string, seconds = 2.4) {
+    this.shotName = name;
+    if (!this.level || this.scope.on) return;
+    const next = this.named(name);
+    if (next === this.to) return;
+    this.moveTo(next, seconds);
+    this.toNamed = true;
+  }
+
+  /** Jump straight to a view. */
+  cut(shot: Shot) {
+    this.to = shot;
+    this.toNamed = false;
+    this.shotT = 1;
+  }
+
+  /** Travel from wherever the camera is now to a view, over `seconds`. */
+  moveTo(shot: Shot | string, seconds = 2.4, ease?: (k: number) => number) {
+    this.fromPose = { ...this.pose };
+    this.to = typeof shot === 'string' ? this.named(shot) : shot;
+    this.toNamed = typeof shot === 'string';
+    if (typeof shot === 'string') this.shotName = shot;
+    this.shotT = seconds > 0 ? 0 : 1;
+    this.shotDur = Math.max(seconds, 0.001);
+    this.shotEase = ease ?? ((k) => smooth(0, 1, k));
+  }
+
+  /** Put an eye to something: the view closes to a circle on `shot`. Any
+   *  click, Escape or scroll steps back. */
+  enterScope(shot: Shot) {
+    if (this.scope.on) return;
+    this.moveTo(shot, 1.3);
+    this.scope.on = true;
+    this.hovered = null;
+    this.onCursor?.(false);
+    this.onScope?.(true);
+    this.audio.ui('open');
+  }
+
+  exitScope() {
+    if (!this.scope.on) return;
+    this.scope.on = false;
+    this.moveTo(this.shotName, 1.1);
+    this.onScope?.(false);
+    this.audio.ui('close');
+  }
+
+  get inScope() {
+    return this.scope.on;
+  }
+
+  /** Dissolve the whole picture to black (1) or back (0). */
+  fadeTo(v: number, seconds: number): Promise<void> {
+    const f = this.fade;
+    f.done?.();
+    return new Promise((resolve) => {
+      f.from = f.v;
+      f.to = v;
+      f.t = seconds > 0 && this.settings.motion ? 0 : 1;
+      f.dur = Math.max(seconds, 0.001);
+      f.done = resolve;
+      if (f.t >= 1) {
+        f.v = v;
+        f.done = null;
+        resolve();
+      }
+    });
+  }
+
+  /** Set the dissolve at once. */
+  setFade(v: number) {
+    this.fade.v = this.fade.from = this.fade.to = v;
+    this.fade.t = 1;
+  }
+
+  /** A burst of light over the whole picture (lightning); it dies away by itself. */
+  flash(r: number, g: number, b: number) {
+    this.flashV.set(Math.max(this.flashV.x, r), Math.max(this.flashV.y, g), Math.max(this.flashV.z, b));
+  }
+
+  /** Switch the debug fly-about camera on or off. */
+  setFree(on: boolean) {
+    const f = this.free;
+    if (on && !f.on) Object.assign(f, { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z, yaw: this.pose.yaw, pitch: this.pose.pitch, fov: this.camera.fov });
+    f.on = on;
+    f.f = f.r = f.u = 0;
+  }
+
+  /** Turn the fly-about camera by a mouse movement in CSS pixels. */
+  freeLook(dx: number, dy: number) {
+    const f = this.free;
+    f.yaw += dx * 0.12 * (f.fov / 50);
+    f.pitch = clamp(f.pitch - dy * 0.12 * (f.fov / 50), -89, 89);
+  }
+
+  private resolve(s: Shot, aim: number): Pose {
+    if (s.look) {
+      const dx = s.look[0] - s.pos[0];
+      const dy = s.look[1] - s.pos[1];
+      const dz = s.look[2] - s.pos[2];
+      return { x: s.pos[0], y: s.pos[1], z: s.pos[2], yaw: deg(Math.atan2(dx, -dz)) + s.yaw, pitch: deg(Math.atan2(dy, Math.hypot(dx, dz))) + s.pitch, fov: s.fov };
+    }
+    return { x: s.pos[0], y: s.pos[1], z: s.pos[2], yaw: aim + s.yaw, pitch: s.pitch, fov: s.fov };
+  }
+
+  private updateCamera(dt: number, real: number) {
+    const cam = this.camera;
+    const f = this.free;
+    if (f.on) {
+      const speed = (f.fast ? 60 : 7) * real;
+      const yr = rad(f.yaw);
+      const pr = rad(f.pitch);
+      f.x += (Math.sin(yr) * Math.cos(pr) * f.f + Math.cos(yr) * f.r) * speed;
+      f.y += (Math.sin(pr) * f.f + f.u) * speed;
+      f.z += (-Math.cos(yr) * Math.cos(pr) * f.f + Math.sin(yr) * f.r) * speed;
+      cam.fov = f.fov;
+      cam.position.set(f.x, f.y, f.z);
+      cam.rotation.set(pr, -yr, 0);
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld();
+      this.shared.uPx.value = this.stats.h / (2 * Math.tan(rad(cam.fov) / 2));
+      this.pose = { x: f.x, y: f.y, z: f.z, yaw: f.yaw, pitch: f.pitch, fov: f.fov };
+      return;
+    }
     const m = this.settings.motion ? 1 : 0;
     const p = this.pointer;
     const k = 1 - Math.exp(-dt * 3);
@@ -302,30 +543,42 @@ export class Engine {
     p.y += (p.ty * m - p.y) * k;
     this.scroll.t += (this.scroll.target - this.scroll.t) * (1 - Math.exp(-dt * 6));
     if (this.shotT < 1) this.shotT = Math.min(1, this.shotT + dt / this.shotDur);
+    const sk = this.scope;
+    sk.t = clamp(sk.t + (sk.on ? dt / 1.1 : -dt / 0.7));
     if (!m) {
       // with motion off nothing eases: the view simply is where it should be
       this.scroll.t = this.scroll.target;
       this.focus.x = this.focus.target;
       this.shotT = 1;
+      sk.t = sk.on ? 1 : 0;
     }
-    const s = this.shotNow();
-    const sc = this.scroll.t;
-    const cam = this.camera;
-    const narrow = 1 - smooth(0.7, 1.35, cam.aspect);
-    cam.fov = s.fov + narrow * 9;
     // turn so the subject lands at the wanted place across the frame
-    const f = this.focus;
-    f.x += (f.target - f.x) * (1 - Math.exp(-dt * 4));
-    const tanHalf = Math.tan(rad(cam.fov) / 2) * cam.aspect;
-    const aim = (this.level?.focusAz ?? 0) - (Math.atan((f.x - 0.5) * 2 * tanHalf) * 180) / Math.PI;
-    const yaw = aim + s.yaw + p.x * 2.4 + Math.sin(this.time * 0.19) * 0.3 * m;
-    const pitch = s.pitch + p.y * 1.4 + Math.sin(this.time * 0.15 + 1.3) * 0.18 * m + sc * 8;
+    const fo = this.focus;
+    fo.x += (fo.target - fo.x) * (1 - Math.exp(-dt * 4));
+    const usingPortrait = this.portrait && !!this.level?.portraitShots;
+    const narrow = usingPortrait || sk.t > 0 ? 0 : 1 - smooth(0.7, 1.35, cam.aspect);
+    const fovGuess = this.to.fov + narrow * 9;
+    const tanHalf = Math.tan(rad(fovGuess) / 2) * cam.aspect;
+    const aim = (this.level?.focusAz ?? 0) - deg(Math.atan((fo.x - 0.5) * 2 * tanHalf));
+    const b = this.resolve(this.to, aim);
+    let s = b;
+    if (this.shotT < 1) {
+      const t = this.shotEase(this.shotT);
+      const a = this.fromPose;
+      s = { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t), yaw: lerp(a.yaw, b.yaw, t), pitch: lerp(a.pitch, b.pitch, t), fov: lerp(a.fov, b.fov, t) };
+    }
+    this.pose = s;
+    const sc = this.scroll.t * (1 - sk.t);
+    cam.fov = s.fov + narrow * 9;
+    // through a telescope the pointer looks around; otherwise it only leans
+    const lookX = lerp(2.4, s.fov * 0.55, sk.t);
+    const lookY = lerp(1.4, s.fov * 0.35, sk.t);
+    const drift = (this.touch ? 2.6 : 1) * (1 - sk.t * 0.8) * m;
+    const yaw = s.yaw + p.x * lookX + Math.sin(this.time * 0.19) * 0.3 * drift;
+    const pitch = s.pitch + p.y * lookY + Math.sin(this.time * 0.15 + 1.3) * 0.18 * drift + sc * 8;
     const yr = rad(yaw);
-    cam.position.set(
-      s.pos[0] + Math.cos(yr) * p.x * 0.4,
-      s.pos[1] + p.y * 0.16 + sc * 1.2,
-      s.pos[2] + Math.sin(yr) * p.x * 0.4,
-    );
+    const lean = 1 - sk.t;
+    cam.position.set(s.x + Math.cos(yr) * p.x * 0.4 * lean, s.y + p.y * 0.16 * lean + sc * 1.2, s.z + Math.sin(yr) * p.x * 0.4 * lean);
     cam.rotation.set(rad(pitch), -yr, 0);
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
@@ -340,27 +593,52 @@ export class Engine {
     // tick when motion is off (the world is frozen then; this only keeps
     // resizes and clicks showing up).
     const still = !this.settings.motion;
-    const minGap = still ? 400 : this.scroll.target >= 1 ? 31 : 0;
+    const minGap = still ? 250 : this.scroll.target >= 1 && !this.scope.on ? 31 : 0;
     if (now - this.last < minGap) return;
     const dt = Math.min((now - this.last) / 1000, 0.1);
     this.last = now;
     const t0 = performance.now();
-    this.step(still && this.frames > 2 ? 0 : dt);
+    this.step(still && this.frames > 2 ? 0 : dt, dt);
     this.account(dt, performance.now() - t0, minGap > 0);
   };
 
-  /** Advance the world by dt seconds and draw it. */
-  step(dt: number) {
+  /** Advance the world by dt seconds and draw it. `real` is the time that
+   *  actually passed (it still counts when the world is frozen). */
+  step(dt: number, real = dt) {
     this.time += dt;
     this.shared.uTime.value = this.time;
-    this.updateCamera(dt);
+    this.updateCamera(dt, real);
     this.level?.update(dt, this.time);
     this.updateHover();
+    this.audio.update();
+    this.hud.draw(real);
+
+    const u = this.postMat.uniforms;
+    const f = this.fade;
+    if (f.t < 1) {
+      f.t = Math.min(1, f.t + real / f.dur);
+      f.v = lerp(f.from, f.to, f.t);
+      if (f.t >= 1) {
+        const done = f.done;
+        f.done = null;
+        done?.();
+      }
+    }
+    u.uFade.value = f.v;
+    this.flashV.multiplyScalar(Math.exp(-real * 9));
+    (u.uFlash.value as Vector3).copy(this.flashV);
+    const sk = this.scope.t;
+    const ek = sk * sk * (3 - 2 * sk);
+    (u.uScope.value as Vector4).set(0.5, 0.5, lerp(1.4, 0.43, ek), sk > 0 ? 1 : 0);
+
     const r = this.renderer;
     r.setRenderTarget(this.target);
     r.render(this.scene, this.camera);
     this.stats.calls = r.info.render.calls;
     this.stats.tris = r.info.render.triangles;
+    r.autoClear = false;
+    r.render(this.hud.scene, this.hud.camera);
+    r.autoClear = true;
     r.setRenderTarget(null);
     r.render(this.postScene, this.postCam);
     if (this.frames++ === 1) this.onFirstFrame?.();
@@ -375,10 +653,10 @@ export class Engine {
     if (a.t < 1) return;
     this.stats.fps = a.n / a.t;
     this.stats.ms = a.ms / a.n;
-    if (!throttled && this.stats.fps < 40 && this.settings.lines > 200) {
+    if (!throttled && this.stats.fps < 40 && this.settings.lines > 240) {
       if (++a.slowWindows >= 3) {
         a.slowWindows = 0;
-        this.setLines(Math.max(200, Math.round(this.settings.lines * 0.8)));
+        this.setLines(Math.max(240, Math.round(this.settings.lines * 0.8)));
       }
     } else a.slowWindows = 0;
     a.t = a.n = a.ms = 0;
@@ -390,3 +668,5 @@ export class Engine {
     return this.canvas.toDataURL('image/png');
   }
 }
+
+export type { AudioSpec };

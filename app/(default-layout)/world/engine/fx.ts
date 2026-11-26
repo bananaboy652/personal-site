@@ -1,7 +1,7 @@
 // Lights and particles: the parts of the scene that are sprites, not geometry.
-import { BufferAttribute, BufferGeometry, DynamicDrawUsage, Mesh, Points } from 'three';
-import type { RGB } from './math';
-import { type Uniforms, glowMaterial, particleMaterial } from './shaders';
+import { BufferAttribute, BufferGeometry, DynamicDrawUsage, LineSegments, Mesh, Points, type ShaderMaterial, type Texture } from 'three';
+import { type RGB, rng } from './math';
+import { type PrecipOptions, type Uniforms, flameMaterial, glowMaterial, particleMaterial, precipMaterial } from './shaders';
 
 /** A pool of camera-facing glows drawn in one call. */
 export class GlowBatch {
@@ -64,6 +64,94 @@ export class GlowBatch {
     a.position.needsUpdate = a.aSize.needsUpdate = a.aCol.needsUpdate = true;
     this.dirty = false;
   }
+}
+
+/** Flames drawn as cards that turn to face the camera: campfires, candles,
+ *  torches. All of one batch share a palette (change the material's uHot,
+ *  uWarm, uMidc and uDeep for a differently coloured fire). */
+export class FlameBatch {
+  readonly mesh: Mesh;
+  readonly material: ShaderMaterial;
+  private base: Float32Array;
+  private size: Float32Array;
+  private power: Float32Array;
+  private count = 0;
+
+  constructor(shared: Uniforms, noise: Texture, private capacity: number) {
+    const n = capacity * 4;
+    this.base = new Float32Array(n * 3);
+    this.size = new Float32Array(n * 3);
+    this.power = new Float32Array(n);
+    const corner = new Float32Array(n * 3);
+    const index = new Uint16Array(capacity * 6);
+    const corners = [-1, 0, 0, 1, 0, 0, 1, 1, 0, -1, 1, 0];
+    for (let i = 0; i < capacity; i++) {
+      corner.set(corners, i * 12);
+      index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
+    }
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(corner, 3));
+    g.setAttribute('aBase', new BufferAttribute(this.base, 3).setUsage(DynamicDrawUsage));
+    g.setAttribute('aSize', new BufferAttribute(this.size, 3).setUsage(DynamicDrawUsage));
+    g.setAttribute('aPower', new BufferAttribute(this.power, 1).setUsage(DynamicDrawUsage));
+    g.setIndex(new BufferAttribute(index, 1));
+    g.setDrawRange(0, 0);
+    this.material = flameMaterial(shared, noise);
+    this.mesh = new Mesh(g, this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 5;
+  }
+
+  /** x, y, z is the foot of the flame; returns a handle. */
+  add(x: number, y: number, z: number, width: number, height: number, power = 1): number {
+    if (this.count >= this.capacity) return this.capacity - 1;
+    const i = this.count++;
+    const seed = (i * 0.618034) % 1;
+    for (let k = 0; k < 4; k++) {
+      this.base.set([x, y, z], (i * 4 + k) * 3);
+      this.size.set([width, height, seed], (i * 4 + k) * 3);
+    }
+    this.setPower(i, power);
+    this.mesh.geometry.setDrawRange(0, this.count * 6);
+    this.mesh.geometry.attributes.aBase.needsUpdate = this.mesh.geometry.attributes.aSize.needsUpdate = true;
+    return i;
+  }
+  /** 0 is out, 1 a steady burn, up to about 1.6 when stoked. */
+  setPower(i: number, p: number) {
+    this.power.fill(p, i * 4, i * 4 + 4);
+    this.mesh.geometry.attributes.aPower.needsUpdate = true;
+  }
+  setPos(i: number, x: number, y: number, z: number) {
+    for (let k = 0; k < 4; k++) this.base.set([x, y, z], (i * 4 + k) * 3);
+    this.mesh.geometry.attributes.aBase.needsUpdate = true;
+  }
+}
+
+/** Rain (streak > 0) or snow (streak = 0): `count` drops in a box that follows
+ *  the camera. Change `material.uniforms.uAmount` (0..1) to thin it out, uVel
+ *  for the wind, uGain for brightness. */
+export function precipitation(shared: Uniforms, count: number, o: PrecipOptions, seed = 5): { object: LineSegments | Points; material: ShaderMaterial } {
+  const r = rng(seed);
+  const streak = (o.streak ?? 0) > 0;
+  const per = streak ? 2 : 1;
+  const seeds = new Float32Array(count * per * 4);
+  const rnd = new Float32Array(count * per);
+  for (let i = 0; i < count; i++) {
+    const [x, y, z, k] = [r(), r(), r(), r()];
+    for (let j = 0; j < per; j++) {
+      seeds.set([x, y, z, j], (i * per + j) * 4);
+      rnd[i * per + j] = k;
+    }
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(new Float32Array(count * per * 3), 3));
+  g.setAttribute('aSeed', new BufferAttribute(seeds, 4));
+  g.setAttribute('aRnd', new BufferAttribute(rnd, 1));
+  const material = precipMaterial(shared, o);
+  const object = streak ? new LineSegments(g, material) : new Points(g, material);
+  object.frustumCulled = false;
+  object.renderOrder = 24;
+  return { object, material };
 }
 
 export interface Spawn {
