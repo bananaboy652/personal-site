@@ -222,8 +222,8 @@ export class Gate {
       title: 'The gate',
       items: WORLDS.map((w) => ({
         label: w.title,
-        hint: w.id === here ? 'here' : found.includes(w.id) ? G.rune(w.rune) : G.mid,
-        disabled: w.id === here,
+        hint: w.id === here ? 'here' : w.ready === false ? 'soon' : found.includes(w.id) ? G.rune(w.rune) : G.mid,
+        disabled: w.id === here || w.ready === false,
         pick: () => this.engine.onTravel?.(w.id),
       })),
       footer: `Signals answered ${found.filter((id) => WORLDS.some((w) => w.id === id)).length}/${WORLDS.length}`,

@@ -144,3 +144,23 @@
     font-size: 0.95rem;
     margin-left: 0.1rem;
 }
+
+/* On a phone the two halves of the footer stack, so nothing is wider than
+   the screen. */
+@media (max-width: 46rem) {
+    .slab{
+        padding-left: calc(var(--site-frame) + 1.1rem);
+        padding-right: calc(var(--site-frame) + 1.1rem);
+    }
+    .main{
+        margin-left: 0;
+    }
+    .UpperContent{
+        flex-direction: column;
+        gap: 1.4rem;
+    }
+    .PagesContainer{
+        margin-right: 0;
+        padding-top: 0;
+    }
+}

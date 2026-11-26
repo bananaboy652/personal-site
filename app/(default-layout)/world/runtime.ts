@@ -206,7 +206,8 @@ export class Runtime {
     }
     document.documentElement.style.setProperty('--world-dim', '0');
     let right = nav?.right ?? W / 2;
-    document.querySelectorAll('main [class*="glassFrame"]').forEach((el) => {
+    // panels, and big headings that stand outside any panel
+    document.querySelectorAll('main [class*="glassFrame"], main h1').forEach((el) => {
       const r = el.getBoundingClientRect();
       if (r.width > 0 && r.bottom > 0 && r.top < H * 0.8) right = Math.max(right, r.right);
     });
