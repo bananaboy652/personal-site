@@ -3,13 +3,13 @@
 //   the radio - switches the sound on and off
 //   the gate  - a doorway with something alight in it; the way between worlds
 //   signals   - each world has one to answer; the gate keeps count
-import { Mesh, type Object3D, type ShaderMaterial, type Texture, Vector3 } from 'three';
+import { Group, Mesh, type Object3D, type ShaderMaterial, type Texture, Vector3 } from 'three';
 import { Builder } from './builder';
 import type { Engine, Interactable } from './engine';
 import { G } from './font';
 import type { GlowBatch } from './fx';
 import { EMBER, type Hud, MUTED } from './hud';
-import { type RGB, hash2, hex } from './math';
+import { type RGB, TAU, hash2, hex, lerp, scaleRGB } from './math';
 import { psxMaterial } from './shaders';
 import { store } from './store';
 import { makeTexture, ramp } from './textures';
@@ -237,6 +237,117 @@ export class Gate {
     const g = 0.22 + this.energy * 0.6 + hover * 0.4;
     this.glows.setColor(this.glow, this.tint[0] * 0.4 * g, this.tint[1] * 0.75 * g, this.tint[2] * 0.75 * g);
     this.glows.setSize(this.glow, this.size * (1 + this.energy * 0.4));
+  }
+}
+
+/* ---- the tower, from far off ------------------------------------------------ */
+
+export interface FarTowerOptions {
+  x: number;
+  z: number;
+  /** height of the ground or sea it stands on */
+  base: number;
+  /** 1 = full size: 420 m to the top of the shaft */
+  scale?: number;
+  /** below 1 it cuts through the haze more than what is round it (default 0.5) */
+  fogScale?: number;
+  /** plating texture with alpha-0 windows (textures.metal) and a plain white one */
+  metal: Texture;
+  white: Texture;
+}
+
+/** The tower with the broken ring, as every world but the Overlook sees it: a
+ *  long way off, its beam standing on the horizon. It is the one thing all
+ *  five worlds have in common. Set `awake` (0..1) for how brightly it burns,
+ *  call flash() to have it answer something, and update() every frame. */
+export class FarTower {
+  /** 0 = dark and still, 1 = beam up, ring bright */
+  awake = 1;
+  readonly top: Vector3;
+  /** a point half-way up, for aiming a camera or a light at */
+  readonly mid: Vector3;
+  private ring: Mesh;
+  private beamMat: ShaderMaterial;
+  private beacon: number;
+  private ringGlows: { id: number; local: Vector3 }[] = [];
+  private pulse = 0;
+  private tmp = new Vector3();
+  private k: number;
+
+  constructor(engine: Engine, parent: Object3D, private glows: GlowBatch, private o: FarTowerOptions) {
+    const k = (this.k = o.scale ?? 1);
+    const H = 420 * k;
+    const metal = new Builder();
+    const cA: RGB = [0.8, 0.82, 0.9];
+    const cB: RGB = [1.15, 1.15, 1.25];
+    const at = () => metal.reset().translate(o.x, o.base, o.z);
+    at().prism(22 * k, 8.5 * k, H, 8, { color: cA, colorTop: cB, uRepeat: 8, vRepeat: 26 });
+    for (const t of [0.3, 0.56, 0.8]) {
+      const rr = lerp(22, 8.5, t) * 1.9 * k;
+      at().translate(0, H * t, 0).prism(rr, rr * 0.85, 10 * k, 8, { color: cA, colorTop: cB, uRepeat: 8, vRepeat: 1, capTop: true, capBottom: true, twist: 0.5 });
+    }
+    for (let i = 0; i < 4; i++) at().rotateY((i / 4) * TAU + 0.4).translate(30 * k, -6 * k, 0).rotateZ(0.2).box(7 * k, 96 * k, 26 * k, cA, cB, 0.05);
+    at().translate(0, H, 0).prism(2.4 * k, 0.6 * k, 66 * k, 4, { color: cB, colorTop: cB });
+    const mat = psxMaterial(engine.shared, { map: o.metal, vertexColors: true, emissive: scaleRGB(hex('#ffd9a0'), 1.1), texFade: [9000, 9500], fogScale: o.fogScale ?? 0.5 });
+    const tower = new Mesh(metal.build(), mat);
+    tower.frustumCulled = false;
+    parent.add(tower);
+
+    const ringB = new Builder();
+    const SEG = 14;
+    const R = 96 * k;
+    for (let i = 0; i < SEG; i++) {
+      if (i === 3 || i === 4 || i === 9) continue;
+      ringB.reset().rotateY((i / SEG) * TAU).translate(R, -5 * k, 0).box(10 * k, 10 * k, 2 * R * Math.sin(Math.PI / SEG) * 1.03, cA, cB, 0.05);
+    }
+    this.ring = new Mesh(ringB.build(), mat);
+    this.ring.frustumCulled = false;
+    const tilt = new Group();
+    tilt.position.set(o.x, o.base + H * 0.64, o.z);
+    tilt.rotation.set(0.3, 0, 0.17);
+    tilt.add(this.ring);
+    parent.add(tilt);
+    for (const i of [0, 6, 11]) {
+      const a = (i / SEG) * TAU;
+      this.ringGlows.push({ id: glows.add(0, 0, 0, 6 * k, [0, 0, 0]), local: new Vector3(Math.cos(a) * (R + 7 * k), 0, -Math.sin(a) * (R + 7 * k)) });
+    }
+    this.top = new Vector3(o.x, o.base + H + 66 * k, o.z);
+    this.mid = new Vector3(o.x, o.base + H * 0.6, o.z);
+    this.beacon = glows.add(this.top.x, this.top.y, this.top.z, 20 * k, [0, 0, 0]);
+
+    const beam = new Builder();
+    for (let i = 0; i < 2; i++) {
+      beam.reset().translate(o.x, o.base + H + 60 * k, o.z).rotateY(i * (Math.PI / 2) + 0.2);
+      beam.quad([-13 * k, 0, 0], [13 * k, 0, 0], [13 * k, 3400 * k, 0], [-13 * k, 3400 * k, 0], [0, 0, 1, 1], [1, 1, 1], [1, 1, 1], [0, 0, 0], [0, 0, 0]);
+    }
+    this.beamMat = psxMaterial(engine.shared, { map: o.white, lit: false, blend: 'add', twoSided: true, vertexColors: true, alpha: 0, tint: [3.2, 2.2, 1.5] });
+    const beamMesh = new Mesh(beam.build(), this.beamMat);
+    beamMesh.frustumCulled = false;
+    beamMesh.renderOrder = 14;
+    parent.add(beamMesh);
+  }
+
+  /** It answers: three slow pulses of the beam and a quickening of the ring. */
+  flash() {
+    this.pulse = 1;
+  }
+
+  update(dt: number, time: number) {
+    this.pulse = Math.max(0, this.pulse - dt / 5);
+    const beat = this.pulse > 0 ? (0.5 - 0.5 * Math.cos((1 - this.pulse) * TAU * 3)) * Math.min(1, this.pulse * 3) : 0;
+    const a = this.awake * (0.9 + 0.1 * Math.sin(time * 0.23)) + beat * 0.6;
+    this.ring.rotation.y += dt * (0.06 + a * 0.2 + beat * 0.5);
+    this.ring.updateWorldMatrix(true, false);
+    for (const g of this.ringGlows) {
+      const p = this.tmp.copy(g.local).applyMatrix4(this.ring.matrixWorld);
+      this.glows.setPos(g.id, p.x, p.y, p.z);
+      const k = 0.4 + a * 1.4;
+      this.glows.setColor(g.id, 0.5 * k, 0.9 * k, 1.0 * k);
+    }
+    const bk = 0.25 + a * 1.2;
+    this.glows.setColor(this.beacon, 1.5 * bk, 0.55 * bk, 0.22 * bk);
+    this.glows.setSize(this.beacon, (15 + 14 * a) * this.k);
+    this.beamMat.uniforms.uAlpha.value = 0.03 + a * 0.7;
   }
 }
 
