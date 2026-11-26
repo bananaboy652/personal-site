@@ -346,12 +346,12 @@ export class AudioEngine {
     // pads go through a slow-breathing low-pass
     const padF = ctx.createBiquadFilter();
     padF.type = 'lowpass';
-    padF.frequency.value = spec.pad?.cutoff ?? 900;
-    padF.Q.value = 0.4;
+    padF.frequency.value = spec.pad?.cutoff ?? 1200;
+    padF.Q.value = 0.5;
     const padLfo = ctx.createOscillator();
     padLfo.frequency.value = 0.043;
     const padLfoG = ctx.createGain();
-    padLfoG.gain.value = (spec.pad?.cutoff ?? 900) * 0.35;
+    padLfoG.gain.value = (spec.pad?.cutoff ?? 1200) * 0.35;
     padLfo.connect(padLfoG).connect(padF.frequency);
     padLfo.start(t);
     const padSend = ctx.createGain();
@@ -403,21 +403,22 @@ export class AudioEngine {
   private buildDrone(v: Voice, dest: AudioNode, t: number) {
     const ctx = this.ctx as Ctx;
     const spec = this.spec as AudioSpec;
-    const gain = spec.drone?.gain ?? 0.07;
+    const gain = spec.drone?.gain ?? 0.045;
     if (gain <= 0) return;
     const f = mtof(spec.root + 12 * (spec.drone?.octave ?? -1));
     const g = ctx.createGain();
     g.gain.value = gain;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 420;
+    lp.frequency.value = 520;
     const trem = ctx.createOscillator();
     trem.frequency.value = 0.061;
     const tremG = ctx.createGain();
     tremG.gain.value = gain * 0.3;
     trem.connect(tremG).connect(g.gain);
     trem.start(t);
-    const parts: [OscillatorType, number, number, number][] = [['sine', f, 0, 1], ['sine', f, 7, 0.8], ['triangle', f / 2, -4, 0.5], ['sine', f * 1.5, 3, 0.22], ['sine', f * 2, -6, 0.12]];
+    // the fundamental is too low for small speakers, so most of the drone is in its octave and fifth
+    const parts: [OscillatorType, number, number, number][] = [['sine', f, 0, 0.7], ['sine', f, 7, 0.55], ['sine', f * 2, -5, 0.6], ['triangle', f * 2, 6, 0.3], ['sine', f * 3, 3, 0.2], ['sine', f * 4, -4, 0.1]];
     const oscs = parts.map(([type, freq, det, level]) => {
       const o = this.osc(type, freq, det, t);
       const og = ctx.createGain();
@@ -440,15 +441,18 @@ export class AudioEngine {
   private pad(v: Voice, t0: number, notes: number[]) {
     const ctx = this.ctx as Ctx;
     const spec = this.spec as AudioSpec;
-    const gain = (spec.pad?.gain ?? 0.11) / Math.sqrt(notes.length);
+    const gain = (spec.pad?.gain ?? 0.1) / Math.sqrt(notes.length);
     const det = spec.pad?.detune ?? 7;
     const attack = spec.bar * 0.36;
     const release = spec.bar * 0.55;
     notes.forEach((semi, i) => {
       const f = mtof(spec.root + semi);
       const level = gain * (i === 0 ? 1.15 : 1) * (0.8 + this.r() * 0.4);
-      for (const [type, d, k] of [[spec.pad?.wave ?? 'triangle', -det, 0.6], ['sine', det, 0.6]] as [OscillatorType, number, number][]) {
-        const o = this.osc(type, f, d + (this.r() - 0.5) * 4, t0);
+      // two soft oscillators a few cents apart, a thread of sawtooth for warmth, and a faint octave above
+      const voices: [OscillatorType, number, number, number][] = [[spec.pad?.wave ?? 'triangle', f, -det, 0.6], ['sine', f, det, 0.6], ['sawtooth', f, det * 0.4, 0.13], ['sine', f * 2, -det * 0.7, i > 0 ? 0.16 : 0]];
+      for (const [type, freq, d, k] of voices) {
+        if (k <= 0) continue;
+        const o = this.osc(type, freq, d + (this.r() - 0.5) * 4, t0);
         const g = ctx.createGain();
         g.gain.setValueAtTime(0, t0);
         g.gain.linearRampToValueAtTime(level * k, t0 + attack);
@@ -499,7 +503,7 @@ export class AudioEngine {
       if (spec.motif && v.bar % 4 === 1 && r() < 0.75) {
         let mt = v.nextBar + beat * 2;
         for (const [semi, len] of spec.motif) {
-          this.bell(v.bellIn, mt, mtof(spec.root + oct + semi), (b.gain ?? 0.09) * 0.9, (b.decay ?? 3.4) * 1.1, b.ratio ?? 3.5, (b.index ?? 1.4) * 0.7);
+          this.bell(v.bellIn, mt, mtof(spec.root + oct + semi), (b.gain ?? 0.13) * 0.9, (b.decay ?? 3.4) * 1.1, b.ratio ?? 3.5, (b.index ?? 1.4) * 0.7);
           mt += beat * len;
         }
         v.nextBell = Math.max(v.nextBell, mt + beat * 6);
@@ -514,7 +518,7 @@ export class AudioEngine {
       v.lastBell = semi;
       const up = r() < 0.3 ? 12 : 0;
       const when = Math.ceil(v.nextBell / beat) * beat;                          // loosely on the pulse
-      const vel = (b.gain ?? 0.09) * (0.55 + r() * 0.5);
+      const vel = (b.gain ?? 0.13) * (0.55 + r() * 0.5);
       this.bell(v.bellIn, when, mtof(spec.root + oct + semi + up), vel, b.decay ?? 3.4, b.ratio ?? 3.5, b.index ?? 1.4);
       if (r() < 0.3) {
         const i = spec.scale.indexOf(semi);

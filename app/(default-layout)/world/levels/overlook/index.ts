@@ -78,16 +78,16 @@ export default class Overlook implements Level {
     bar: 15,
     scale: [0, 3, 5, 7, 10, 14],
     motif: [[7, 3], [10, 2], [14, 5], [12, 6]],
-    pad: { gain: 0.11, cutoff: 950, detune: 7 },
-    bell: { gain: 0.085, every: 8, ratio: 3.5, decay: 3.6, octave: 1, index: 1.3 },
-    drone: { gain: 0.06, octave: -1 },
+    pad: { gain: 0.1, cutoff: 1250, detune: 7 },
+    bell: { gain: 0.13, every: 8, ratio: 3.5, decay: 3.6, octave: 1, index: 1.3 },
+    drone: { gain: 0.04, octave: -1 },
     reverb: { seconds: 6.5, wet: 0.55 },
     wow: 6,
     ambience: [
-      { kind: 'wind', gain: 0.05, pitch: 380 },
-      { kind: 'sea', gain: 0.035, period: 10 },
-      { kind: 'fire', gain: 0.05, rate: 5 },
-      { kind: 'insects', gain: 0.012 },
+      { kind: 'wind', gain: 0.1, pitch: 420 },
+      { kind: 'sea', gain: 0.07, period: 10 },
+      { kind: 'fire', gain: 0.11, rate: 5 },
+      { kind: 'insects', gain: 0.022 },
     ],
   };
   moods: [string, string][] = MOOD_ORDER.map((id) => [id, MOODS[id].label]);
@@ -367,8 +367,10 @@ export default class Overlook implements Level {
 
   /** Through the telescope: the upper works of the tower, close. */
   look() {
-    const y = heightAt(SCOPE[0], SCOPE[1]) + 1.5;
-    this.engine.enterScope({ pos: [SCOPE[0], y, SCOPE[1]], look: [TOWER[0], TOWER_BASE + TOWER_H * 0.66, TOWER[1]], yaw: 0, pitch: 0, fov: 10.5 });
+    // stand just past the end of the tube, so the telescope itself is not in the way
+    const d = this.tmp.set(TOWER[0] - SCOPE[0], 0, TOWER[1] - SCOPE[1]).normalize();
+    const y = heightAt(SCOPE[0], SCOPE[1]) + 1.9;
+    this.engine.enterScope({ pos: [SCOPE[0] + d.x * 1.6, y, SCOPE[1] + d.z * 1.6], look: [TOWER[0], TOWER_BASE + TOWER_H * 0.66, TOWER[1]], yaw: 0, pitch: 0, fov: 10.5 });
   }
 
   hoot() {
@@ -515,7 +517,7 @@ export default class Overlook implements Level {
       wood.reset().translate(fx, fy + 0.04, fz).rotateY((i / 4) * TAU + 0.4).translate(0.4, 0, 0).rotateZ(1.22);
       wood.prism(0.07, 0.055, 0.62, 5, { color: [0.42, 0.34, 0.32], colorTop: [0.8, 0.7, 0.65], uRepeat: 1, vRepeat: 2, capTop: true });
     }
-    this.flameIds = [this.flames.add(fx, fy + 0.05, fz, 1.0, 1.2, 1), this.flames.add(fx + 0.12, fy + 0.05, fz + 0.1, 0.55, 0.8, 1)];
+    this.flameIds = [this.flames.add(fx, fy + 0.05, fz, 1.15, 1.55, 1), this.flames.add(fx + 0.12, fy + 0.05, fz + 0.1, 0.62, 1.0, 1)];
     this.fireGlow = this.glows.add(fx, fy + 0.6, fz, 2.4, EMBER);
 
     // somewhere to sit, and the radio left on it
@@ -893,8 +895,8 @@ export default class Overlook implements Level {
     pointLight(u, 0, this.firePos.x, this.firePos.y + 0.75, this.firePos.z, 15 + this.heat * 2, 1.5 * power, 0.72 * power, 0.3 * power);
     this.glows.setColor(this.fireGlow, EMBER[0] * 0.5 * power, EMBER[1] * 0.46 * power, EMBER[2] * 0.4 * power);
     this.glows.setSize(this.fireGlow, 2.1 + power * 0.5);
-    this.flames.setPower(this.flameIds[0], lit * (0.8 + (this.heat - 1) * 0.6));
-    this.flames.setPower(this.flameIds[1], lit * (0.9 + (this.heat - 1) * 0.5));
+    this.flames.setPower(this.flameIds[0], lit * (0.78 + (this.heat - 1) * 0.36));
+    this.flames.setPower(this.flameIds[1], lit * (0.86 + (this.heat - 1) * 0.3));
     if (dt > 0) {
       if (r() < dt * 4.5 * this.heat * lit) this.ember();
       if (r() < dt * 1.6 * lit) this.puff();

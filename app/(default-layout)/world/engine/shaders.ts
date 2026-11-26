@@ -645,7 +645,7 @@ export function waterMaterial(shared: Uniforms, map: Texture, o: WaterOptions = 
           if (age < 0.0 || age > 7.0) continue;
           float d = length(vW - uRipple[i].xy);
           float r = age * 1.5 + 0.1;
-          float w = 0.05 + r * 0.035;
+          float w = 0.16 + r * 0.07;
           float wave = max(1.0 - abs(d - r) / w, 0.0) + 0.5 * max(1.0 - abs(d - r * 0.62) / w, 0.0);
           ring += wave * uRipple[i].w * (1.0 - age / 7.0);
         }
@@ -796,7 +796,8 @@ export function flameMaterial(shared: Uniforms, noise: Texture) {
         float n2 = texture2D(map, vec2(uv.x * 0.8 + vSeed * 3.1, uv.y * 0.62 - vT * 0.58)).r;
         float n = n1 * 0.62 + n2 * 0.38;
         float x = (uv.x - 0.5) * 2.0 + (n - 0.5) * 0.9 * uv.y;
-        float y = uv.y / max(0.55 + 0.45 * vPower, 0.05);
+        if (vPower < 0.03) discard;
+        float y = uv.y / clamp(0.2 + 0.72 * vPower, 0.05, 1.0);
         float w = (1.0 - y) * (0.42 + 0.58 * sin(min(y * 2.6 + 0.5, 3.14159)));
         float heat = (1.0 - abs(x) / max(w, 0.001)) * (0.62 + 0.75 * n) - y * 0.3;
         if (heat < 0.16 || y > 1.0) discard;
