@@ -171,13 +171,7 @@ export class Runtime {
 
   toggleSound() {
     const a = this.engine.audio;
-    if (a.enabled) {
-      a.ui('off');
-      a.disable();
-    } else {
-      a.enable();
-      a.ui('on');
-    }
+    a.flip();
     store.sound = a.enabled;
     this.engine.hud.toast(a.enabled ? 'Sound on' : 'Sound off', 1.8);
   }

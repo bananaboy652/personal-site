@@ -111,14 +111,7 @@ export class Radio {
 
   toggle() {
     const a = this.engine.audio;
-    if (a.enabled) {
-      a.ui('off');
-      a.disable();
-    } else {
-      a.enable();
-      a.ui('on');
-      this.nextNote = 0.4;
-    }
+    if (a.flip()) this.nextNote = 0.4;
     store.sound = a.enabled;
   }
 

@@ -117,6 +117,7 @@ export class AudioEngine {
   private r = rng(8128);
   private irSeconds = 0;
   private lastUi = 0;
+  private since = 0;
 
   /** Sound is on and there is something to play it through. */
   get running() {
@@ -136,6 +137,7 @@ export class AudioEngine {
   /** Turn sound on. Must be called from a click, tap or key press. */
   enable(context?: Ctx) {
     this.enabled = true;
+    this.since = performance.now();
     if (!this.ctx) {
       try {
         const AC = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ??
@@ -176,9 +178,17 @@ export class AudioEngine {
     this.onChange?.(false);
   }
 
-  toggle() {
-    if (this.enabled) this.disable();
-    else this.enable();
+  /** Throw the switch, as one act with its own little sound; returns the new
+   *  state. For a returning visitor the sound is restored at their first touch
+   *  of the page; if that same touch was on the switch, it means "on". */
+  flip() {
+    if (this.enabled && performance.now() - this.since > 700) {
+      this.ui('off');
+      this.disable();
+    } else {
+      if (!this.enabled) this.enable();
+      this.ui('on');
+    }
     return this.enabled;
   }
 
