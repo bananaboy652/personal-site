@@ -42,6 +42,9 @@ export class Sky {
   readonly clouds = new Group();
   readonly moonDir = new Vector3(0, 0.3, -1).normalize();
   lineCount = 0;
+  /** where the constellation's stars are right now (they turn with the sky) */
+  readonly figure: Vector3[] = [];
+  private figLocal: Vector3[] = [];
   private starMat: ShaderMaterial | null = null;
   private lineMat: ShaderMaterial | null = null;
   private moonMat: ShaderMaterial | null = null;
@@ -86,6 +89,8 @@ export class Sky {
       }
       const fig = (o.figure?.stars ?? []).map(([az, el]) => dirFrom(az, el));
       for (const d of fig) star(d, 2, 1.25);
+      this.figLocal = fig.map((d) => d.clone());
+      for (const d of fig) this.figure.push(d.clone());
       const sg = new BufferGeometry();
       sg.setAttribute('position', new Float32BufferAttribute(dirs, 3));
       sg.setAttribute('aStar', new Float32BufferAttribute(attr, 3));
@@ -221,6 +226,7 @@ export class Sky {
 
   update(dt: number) {
     this.celestial.rotateOnAxis(this.axis, dt * 0.0035);
+    this.figLocal.forEach((d, i) => this.figure[i].copy(d).applyQuaternion(this.celestial.quaternion));
     this.clouds.rotation.y += dt * this.drift;
   }
 }

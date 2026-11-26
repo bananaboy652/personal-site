@@ -346,7 +346,8 @@ export class Hud {
     const s = this.safe;
     const right = s.x1 * this.w - 8 * u;
     const x = this.centred ? Math.round(((s.x0 + s.x1) / 2) * this.w - full / 2) : Math.round(right - full);
-    const y = Math.round(s.y1 * this.h - (big * 7 + 26) * u);
+    // on an upright phone the card goes at the top of the clear band, under the nav; otherwise bottom right
+    const y = this.centred ? Math.round(s.y0 * this.h + 12 * u) : Math.round(s.y1 * this.h - (big * 7 + 26) * u);
     this.text(title, x, y, [INK[0], INK[1], INK[2], a], big);
     const ruleT = Math.max(0, Math.min(1, (c.t - c.title.length / 20) / 0.5));
     if (ruleT > 0) this.rect(x, y + (big * 7 + 4) * u, Math.round(full * ruleT), u, [EMBER[0], EMBER[1], EMBER[2], a]);
@@ -362,7 +363,7 @@ export class Hud {
     const u = this.unit;
     const s = this.safe;
     const cx = ((s.x0 + s.x1) / 2) * this.w;
-    let y = Math.round(s.y0 * this.h + 6 * u);
+    let y = Math.round(s.y0 * this.h + (this.centred && this.card ? 44 : 6) * u);
     this.toasts = this.toasts.filter((t) => (t.t += dt) < t.life);
     for (const t of this.toasts) {
       const a = Math.ceil(Math.min(1, t.t / 0.12, (t.life - t.t) / 0.6) * 4) / 4;

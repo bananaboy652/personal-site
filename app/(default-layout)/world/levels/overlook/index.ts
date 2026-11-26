@@ -101,6 +101,7 @@ export default class Overlook implements Level {
     ['Let it sleep', () => this.sleep()],
     ['Answer (3 stokes)', () => this.acknowledge()],
     ['All five answered', () => this.finale(true)],
+    ['Something surfaces', () => (this.whaleIn = 0)],
   ];
 
   private tex: Textures;
@@ -172,6 +173,13 @@ export default class Overlook implements Level {
   private tmp = new Vector3();
   private tmp2 = new Vector3();
   private at = { x: 0, y: 0 };
+  private starFlash: number[] = [0, 0, 0, 0, 0, 0];
+  private starGlows: number[] = [];
+  // something large that lives in the bay, and comes up now and then
+  private whale!: Mesh;
+  private whaleT = -1;
+  private whaleIn = 38;
+  private whalePos = new Vector3();
 
   constructor(private engine: Engine) {
     const shared = engine.shared;
@@ -198,6 +206,7 @@ export default class Overlook implements Level {
     this.buildArch();
     this.buildTower();
     this.buildBirds();
+    this.buildDeep();
     this.root.add(this.flames.mesh, this.glows.mesh, this.embers.points, this.smoke.points, this.motes.points, this.streaks.points);
     engine.scene.add(this.root);
 
@@ -208,6 +217,8 @@ export default class Overlook implements Level {
       { id: 'scope', label: 'Look through the telescope', center: new Vector3(SCOPE[0], heightAt(SCOPE[0], SCOPE[1]) + 1.2, SCOPE[1]), radius: 0.9, onClick: () => this.look() },
       { id: 'owl', label: 'Say hello', center: this.owl.pos, radius: 0.55, marker: false, onClick: () => this.hoot() },
       this.gate.interactable,
+      // the figure in the stars: each of its stars rings a note of the tune the music keeps coming back to
+      ...this.sky.figure.map((dir, i): Interactable => ({ id: `star${i}`, label: 'The Lamplighter', dir, angle: rad(1.3), marker: false, hidden: () => this.now.stars < 0.4, onClick: () => this.touchStar(i) })),
       this.moonIt,
       { id: 'tower', label: 'Hail the tower', dir: this.towerDir, angle: rad(2.6), onClick: () => this.hailTower() },
     );
@@ -403,6 +414,13 @@ export default class Overlook implements Level {
     const d = this.tmp.set(TOWER[0] - SCOPE[0], 0, TOWER[1] - SCOPE[1]).normalize();
     const y = heightAt(SCOPE[0], SCOPE[1]) + 1.9;
     this.engine.enterScope({ pos: [SCOPE[0] + d.x * 1.6, y, SCOPE[1] + d.z * 1.6], look: [TOWER[0], TOWER_BASE + TOWER_H * 0.66, TOWER[1]], yaw: 0, pitch: 0, fov: 10.5 });
+  }
+
+  /** A star of the constellation, touched. */
+  touchStar(i: number) {
+    const notes = [7, 10, 14, 12, 19, 5];
+    this.engine.audio.chime(notes[i % notes.length], { gain: 0.14, decay: 4 });
+    this.starFlash[i] = 1;
   }
 
   hoot() {
@@ -785,6 +803,65 @@ export default class Overlook implements Level {
     this.root.add(beamMesh);
   }
 
+  private buildDeep() {
+    const b = new Builder();
+    b.blob(13, { seed: 12, jitter: 0.08, detail: 1, squash: [1, 0.5, 3.0], color: [0.5, 0.52, 0.6], colorTop: [0.95, 0.98, 1.1], uvScale: 0.05 });
+    // flukes
+    b.push().translate(0, 1, -39).tri([0, 0, 6], [-13, 1, -7], [0, 0, -1], [0, 0], [1, 0], [0.5, 1], [0.6, 0.62, 0.7]).tri([0, 0, 6], [0, 0, -1], [13, 1, -7], [0, 0], [0.5, 1], [1, 0], [0.6, 0.62, 0.7]).pop();
+    this.whale = new Mesh(b.build(), psxMaterial(this.engine.shared, { map: this.tex.rock, vertexColors: true, twoSided: true, tint: [0.34, 0.38, 0.5], texFade: [200, 600], fogScale: 0.7 }));
+    this.whale.frustumCulled = false;
+    this.whale.visible = false;
+    this.root.add(this.whale);
+    for (let i = 0; i < 6; i++) this.starGlows.push(this.glows.add(0, -1e4, 0, 60, [0, 0, 0]));
+  }
+
+  private updateDeep(dt: number, time: number, dark: number) {
+    // the constellation's stars flare when touched
+    const cam = this.engine.camera.position;
+    this.sky.figure.forEach((d, i) => {
+      const k = (this.starFlash[i] = Math.max(0, this.starFlash[i] - dt * 0.9));
+      this.glows.setPos(this.starGlows[i], cam.x + d.x * 6000, cam.y + d.y * 6000, cam.z + d.z * 6000);
+      this.glows.setColor(this.starGlows[i], 0.6 * k * k, 0.9 * k * k, 1.1 * k * k);
+    });
+    // the visitor from the deep: a back, an arch, the flukes, and gone
+    if (this.whaleT < 0) {
+      this.whaleIn -= dt;
+      if (this.whaleIn <= 0 && !this.timeline) {
+        this.whaleIn = 80 + this.r() * 90;
+        this.whaleT = 0;
+        const az = this.focusAz - 22 + this.r() * 34;
+        const dist = 300 + this.r() * 260;
+        dirFrom(az, 0, this.whalePos).multiplyScalar(dist).setY(SEA);
+        this.whale.rotation.y = rad(az) + (this.r() < 0.5 ? 1.2 : -1.2);
+        this.whale.visible = true;
+        const audio = this.engine.audio;
+        audio.tone({ f: [audio.hz(-17), audio.hz(-22)], dur: 3.2, type: 'sine', gain: 0.1, attack: 0.9, vib: [3.5, 18], send: 1 });
+        audio.tone({ f: [audio.hz(-10), audio.hz(-5)], dur: 2.2, type: 'sine', gain: 0.05, at: 2.6, attack: 0.7, vib: [4, 14], send: 1 });
+      }
+      return;
+    }
+    const T = 9;
+    const k = (this.whaleT += dt) / T;
+    if (k >= 1) {
+      this.whaleT = -1;
+      this.whale.visible = false;
+      return;
+    }
+    const rise = Math.sin(Math.min(k * 1.25, 1) * Math.PI);
+    const w = this.whale;
+    const fwd = this.tmp.set(Math.sin(w.rotation.y), 0, Math.cos(w.rotation.y));
+    w.position.copy(this.whalePos).addScaledVector(fwd, (k - 0.5) * 60);
+    w.position.y = SEA - 8.5 + rise * 12;
+    w.rotation.x = lerp(-0.5, 0.75, k);
+    // white water where it breaks the surface and where it goes back under
+    if (dt > 0 && (k < 0.28 || k > 0.72) && this.r() < dt * 26) {
+      const a = this.r() * TAU;
+      const rr = 8 + this.r() * 16;
+      this.streaks.spawn({ x: w.position.x + Math.cos(a) * rr, y: SEA + 0.5, z: w.position.z + Math.sin(a) * rr, vx: Math.cos(a) * 3, vy: 5 + this.r() * 6, vz: Math.sin(a) * 3, life: 1.3 + this.r(), size: 1.6, color: [0.75 * (0.4 + dark * 0.6), 0.85 * (0.4 + dark * 0.6), 0.95], fade: [0.2, 0.3, 0.4], gravity: 7 });
+    }
+    void time;
+  }
+
   private buildBirds() {
     const r = rng(606);
     const N = 9;
@@ -1004,6 +1081,7 @@ export default class Overlook implements Level {
     this.boat.rotation.z = Math.sin(time * 0.7) * 0.05;
     this.updateBirds(time);
     this.updateOwl(dt, time, dark);
+    this.updateDeep(dt, time, dark);
     this.radio.update(dt, time);
 
     this.embers.update(dt, time);
