@@ -305,6 +305,10 @@ export default class Overlook implements Level {
     t.at(9.7, () => this.wake());
     t.at(10.4, () => e.hud.title(this.title, N.label));
     t.at(13.2, () => e.hud.nudge(4.5));
+    // sound is off until asked for; say once where the switch is
+    t.at(14.5, () => {
+      if (!e.audio.enabled) e.hud.toast(`${G.note}  Sound is off. Try the radio by the fire`, 7);
+    });
   }
 
   hurry() {
