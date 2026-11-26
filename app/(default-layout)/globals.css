@@ -275,20 +275,22 @@ html[data-world="live"] body {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  html[data-enter="first"] .siteFrame {
+  /* the bezel, including the bottom bar that the footer supplies */
+  html[data-enter="first"] .siteFrame,
+  html[data-enter="first"] .frameDock {
     animation: enter-fade 1.3s 0.25s both;
   }
   html[data-enter="first"] nav {
     animation: enter-drop 0.75s 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   }
-  html[data-enter] main > :not(#hero),
+  html[data-enter] main > :not(#hero):not(footer):not(.frameDock),
   html[data-enter] main > #hero > * {
     --enter-base: 0.02s;
     --enter-step: 0.07s;
     animation: enter-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
     animation-delay: calc(var(--enter-base) + var(--enter-i, 0) * var(--enter-step));
   }
-  html[data-enter="first"] main > :not(#hero),
+  html[data-enter="first"] main > :not(#hero):not(footer):not(.frameDock),
   html[data-enter="first"] main > #hero > * {
     --enter-base: 1.35s;
     --enter-step: 0.22s;
@@ -303,7 +305,7 @@ html[data-world="live"] body {
 
 /* "Hide page" in the scene-select menu: the world on its own. */
 html[data-world-only] body > *:not([data-world]) {
-  opacity: 0;
+  opacity: 0 !important;      /* has to beat the entrance animation, which holds its last frame */
   pointer-events: none;
   transition: opacity 0.4s;
 }
