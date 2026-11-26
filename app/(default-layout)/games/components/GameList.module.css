@@ -1,8 +1,8 @@
 .main{
     display: flex;
-    margin: auto;
+    margin-left: var(--edge);
     position: relative;
-    max-width: 72rem;
+    max-width: min(72rem, calc(100vw - 2 * var(--edge)));
     justify-content: space-between;
     flex-wrap: wrap;
     margin-bottom: 1rem;

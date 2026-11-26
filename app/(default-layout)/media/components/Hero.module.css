@@ -1,8 +1,8 @@
 .main{
     composes: glassFrame from global;
 
-    margin: auto;
-    max-width: 58rem;
+    margin-left: var(--edge);
+    max-width: min(58rem, calc(100vw - 2 * var(--edge)));
     margin-top: 10rem;
     padding: calc(var(--ft) + 1.1rem) calc(var(--ft) + 1.3rem);
 

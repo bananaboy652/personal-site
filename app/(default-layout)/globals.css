@@ -6,7 +6,8 @@
 @tailwind utilities;
 
 :root {
-  --background-image: url("/images/outerWildsBackground.jpg");
+  /* A still of the 3D world, shown until the live one fades in over it. */
+  --background-image: url("/images/overlook.png");
   --foreground-rgb: 0, 0, 0;
   --background-start-rgb: 55, 55, 220;
   --background-end-rgb: 55, 150, 255;
@@ -29,9 +30,29 @@
   --accent-ink: #26160d;
 
   /* Resin (the frame material) */
-  --resin: #393734;
-  --resin-raised: #45423e;
-  --resin-well: #1d1c1b;
+  --resin: #3d3b40;
+  --resin-raised: #4a474d;
+  --resin-well: #1c1b1e;
+
+  /* Layout: everything docks to the left, a title screen over the view. */
+  --edge: calc(var(--site-frame) + var(--site-gap));   /* where panels start */
+  --indent: 1.8rem;                                    /* text set straight on the scene */
+  --col: 44rem;                                        /* the opening column */
+
+  /* Corners. A frame's inner corner is its outer radius less its thickness,
+     and anything set inside takes the outer radius less its distance from the
+     outer edge, so nested corners always share one centre. */
+  --panel-r: 30px;
+  --panel-t: 15px;
+  --card-r: 28px;
+  --card-t: 14px;
+  --pill-r: 29px;
+  --pill-t: 10px;
+  --capsule-r: 36px;
+  --capsule-t: 10px;
+  --chip-r: 14px;
+  --chip-t: 7px;
+  --small-r: 2px;                                      /* keys, tags, wells: deep inside a frame, so all but square */
 
   /* Glass (what sits inside the frames) */
   --glass-tint: rgba(6, 6, 8, 0.68);
@@ -56,18 +77,18 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #2a2826;
+  background: #29272c;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #5b5852;
-  border-radius: 6px;
-  border: 3px solid #2a2826;
+  background-color: #5c5960;
+  border-radius: 2px;
+  border: 3px solid #29272c;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #5b5852 #2a2826;
+  scrollbar-color: #5c5960 #29272c;
 }
 
 ::selection {
@@ -80,8 +101,9 @@ body {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  background-color: black;
+  background-color: #0a0e1d;
   background-attachment: fixed;
+  image-rendering: pixelated;
   font-family: var(--font-body);
   color: var(--ink-soft);
   -webkit-font-smoothing: antialiased;
@@ -138,47 +160,53 @@ body {
   box-shadow: var(--frame-shadow);
 }
 
-/* Thicknesses and radii below must match scripts/build-materials.mjs. */
+/* Thicknesses and radii must match scripts/build-materials.mjs.
+   --ft is the frame thickness and --fr its outer radius, for anything nested. */
 .glassFrame {
-  --ft: 15px;
-  border-radius: 30px;
+  --ft: var(--panel-t);
+  --fr: var(--panel-r);
+  border-radius: var(--panel-r);
   background-image: var(--frame-panel), var(--glass-sheen);
 }
 
 .glassFrameCard {
-  --ft: 14px;
-  border-radius: 28px;
+  --ft: var(--card-t);
+  --fr: var(--card-r);
+  border-radius: var(--card-r);
   background-image: var(--frame-card), var(--glass-sheen);
 }
 
 /* Capsules are drawn for one height each (58px and 72px): give the element that height. */
 .glassFramePill {
-  --ft: 10px;
+  --ft: var(--pill-t);
+  --fr: var(--pill-r);
   height: 58px;
-  border-radius: 29px;
+  border-radius: var(--pill-r);
   background-image: var(--frame-pill), var(--glass-sheen);
 }
 
 .glassFrameCapsule {
-  --ft: 10px;
+  --ft: var(--capsule-t);
+  --fr: var(--capsule-r);
   height: 72px;
-  border-radius: 36px;
+  border-radius: var(--capsule-r);
   background-image: var(--frame-capsule), var(--glass-sheen);
 }
 
 .glassFrameChip {
-  --ft: 7px;
-  border-radius: 14px;
+  --ft: var(--chip-t);
+  --fr: var(--chip-r);
+  border-radius: var(--chip-r);
   background-image: var(--frame-chip), var(--glass-sheen);
 }
 
 /* A solid raised piece of resin: buttons and small tags. */
 .resinKey {
   background-color: var(--resin-raised);
-  background-image: var(--relief-key), var(--resin-grain);
-  background-size: 100% 100%, 180px 180px;
+  background-image: var(--relief-key), var(--resin-tile-raised);
+  background-size: 100% 100%, var(--resin-texel) var(--resin-texel);
   background-repeat: no-repeat, repeat;
-  border-radius: 11px;
+  border-radius: var(--small-r);
   box-shadow: var(--key-shadow);
   color: var(--ink);
 }
@@ -189,7 +217,7 @@ body {
   background-image: var(--relief-well);
   background-size: 100% 100%;
   background-repeat: no-repeat;
-  border-radius: 12px;
+  border-radius: var(--small-r);
   box-shadow: var(--well-shadow);
 }
 
@@ -217,6 +245,13 @@ body {
 
 body:has(.frameDock) .siteFrame {
   background-image: var(--site-open);
+}
+
+/* "Hide page" in the scene-select menu: the world on its own. */
+html[data-world-only] body > *:not([data-world]) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s;
 }
 
 @layer utilities {

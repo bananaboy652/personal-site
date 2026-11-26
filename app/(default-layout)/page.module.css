@@ -1,0 +1,16 @@
+/* The About text and the facts panel share a row under the name. */
+.intro{
+    display: flex;
+    align-items: stretch;
+    gap: var(--site-gap);
+    width: var(--col);
+    max-width: calc(100vw - 2 * var(--edge));
+    margin-left: var(--edge);
+    margin-top: 0.9rem;
+}
+
+@media (max-width: 46rem) {
+    .intro{
+        flex-direction: column;
+    }
+}

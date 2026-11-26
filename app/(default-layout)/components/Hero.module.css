@@ -1,28 +1,39 @@
+/* The opening block: portrait and name side by side, docked to the left like
+   a title screen, leaving the right of the window to the view. */
 .main{
     display: flex;
-    margin: auto;
+    gap: 1.5rem;
+    width: var(--col);
+    max-width: calc(100vw - 2 * var(--edge));
+    margin-left: var(--edge);
+    margin-top: 9.4rem;
     background-color: transparent;
-    max-width: 62.5rem;
-    margin-top: 10rem;
-    justify-content: space-between;
 }
 
-/* The portrait sits in its own resin frame: the photo is the picture, the
-   padding is the frame. */
-.img{
+/* The portrait sits in its own resin frame. The photo's corner radius is the
+   frame's less its thickness, so the two curves are concentric. */
+.frame{
     box-sizing: border-box;
     width: 240px;
     height: 240px;
-    padding: 14px;
-    border-radius: 28px;
+    padding: var(--card-t);
+    border-radius: var(--card-r);
     background-image: var(--frame-card);
     background-size: 100% 100%;
     background-repeat: no-repeat;
     box-shadow: var(--frame-shadow);
+}
+
+.img{
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: calc(var(--card-r) - var(--card-t));
     object-fit: cover;
 }
 
 .profile{
+    flex: none;
     font-family: var(--font-label);
     color: var(--ink-muted);
     text-align: center;
@@ -42,9 +53,28 @@
     font-weight: 500;
     letter-spacing: -0.035em;
     line-height: 1.1;
-    margin-left: -2rem;
     margin-top: 0.4rem;
-    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
+    min-width: 0;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+
+.titlecard h1{
+    white-space: nowrap;
+}
+
+@media (max-width: 46rem) {
+    .main{
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+    .titlecard{
+        font-size: 3.4rem;
+        margin-left: 0.3rem;
+    }
+    .titlecard_h2{
+        font-size: 2rem;
+        line-height: 2.4rem;
+    }
 }
 
 .titlecard_h2{

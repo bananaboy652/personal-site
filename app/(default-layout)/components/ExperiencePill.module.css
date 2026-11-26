@@ -1,9 +1,9 @@
 .main{
     composes: glassFrame from global;
 
-    margin: auto;
+    margin-left: var(--edge);
     margin-top: 0.5rem;
-    max-width: 58rem;
+    max-width: min(58rem, calc(100vw - 2 * var(--edge)));
     padding: calc(var(--ft) + 1.1rem) calc(var(--ft) + 1.3rem);
     position: relative;
 

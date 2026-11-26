@@ -1,36 +1,58 @@
+/* The bar docks in the top-left corner of the bezel. It sits --site-gap in
+   from the bezel on both sides, and the bezel's corner radius is the bar's
+   radius plus that gap, so the two curves share a centre. */
 .main{
     position: fixed;
-    top: 1.6rem;
-    left: 0;
+    top: var(--edge);
+    left: var(--edge);
     z-index: 1000;
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    pointer-events: none;   /* only the logo and the bar itself take clicks */
+    max-width: calc(100vw - 2 * var(--edge));
+    pointer-events: none;   /* only the bar itself takes clicks */
 }
 
 .main > *{
     pointer-events: auto;
 }
 
-.logo{
-    position: absolute;
-    left: 3rem;
-    top: 0.2rem;
-}
-
 /* The bar: a capsule of dark glass set in a resin frame. */
 .nav{
     composes: glassFramePill from global;
     display: flex;
-    width: calc(100% - 12rem);
-    max-width: 60rem;
-    padding: 0 calc(var(--ft) + 2.6rem);
+    align-items: center;
+    width: var(--col);
+    max-width: 100%;
+    padding-right: calc(var(--ft) + 1.1rem);
 
-    font-size: 0.95rem;
+    font-size: 0.93rem;
     font-weight: 400;
     letter-spacing: 0.005em;
     color: var(--ink-muted);
+}
+
+/* The mark sits in the round end of the bar: a circle inside the capsule's
+   cap, sharing its centre. */
+.home{
+    --inset: calc(var(--ft) + 3px);
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: calc(58px - 2 * var(--inset));
+    height: calc(58px - 2 * var(--inset));
+    margin-left: var(--inset);
+    margin-right: 0.5rem;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    transition: background 0.15s;
+}
+
+.home:hover{
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.logo{
+    width: 22px;
+    height: 22px;
 }
 
 /* Portfolio links and personal links sit in two groups, each with its own
@@ -44,19 +66,19 @@
 }
 
 .portfolio{
-    flex: 4.4;
+    flex: 4.5;
     color: var(--ink-muted);
 }
 
 .personal{
     flex: 2;
-    margin-left: 2.75rem;
+    margin-left: 1.5rem;
     --trim: var(--accent);
 }
 
 .active,
 .inactive{
-    padding: 0 0.75rem;
+    padding: 0 0.55rem;
     white-space: nowrap;
     transition: color 0.15s;
 }
@@ -76,8 +98,8 @@
 
 .trim{
     position: absolute;
-    left: 0.75rem;
-    right: 0.75rem;
+    left: 0.55rem;
+    right: 0.55rem;
     top: calc(100% + 0.55rem);
     color: var(--trim, var(--ink-muted));
     opacity: 1;
@@ -92,7 +114,6 @@
     height: 0.45rem;
     border: 1px solid currentColor;
     border-top: 0;
-    border-radius: 0 0 5px 5px;
 }
 
 .trimHidden{
@@ -104,6 +125,7 @@
     text-align: center;
     font-size: 0.62rem;
     line-height: 1;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
 }
 
 /* the centre tick joining bracket and caption */
@@ -114,4 +136,19 @@
     height: 0.4rem;
     margin: 0 auto 0.3rem;
     background: currentColor;
+}
+
+/* Narrow screens: the bar keeps its shape and scrolls sideways. */
+@media (max-width: 48rem) {
+    .nav{
+        width: auto;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .nav::-webkit-scrollbar{
+        display: none;
+    }
+    .trim{
+        display: none;
+    }
 }

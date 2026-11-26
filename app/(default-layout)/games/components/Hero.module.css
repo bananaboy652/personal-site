@@ -1,6 +1,6 @@
 .main{
-    margin: auto;
-    max-width: 58rem;
+    margin-left: var(--edge);
+    max-width: min(58rem, calc(100vw - 2 * var(--edge)));
     margin-top: 11rem;
 }
 

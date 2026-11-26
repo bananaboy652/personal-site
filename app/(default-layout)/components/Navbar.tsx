@@ -60,15 +60,15 @@ export default function Navbar(){
 
     return(
         <div className={styles.main}>
-            <a href="/">
-                <img className={styles.logo}
-                    src = "/images/logo.png"
-                    alt = "Main logo"
-                    width={50}
-                    height={50}
-                />
-            </a>
             <nav className={styles.nav}>
+                <a href="/" className={styles.home}>
+                    <img className={styles.logo}
+                        src = "/images/logo.png"
+                        alt = "Main logo"
+                        width={22}
+                        height={22}
+                    />
+                </a>
                 <div className={`${styles.group} ${styles.portfolio}`}>
                     <a href="/" className={sectionClass('hero')}>
                         ✨ About me

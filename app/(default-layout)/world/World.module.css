@@ -1,0 +1,148 @@
+/* The world sits behind the whole page, inside the site's bezel. The canvas is
+   drawn small and scaled up with hard pixels; the engine sets its exact size. */
+.host{
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100lvh;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.canvas{
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    image-rendering: pixelated;
+    opacity: 0;
+    transition: opacity 1.1s ease;
+}
+
+.live{
+    opacity: 1;
+}
+
+/* Keeps the left of the picture quiet enough to read text against. */
+.scrim{
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(90deg, rgba(7, 7, 14, 0.5) 0%, rgba(7, 7, 14, 0.2) 36%, rgba(7, 7, 14, 0) 62%),
+        linear-gradient(180deg, rgba(7, 7, 14, 0.32) 0, rgba(7, 7, 14, 0) 24%);
+}
+
+/* On a phone the page covers the whole picture, so the whole picture dims. */
+@media (max-width: 46rem) {
+    .scrim{
+        background: linear-gradient(180deg, rgba(7, 7, 14, 0.5) 0, rgba(7, 7, 14, 0.42) 100%);
+    }
+}
+
+/* The prompt that appears over something you can act on. */
+.prompt{
+    composes: label from global;
+    position: absolute;
+    transform: translate(-50%, calc(-100% - 2.4rem));
+    padding: 0.42rem 0.7rem 0.4rem;
+    white-space: nowrap;
+    color: var(--ink);
+    background: rgba(8, 8, 12, 0.78);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.6);
+    border-radius: 2px;
+}
+
+.prompt b{
+    color: var(--accent);
+    font-weight: 500;
+    margin-right: 0.5em;
+}
+
+/* ── Scene select ────────────────────────────────────────────────────────
+   A debug menu for trying the scene's options (add ?debug to the address, or
+   press the ` key). It docks in the top-right corner the way the nav docks in
+   the top-left: same gap, same radius, so it too is concentric with the bezel. */
+.panel{
+    composes: glassFramePill from global;
+    position: fixed;
+    top: var(--edge);
+    right: var(--edge);
+    z-index: 1100;
+    width: 22.5rem;
+    max-width: calc(100vw - 2 * var(--edge));
+    height: auto;
+    padding: calc(var(--ft) + 0.75rem) calc(var(--ft) + 0.95rem) calc(var(--ft) + 0.7rem);
+    color: var(--ink-soft);
+}
+
+.panelHead{
+    composes: label from global;
+    display: flex;
+    justify-content: space-between;
+    color: var(--ink);
+    margin-bottom: 0.55rem;
+}
+
+.panelHead span{
+    color: var(--accent);
+}
+
+.row{
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.34rem;
+}
+
+.rowLabel{
+    composes: label from global;
+    width: 3.9rem;
+    font-size: 0.58rem;
+    color: var(--ink-muted);
+}
+
+.opt{
+    composes: resinKey label from global;
+    padding: 0.34rem 0.5rem 0.3rem;
+    font-size: 0.56rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.opt:hover{
+    filter: brightness(1.15);
+}
+
+.optOn{
+    background-color: var(--accent);
+    background-image: var(--relief-key);
+    background-size: 100% 100%;
+    color: var(--accent-ink);
+}
+
+.stats{
+    composes: label from global;
+    margin-top: 0.65rem;
+    font-size: 0.56rem;
+    color: var(--ink-muted);
+}
+
+/* "Hide page": the world on its own. Any click brings the page back. */
+.back{
+    composes: label from global;
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--edge) + 1rem);
+    transform: translateX(-50%);
+    z-index: 1100;
+    padding: 0.5rem 0.8rem;
+    color: var(--ink);
+    background: rgba(8, 8, 12, 0.72);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+    border-radius: 2px;
+    cursor: pointer;
+}

@@ -1,8 +1,8 @@
 .main{
     display: flex;
-    margin: auto;
+    margin-left: var(--edge);
     position: relative;
-    max-width: 58rem;
+    max-width: min(58rem, calc(100vw - 2 * var(--edge)));
     justify-content: space-between;
     flex-wrap: wrap;
     margin-bottom: 1rem;
@@ -14,7 +14,8 @@
 
     display: flex;
     align-items: center;
-    padding: 0 calc(var(--ft) + 0.75rem);
+    /* the avatar is a circle in the capsule's round end, sharing its centre */
+    padding: 0 calc(var(--ft) + 0.75rem) 0 calc(var(--ft) + 6px);
     margin-bottom: 0.65rem;
     width: 19rem;
 
@@ -45,8 +46,8 @@
 }
 
 .Icon {
-  width: 2.2rem;
-  height: 2.2rem;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1px 0 1px rgba(255, 255, 255, 0.12);
 }

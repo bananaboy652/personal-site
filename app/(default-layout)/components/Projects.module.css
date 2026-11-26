@@ -1,8 +1,8 @@
 .main{
     display: flex;
-    margin: auto;
+    margin-left: var(--edge);
     position: relative;
-    max-width: 58rem;
+    max-width: min(58rem, calc(100vw - 2 * var(--edge)));
     justify-content: space-between;
     flex-wrap: wrap;
     margin-bottom: -1rem;
@@ -18,7 +18,7 @@
 /* The thumbnail is let into the glass: a dark seat around it and a thin
    catch of light along its lower edge. */
 .CardImage{
-    border-radius: 13px;
+    border-radius: max(2px, calc(var(--card-r) - 1.5rem));   /* 1.5rem in from the card's edge */
     width: 15.5rem;
     height: 10rem;
     object-fit: cover;

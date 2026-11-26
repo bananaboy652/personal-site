@@ -1,15 +1,13 @@
 .main{
     composes: glassFrame from global;
 
-    height: 240px;
+    flex: none;
     width: 240px;
     padding: calc(var(--ft) + 0.85rem) calc(var(--ft) + 0.8rem);
 
     color: var(--ink-soft);
     font-weight: 400;
     font-size: 0.93rem;
-
-    float: right;
 }
 
 .main_h3{
@@ -17,8 +15,8 @@
     white-space: nowrap;
 }
 
-@media (max-width: 63rem) {
+@media (max-width: 46rem) {
     .main{
-        display: none;
+        width: auto;
     }
 }

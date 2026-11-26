@@ -36,7 +36,8 @@
 }
 
 .main{
-    margin: auto;
+    /* lines up with the headings above it */
+    margin-left: calc(var(--site-gap) + var(--indent) - 2rem);
     max-width: 62.5rem;
     position: relative;
 

@@ -1,8 +1,8 @@
 .main{
     display: flex;
-    margin: auto;
+    margin-left: var(--edge);
     position: relative;
-    max-width: 72rem;
+    max-width: min(72rem, calc(100vw - 2 * var(--edge)));
     justify-content: space-between;
     flex-wrap: wrap;
     margin-bottom: 1rem;
@@ -30,7 +30,8 @@
     width: auto;
     aspect-ratio: 1;
     object-fit: cover;
-    border-radius: 14px 8px 8px 14px;
+    /* flush with the glass on the left, so it takes the frame's inner radius there */
+    border-radius: calc(var(--fr) - var(--ft)) 2px 2px calc(var(--fr) - var(--ft));
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 2px 0 10px rgba(0, 0, 0, 0.45);
 }
 

@@ -1,8 +1,8 @@
 .main{
-    margin: auto;
+    margin-left: var(--edge);
     display: flex;
     flex-wrap: wrap;
-    max-width: 58rem;
+    max-width: min(58rem, calc(100vw - 2 * var(--edge)));
     padding: 1rem;
     justify-content: space-between;
 }
@@ -57,7 +57,7 @@
 .Buy{
     display: inline-block;
     background-color: var(--accent);
-    background-image: var(--relief-key-round);
+    background-image: var(--relief-key);
     background-size: 100% 100%;
     background-repeat: no-repeat;
     box-shadow: var(--key-shadow);
@@ -66,7 +66,7 @@
     font-weight: 500;
     line-height: 1.2rem;
     padding: 0.45rem 1rem;
-    border-radius: 2rem;
+    border-radius: var(--small-r);
     transition: transform 0.12s, filter 0.12s;
 }
 
@@ -76,16 +76,16 @@
 }
 
 .book img{
-    border-radius: 0.6rem;
+    border-radius: max(2px, calc(var(--fr) - 1.5rem));   /* 1.5rem in from the card's edge */
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 8px 16px rgba(0, 0, 0, 0.45);
 }
 
 .status{
     composes: glassFrame from global;
 
-    margin: auto;
+    margin-left: var(--edge);
     width: 100%;
-    max-width: 58rem;
+    max-width: min(58rem, calc(100vw - 2 * var(--edge)));
     padding: calc(var(--ft) + 1.1rem) calc(var(--ft) + 1.3rem);
 
     color: var(--ink-soft);

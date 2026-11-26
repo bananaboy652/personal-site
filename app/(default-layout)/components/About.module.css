@@ -1,14 +1,13 @@
 .main{
     composes: glassFrame from global;
 
-    margin: auto;
-    margin-top: 0.75rem;
-    max-width: 62.5rem;
-    padding: calc(var(--ft) + 1rem) calc(var(--ft) + 1.2rem);
+    flex: 1;
+    min-width: 0;
+    padding: calc(var(--ft) + 0.85rem) calc(var(--ft) + 1rem);
 
     color: var(--ink-soft);
     font-weight: 400;
-    font-size: 1rem;
+    font-size: 0.95rem;
     letter-spacing: -0.005em;
-    line-height: 1.5rem;
+    line-height: 1.42rem;
 }

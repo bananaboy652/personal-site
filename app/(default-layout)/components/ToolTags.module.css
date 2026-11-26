@@ -15,7 +15,7 @@
     line-height: 0.9rem;
     color: var(--ink-soft);
 
-    border-radius: 999px;
+    border-radius: var(--small-r);
     padding: 0.2rem 0.52rem;
     margin-right: 0.28rem;
     margin-bottom: 0.32rem;

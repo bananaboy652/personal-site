@@ -5,6 +5,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next"
 import "./globals.css";
 import "./materials.css";
 import Navbar from "./components/Navbar";
+import World from "./world/World";
 
 // Display and body faces (Clash Grotesk, Supreme) load from Fontshare in globals.css.
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
@@ -22,6 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={mono.variable}>
+        <World />
         <Analytics/>
         <SpeedInsights/>
         <Navbar />
