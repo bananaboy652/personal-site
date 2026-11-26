@@ -38,13 +38,13 @@ Everything in it is generated in code from seeds: terrain, models, every texture
 
 ### The five worlds
 
-| World | What it is | Its gate |
-| --- | --- | --- |
-| The Overlook (`levels/overlook`) | A camp on a cliff over a bay, and the tower with the broken ring. The site opens here. | The ruined arch out in the bay |
-| The Relay (`levels/relay`) | A signal platform at sea, in a storm. | See the level |
-| The Switchback (`levels/switchback`) | A hairpin on a snowy mountain road, a delivery truck, a town far below. | See the level |
-| The Nave (`levels/nave`) | The inside of a drowned cathedral. | See the level |
-| The Hollow (`levels/hollow`) | A cavern under a well. | See the level |
+| World | What it is | The pointer | Its gate |
+| --- | --- | --- | --- |
+| The Overlook (`levels/overlook`) | A camp on a cliff over a bay, and the tower with the broken ring. The site opens here. | An owl watches it | The ruined arch out in the bay |
+| The Relay (`levels/relay`) | A signal platform at sea, in a storm. | Aims a searchlight | A concrete portal standing in the sea |
+| The Switchback (`levels/switchback`) | A hairpin on a snowy mountain road, a delivery truck, a town far below. | A fox watches it | The road tunnel |
+| The Nave (`levels/nave`) | The inside of a drowned cathedral. | Leaves rings on the water | A chantry doorway |
+| The Hollow (`levels/hollow`) | A cavern under a well, where the tower's root comes down. | Is a mote of light | A carved doorway across the lake |
 
 They are one place seen from five spots: the tower stands on the horizon of each. Every world has the same two fixtures, so that what you learn in one works in all of them:
 
