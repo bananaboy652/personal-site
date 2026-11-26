@@ -210,6 +210,7 @@ export class Engine {
     this.to = this.named(shot);
     this.toNamed = true;
     this.shotT = 1;
+    this.pose = this.resolve(this.to, this.aimFor(this.to));
     this.audio.setSpec(level.audio);
   }
 
@@ -430,6 +431,17 @@ export class Engine {
     this.to = shot;
     this.toNamed = false;
     this.shotT = 1;
+    // be there at once, so a move started in the same breath sets off from here
+    this.pose = this.resolve(shot, this.aimFor(shot));
+  }
+
+  /** The bearing that puts the level's subject where the page leaves room, for a view of this width. */
+  private aimFor(shot: Shot): number {
+    const cam = this.camera;
+    const usingPortrait = this.portrait && !!this.level?.portraitShots;
+    const narrow = usingPortrait || this.scope.t > 0 ? 0 : 1 - smooth(0.7, 1.35, cam.aspect);
+    const tanHalf = Math.tan(rad(shot.fov + narrow * 9) / 2) * cam.aspect;
+    return (this.level?.focusAz ?? 0) - deg(Math.atan((this.focus.x - 0.5) * 2 * tanHalf));
   }
 
   /** Travel from wherever the camera is now to a view, over `seconds`. */

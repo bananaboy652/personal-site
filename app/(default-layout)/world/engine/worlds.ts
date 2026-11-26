@@ -14,7 +14,7 @@ export interface WorldDef {
 
 export const WORLDS: WorldDef[] = [
   { id: 'overlook', title: 'The Overlook', rune: 0, load: () => import('../levels/overlook') },
-  { id: 'relay', title: 'The Relay', rune: 1, ready: false, load: () => import('../levels/relay') },
+  { id: 'relay', title: 'The Relay', rune: 1, load: () => import('../levels/relay') },
   { id: 'switchback', title: 'The Switchback', rune: 2, ready: false, load: () => import('../levels/switchback') },
   { id: 'nave', title: 'The Nave', rune: 3, ready: false, load: () => import('../levels/nave') },
   { id: 'hollow', title: 'The Hollow', rune: 4, ready: false, load: () => import('../levels/hollow') },
