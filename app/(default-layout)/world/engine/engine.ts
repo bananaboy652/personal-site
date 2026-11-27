@@ -21,7 +21,9 @@ import { clearLights } from './atmos';
 import { AudioEngine, type AudioSpec } from './audio';
 import { Hud, isHidden } from './hud';
 import { clamp, lerp, rad, smooth } from './math';
+import { type Controls, Player, type Vehicle } from './player';
 import { createShared, postMaterial } from './shaders';
+import type { Solid } from './solid';
 
 export interface Interactable {
   id: string;
@@ -39,7 +41,29 @@ export interface Interactable {
   marker?: boolean;
   /** not there at the moment (cannot be picked, shows no marker) */
   hidden?: boolean | (() => boolean);
+  /** on foot, how near you must be to use it (default: a few metres, more for big things) */
+  reach?: number;
+  /** only when walking about (getting into a truck), or only from the framed view */
+  walkOnly?: boolean;
+  frameOnly?: boolean;
   onClick: () => void;
+}
+
+/** What a level gives so that it can be walked around in. */
+export interface Walk {
+  /** the ground and the walls (see solid.ts): hand it the level's meshes */
+  solid: Solid;
+  /** the height of open water, if there is any: below it you swim */
+  water?: number;
+  /** where you step in (your feet) and which way you face. Default: right
+   *  under the framed camera, facing what it faces. */
+  spawn?: { pos: [number, number, number]; yaw: number };
+  /** things that can be driven */
+  vehicles?: Vehicle[];
+  /** eye height, metres (default 1.62) */
+  eye?: number;
+  /** every frame while somebody is walking about */
+  tick?(dt: number, player: Player, vehicle: Vehicle | null): void;
 }
 
 /** A camera position. Angles are in degrees; yaw is positive to the right.
@@ -81,6 +105,15 @@ export interface Level {
   hud?(hud: Hud): void;
   /** what happens here once every world's signal has been answered (the first world's job) */
   finale?(): void;
+  /** present if the world can be walked around in */
+  walk?: Walk;
+  /** somebody stepped into the world, or back out to the page. On the way
+   *  out, put back anything that changes the framed view. */
+  explore?(on: boolean): void;
+  /** How far down the page the visitor has scrolled: 0 at the top, 1 at the
+   *  bottom. Change something in the scene (the hour, the weather); the
+   *  camera does not move for scrolling. Called when it changes. */
+  scroll?(t: number): void;
   /** named actions offered in the debug menu */
   debug?: [string, () => void][];
   /** times of day or kinds of weather the debug menu can switch between: [id, label] */
@@ -144,6 +177,14 @@ export class Engine {
   onCursor: ((pointing: boolean) => void) | null = null;
   /** looking through a telescope began or ended */
   onScope: ((on: boolean) => void) | null = null;
+  /** somebody stepped into the world to walk about, or stepped back out */
+  onExplore: ((on: boolean) => void) | null = null;
+  /** whoever is walking about */
+  readonly player = new Player();
+  /** what their keys or thumbs are asking for */
+  readonly controls: Controls = { f: 0, r: 0, run: false, jump: false, up: 0 };
+  /** walking-about state: `t` runs 0..1 as the camera goes from the framed view to the eye */
+  readonly explore = { on: false, t: 0, vehicle: null as Vehicle | null, orbit: 0, seat: false, hint: 0, idle: 0 };
   onFirstFrame: (() => void) | null = null;
   /** the debug fly-about camera */
   readonly free = { on: false, x: 0, y: 2, z: 0, yaw: 0, pitch: 0, fov: 50, f: 0, r: 0, u: 0, fast: false };
@@ -157,7 +198,7 @@ export class Engine {
   private frames = 0;
   private acc = { t: 0, n: 0, ms: 0, slowWindows: 0 };
   private pointer = { x: 0, y: 0, tx: 0, ty: 0, nx: 0, ny: 0, ui: true };
-  private scroll = { t: 0, target: 0 };
+  private scroll = { t: 0, target: 0, page: 0, pageTarget: 0, told: -1 };
   private focus = { x: 0.63, target: 0.63, set: false };
   private fromPose: Pose = { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, fov: 50 };
   private to: Shot = { pos: [0, 2, 0], yaw: 0, pitch: 0, fov: 50 };
@@ -173,6 +214,7 @@ export class Engine {
   private ray = new Vector3();
   private tmp = new Vector3();
   private disposed = false;
+  private pointing = false;
 
   constructor(private canvas: HTMLCanvasElement, private host: HTMLElement, settings: Partial<Settings> = {}) {
     this.settings = { ...DEFAULTS, ...settings };
@@ -207,6 +249,8 @@ export class Engine {
     this.hud.menu = null;
     this.scope.on = false;
     this.scope.t = 0;
+    Object.assign(this.explore, { on: false, t: 0, vehicle: null });
+    this.scroll.told = -1;
     this.to = this.named(shot);
     this.toNamed = true;
     this.shotT = 1;
@@ -300,7 +344,7 @@ export class Engine {
     p.tx = p.nx;
     p.ty = p.ny;
     p.ui = overUi;
-    if (!overUi && moved) this.hud.nudge(this.touch ? 5 : 2.6);
+    void moved;
   }
 
   clearPointer() {
@@ -312,12 +356,20 @@ export class Engine {
   /** Is the pointer over the world (not the page)? If so, `out` is set to the
    *  direction it points in; the ray starts at camera.position. */
   pointerRay(out: Vector3): boolean {
+    if (this.explore.on) {
+      // on foot the pointer is wherever you are looking
+      this.camera.getWorldDirection(out);
+      return true;
+    }
     out.set(this.pointer.nx, this.pointer.ny, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
     return !this.pointer.ui;
   }
 
-  setScroll(t: number) {
+  /** `t` is how far past the opening screen the page is (1 = a screen and a
+   *  bit); `page` is how far down the whole page (0 top, 1 bottom). */
+  setScroll(t: number, page = 0) {
     this.scroll.target = clamp(t);
+    this.scroll.pageTarget = clamp(page);
     if (this.scope.on && t > 0.04) this.exitScope();
   }
 
@@ -331,6 +383,11 @@ export class Engine {
   /** Click at the last pointer position. Returns true if something took it. */
   click(): boolean {
     const [hx, hy] = this.hudXY();
+    if (this.explore.on) {
+      // the mouse is held while walking, so a click chooses rather than points
+      if (this.hud.menu) return this.hud.key('Enter');
+      return this.use();
+    }
     if (this.hud.click(hx, hy)) return true;
     this.level?.hurry?.();
     if (this.scope.on) {
@@ -369,20 +426,23 @@ export class Engine {
 
   private pick(): Interactable | null {
     const level = this.level;
-    if (!level || this.pointer.ui || this.hud.menu || this.scope.on) return null;
+    const walking = this.explore.on;
+    if (!level || (this.pointer.ui && !walking) || this.hud.menu || this.scope.on) return null;
     const cam = this.camera;
-    const dir = this.ray.set(this.pointer.nx, this.pointer.ny, 0.5).unproject(cam).sub(cam.position).normalize();
+    const dir = walking ? cam.getWorldDirection(this.ray) : this.ray.set(this.pointer.nx, this.pointer.ny, 0.5).unproject(cam).sub(cam.position).normalize();
     // Of everything the pointer is over, take the one whose middle it is
     // nearest to (measured against that thing's own size), so a small thing
     // beside a big one can still be picked. Things in the sky come last.
     let best: Interactable | null = null;
     let bestScore = 1;
     for (const it of level.interactables) {
-      if (isHidden(it)) continue;
+      if (isHidden(it) || (walking ? it.frameOnly : it.walkOnly)) continue;
       if (it.center && it.radius) {
         const oc = this.tmp.copy(it.center).sub(cam.position);
         const t = oc.dot(dir);
         if (t <= 0) continue;
+        // on foot you have to be somewhere near a thing to use it
+        if (walking && oc.length() > (it.reach ?? 5 + it.radius * 2)) continue;
         const d2 = oc.lengthSq() - t * t;
         // small far things are given a little help: never smaller than about 1.3 degrees
         const r = Math.max(it.radius, t * 0.023);
@@ -402,9 +462,11 @@ export class Engine {
     const [hx, hy] = this.hudXY();
     const overMenu = !this.pointer.ui && this.hud.pointer(hx, hy);
     const hit = overMenu ? null : this.pick();
-    if (hit !== this.hovered) {
-      this.hovered = hit;
-      this.onCursor?.(!!hit);
+    this.hovered = hit;
+    const pointing = !this.explore.on && (!!hit || (overMenu && this.hud.hot));
+    if (pointing !== this.pointing) {
+      this.pointing = pointing;
+      this.onCursor?.(pointing);
     }
   }
 
@@ -584,21 +646,175 @@ export class Engine {
       s = { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t), yaw: lerp(a.yaw, b.yaw, t), pitch: lerp(a.pitch, b.pitch, t), fov: lerp(a.fov, b.fov, t) };
     }
     this.pose = s;
-    const sc = this.scroll.t * (1 - sk.t);
     cam.fov = s.fov + narrow * 9;
     // through a telescope the pointer looks around; otherwise it only leans
     const lookX = lerp(2.4, s.fov * 0.55, sk.t);
     const lookY = lerp(1.4, s.fov * 0.35, sk.t);
     const drift = (this.touch ? 2.6 : 1) * (1 - sk.t * 0.8) * m;
     const yaw = s.yaw + p.x * lookX + Math.sin(this.time * 0.19) * 0.3 * drift;
-    const pitch = s.pitch + p.y * lookY + Math.sin(this.time * 0.15 + 1.3) * 0.18 * drift + sc * 8;
+    const pitch = s.pitch + p.y * lookY + Math.sin(this.time * 0.15 + 1.3) * 0.18 * drift;
     const yr = rad(yaw);
     const lean = 1 - sk.t;
-    cam.position.set(s.x + Math.cos(yr) * p.x * 0.4 * lean, s.y + p.y * 0.16 * lean + sc * 1.2, s.z + Math.sin(yr) * p.x * 0.4 * lean);
+    cam.position.set(s.x + Math.cos(yr) * p.x * 0.4 * lean, s.y + p.y * 0.16 * lean, s.z + Math.sin(yr) * p.x * 0.4 * lean);
     cam.rotation.set(rad(pitch), -yr, 0);
+    // stepping into the world: the camera travels from the framed view to the walker's eye
+    const ex = this.explore;
+    ex.t = clamp(ex.t + (ex.on ? real / 0.9 : -real / 0.01));
+    if (ex.t > 0) {
+      const e = this.eyePose(real);
+      const k = ex.t * ex.t * (3 - 2 * ex.t);
+      let dy = (e.yaw - yaw) % 360;
+      if (dy > 180) dy -= 360;
+      if (dy < -180) dy += 360;
+      cam.position.set(lerp(cam.position.x, e.x, k), lerp(cam.position.y, e.y, k), lerp(cam.position.z, e.z, k));
+      cam.rotation.set(rad(lerp(pitch, e.pitch, k)), -rad(yaw + dy * k), 0);
+      cam.fov = lerp(cam.fov, e.fov, k);
+    }
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
     this.shared.uPx.value = this.stats.h / (2 * Math.tan(rad(cam.fov) / 2));
+  }
+
+  /* ---- walking about ---- */
+
+  get exploring() {
+    return this.explore.on;
+  }
+
+  /** Step into the world. Returns false if this world cannot be walked in. */
+  enterExplore(): boolean {
+    const level = this.level;
+    const w = level?.walk;
+    const ex = this.explore;
+    if (!level || !w || ex.on) return false;
+    level.hurry?.();
+    if (this.scope.on) this.exitScope();
+    this.hud.menu = null;
+    const pl = this.player;
+    pl.eye = w.eye ?? 1.62;
+    pl.flying = false;
+    if (w.spawn) pl.place(w.spawn.pos[0], w.spawn.pos[1], w.spawn.pos[2], w.spawn.yaw);
+    else {
+      const c = this.camera.position;
+      const g = w.solid.floor(c.x, c.z, c.y + 0.5);
+      pl.place(c.x, g > -1e8 ? g : c.y - pl.eye, c.z, this.pose.yaw);
+    }
+    pl.pitch = clamp(this.pose.pitch, -25, 25);
+    Object.assign(ex, { on: true, vehicle: null, orbit: 0, seat: false, hint: 10, idle: 0 });
+    Object.assign(this.controls, { f: 0, r: 0, run: false, jump: false, up: 0 });
+    this.hovered = null;
+    level.explore?.(true);
+    this.onExplore?.(true);
+    return true;
+  }
+
+  /** Step back out to the page: the scene is put back as it was framed. */
+  exitExplore() {
+    const ex = this.explore;
+    if (!ex.on) return;
+    this.board(null);
+    ex.on = false;
+    ex.t = 0;
+    this.hud.menu = null;
+    for (const v of this.level?.walk?.vehicles ?? []) v.reset();
+    this.level?.explore?.(false);
+    this.setFade(1);
+    void this.fadeTo(0, 0.6);
+    this.onExplore?.(false);
+  }
+
+  /** Get into something that can be driven, or (null) out of what you are in. */
+  board(v: Vehicle | null) {
+    const ex = this.explore;
+    const pl = this.player;
+    const was = ex.vehicle;
+    if (was && was !== v) {
+      was.occupied = false;
+      // step out on the left
+      const hr = rad(was.heading);
+      const side = was.o.half[0] + 0.9;
+      pl.place(was.x - Math.cos(hr) * side, was.y + 0.4, was.z - Math.sin(hr) * side, was.heading);
+    }
+    ex.vehicle = v;
+    if (v) {
+      v.occupied = true;
+      ex.orbit = 0;
+      ex.hint = 8;
+      pl.pitch = 0;
+    }
+  }
+
+  /** Use whatever is in front of you (or under the pointer). */
+  use(): boolean {
+    const ex = this.explore;
+    if (ex.vehicle && !this.hovered) {
+      this.board(null);
+      return true;
+    }
+    const hit = this.hovered ?? this.pick();
+    if (!hit) return false;
+    hit.onClick();
+    return true;
+  }
+
+  /** Turn the head (or swing the camera round what you are driving), in degrees. */
+  lookBy(dx: number, dy: number) {
+    const ex = this.explore;
+    if (!ex.on) return;
+    ex.idle = 0;
+    if (ex.vehicle) {
+      ex.orbit += dx;
+      this.player.pitch = clamp(this.player.pitch - dy, -70, 70);
+    } else this.player.look(dx, dy);
+  }
+
+  private walkAbout(dt: number) {
+    const ex = this.explore;
+    const w = this.level?.walk;
+    if (!ex.on || !w) return;
+    const c = this.hud.menu ? { f: 0, r: 0, run: false, jump: false, up: 0 } : this.controls;
+    const pl = this.player;
+    const water = w.water ?? null;
+    ex.hint = Math.max(0, ex.hint - dt);
+    for (const v of w.vehicles ?? []) {
+      if (v === ex.vehicle) v.update(dt, c.r, c.f, c.jump, w.solid, water);
+      else if (Math.abs(v.speed) > 0.05 || v.moved) v.update(dt, 0, 0, false, w.solid, water);
+    }
+    const v = ex.vehicle;
+    if (v) {
+      pl.x = v.x;
+      pl.y = v.y;
+      pl.z = v.z;
+      pl.yaw = v.heading + ex.orbit;
+      // left alone, the camera swings back round behind
+      ex.idle += dt;
+      if (ex.idle > 1.6 && Math.abs(v.speed) > 1.5) ex.orbit *= Math.exp(-dt * 2.2);
+    } else pl.update(dt, c, w.solid, water);
+    w.tick?.(dt, pl, v);
+  }
+
+  /** Where the walker's eye is: in the head, or behind what is being driven. */
+  private eyePose(dt: number): Pose {
+    const pl = this.player;
+    const ex = this.explore;
+    const v = ex.vehicle;
+    void dt;
+    if (!v) return { x: pl.x, y: pl.y + pl.eye - pl.bob, z: pl.z, yaw: pl.yaw, pitch: pl.pitch, fov: 66 };
+    const yaw = v.heading + ex.orbit;
+    const yr = rad(yaw);
+    if (ex.seat) {
+      const p = this.tmp.set(v.o.seat[0], v.o.seat[1], v.o.seat[2]).applyMatrix4(v.o.object.matrixWorld);
+      return { x: p.x, y: p.y, z: p.z, yaw, pitch: pl.pitch, fov: 70 };
+    }
+    const [dist, height] = v.o.chase;
+    let x = v.x - Math.sin(yr) * dist;
+    let z = v.z + Math.cos(yr) * dist;
+    let y = v.y + height;
+    const g = this.level?.walk?.solid.floor(x, z, y + 30) ?? -Infinity;
+    if (y < g + 0.5) y = g + 0.5;
+    void x;
+    void z;
+    return { x, y, z, yaw, pitch: pl.pitch - 9, fov: 62 };
   }
 
   /* ---- the loop ---- */
@@ -609,12 +825,12 @@ export class Engine {
     // tick when motion is off (the world is frozen then; this only keeps
     // resizes and clicks showing up).
     const still = !this.settings.motion;
-    const minGap = still ? 250 : this.scroll.target >= 1 && !this.scope.on ? 31 : 0;
+    const minGap = still && !this.explore.on ? 250 : this.scroll.target >= 1 && !this.scope.on && !this.explore.on ? 31 : 0;
     if (now - this.last < minGap) return;
     const dt = Math.min((now - this.last) / 1000, 0.1);
     this.last = now;
     const t0 = performance.now();
-    this.step(still && this.frames > 2 ? 0 : dt, dt);
+    this.step(still && this.frames > 2 && !this.explore.on ? 0 : dt, dt);
     this.account(dt, performance.now() - t0, minGap > 0);
   };
 
@@ -623,7 +839,15 @@ export class Engine {
   step(dt: number, real = dt) {
     this.time += dt;
     this.shared.uTime.value = this.time;
+    this.walkAbout(real);
     this.updateCamera(dt, real);
+    // scrolling the page changes the scene (the level decides how), not the view
+    const sc = this.scroll;
+    sc.page += (sc.pageTarget - sc.page) * (this.settings.motion ? 1 - Math.exp(-real * 3.5) : 1);
+    if (Math.abs(sc.page - sc.told) > 0.0015) {
+      sc.told = sc.page;
+      this.level?.scroll?.(sc.page);
+    }
     this.level?.update(dt, this.time);
     this.updateHover();
     this.audio.update();

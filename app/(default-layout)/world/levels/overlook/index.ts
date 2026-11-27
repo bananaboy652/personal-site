@@ -26,14 +26,16 @@ import {
 import { applyAtmos, bearing, blend, dirFrom, pointLight } from '../../engine/atmos';
 import type { AudioSpec } from '../../engine/audio';
 import { Builder } from '../../engine/builder';
-import type { Engine, Interactable, IntroKind, Level, Shot } from '../../engine/engine';
+import type { Engine, Interactable, IntroKind, Level, Shot, Walk } from '../../engine/engine';
 import { FlameBatch, GlowBatch, Particles, morse } from '../../engine/fx';
 import { G } from '../../engine/font';
 import type { Hud } from '../../engine/hud';
 import { EMBER as HUD_EMBER, MUTED } from '../../engine/hud';
 import { Gate, Radio, answerSignal } from '../../engine/kit';
+import { Vehicle } from '../../engine/player';
 import { type RGB, TAU, clamp, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
 import { psxMaterial, waterMaterial } from '../../engine/shaders';
+import { Solid } from '../../engine/solid';
 import { store } from '../../engine/store';
 import { Sky } from '../../engine/sky';
 import { type Textures, createTextures } from '../../engine/textures';
@@ -173,6 +175,15 @@ export default class Overlook implements Level {
   private tmp = new Vector3();
   private tmp2 = new Vector3();
   private at = { x: 0, y: 0 };
+  // walking about: what is solid, and the boat that can be taken out
+  walk!: Walk;
+  private solid = new Solid();
+  private boatV!: Vehicle;
+  private boatLamp = 0;
+  /** the mood before scrolling is taken into account, and how far the page has turned the hour on */
+  private base: Mood = MOODS.night;
+  private scrollK = 0;
+  private scrollDone = -1;
   private starFlash: number[] = [0, 0, 0, 0, 0, 0];
   private starGlows: number[] = [];
   // something large that lives in the bay, and comes up now and then
@@ -222,8 +233,15 @@ export default class Overlook implements Level {
       this.moonIt,
       { id: 'tower', label: 'Hail the tower', dir: this.towerDir, angle: rad(2.6), onClick: () => this.hailTower() },
     );
+    this.interactables.push(this.boatV.interactable);
     this.applyMood(this.now);
     this.whole = this.mend = store.hasAll(WORLDS.map((w) => w.id)) ? 1 : 0;
+    this.walk = { solid: this.solid, water: SEA, vehicles: [this.boatV] };
+  }
+
+  /** Scrolling the page turns the hour on: by the foot of the page the night has passed. */
+  scroll(t: number) {
+    this.scrollK = smooth(0.03, 0.92, t);
   }
 
   subtitle = () => this.now.label;
@@ -317,8 +335,9 @@ export default class Overlook implements Level {
 
   /** Put everything where it would be with `mood` up and the tower awake or not. */
   private setState(mood: Mood, awake: number) {
-    this.from = this.to = this.now = mood;
+    this.from = this.to = this.now = this.base = mood;
     this.moodT = 1;
+    this.scrollDone = -1;
     this.applyMood(mood);
     this.awake = this.a = awake;
     this.wakeT = awake ? 99 : 0;
@@ -338,14 +357,12 @@ export default class Overlook implements Level {
   }
 
   private blendTo(next: Mood, seconds: number) {
-    this.from = this.now;
+    this.from = this.base;
     this.to = next;
     this.moodDur = Math.max(seconds, 0.001);
     this.moodT = seconds > 0 ? 0 : 1;
-    if (seconds <= 0) {
-      this.now = next;
-      this.applyMood(next);
-    }
+    this.scrollDone = -1;
+    if (seconds <= 0) this.base = next;
   }
 
   nextMood() {
@@ -441,6 +458,7 @@ export default class Overlook implements Level {
     const terrain = new Mesh(buildTerrain(FIRE), psxMaterial(shared, { map: this.tex.ground, vertexColors: true, texFade: [70, 300] }));
     terrain.frustumCulled = false;
     this.root.add(terrain);
+    this.solid.add(terrain);
 
     this.waterMat = waterMaterial(shared, this.tex.waterNoise);
     const sea = new Mesh(buildSea(), this.waterMat);
@@ -457,6 +475,7 @@ export default class Overlook implements Level {
       crownB.pop();
     });
     const trees = plantPines();
+    for (const t of trees) this.solid.circle(t.x, t.z, Math.max(0.3, t.h * t.w * 0.034), t.y - 1, t.y + t.h * 0.5);
     const bark = new InstancedMesh(trunk, psxMaterial(shared, { map: this.tex.bark, vertexColors: true, wind: [0.2, 1.1, 1] }), trees.length);
     const crown = new InstancedMesh(
       crownB.build(),
@@ -518,6 +537,7 @@ export default class Overlook implements Level {
     const rocks = new Mesh(rock.build(), psxMaterial(shared, { map: this.tex.rock, vertexColors: true, texFade: [150, 500] }));
     rocks.frustumCulled = false;
     this.root.add(rocks);
+    this.solid.add(rocks);
 
     // grass tufts on the top, thickest near the edge
     const tuft = new Builder();
@@ -625,16 +645,17 @@ export default class Overlook implements Level {
     wood.reset().translate(nx, ny + 1.3, nz).rotateY(4.2).rotateZ(-1.15).prism(0.05, 0.015, 0.9, 4, { color: dead, colorTop: deadTop, vRepeat: 2 });
     this.buildOwl(nx + 0.19, ny + 3.69, nz);
 
-    const add = (b: Builder, mat: ShaderMaterial) => {
+    const add = (b: Builder, mat: ShaderMaterial, solid = true) => {
       if (!b.triangles) return;
       const mesh = new Mesh(b.build(), mat);
       mesh.frustumCulled = false;
       this.root.add(mesh);
+      if (solid) this.solid.add(mesh);
     };
     add(rock, psxMaterial(shared, { map: this.tex.rock, vertexColors: true }));
     add(wood, psxMaterial(shared, { map: this.tex.wood, vertexColors: true }));
-    add(cloth, psxMaterial(shared, { map: this.tex.canvas, vertexColors: true, twoSided: true }));
-    add(scope, psxMaterial(shared, { map: this.tex.metal, vertexColors: true }));
+    add(cloth, psxMaterial(shared, { map: this.tex.canvas, vertexColors: true, twoSided: true }), false);      // you can walk into the tent
+    add(scope, psxMaterial(shared, { map: this.tex.metal, vertexColors: true }), false);
   }
 
   /** An owl on the dead tree. Its head follows the pointer; it blinks. */
@@ -697,6 +718,7 @@ export default class Overlook implements Level {
     const mesh = new Mesh(wood.build(), psxMaterial(shared, { map: this.tex.wood, vertexColors: true }));
     mesh.frustumCulled = false;
     this.root.add(mesh);
+    this.solid.add(mesh);
 
     // a boat tied up at the end
     const hull = new Builder();
@@ -709,6 +731,8 @@ export default class Overlook implements Level {
     this.boat = boat;
     this.root.add(boat);
     addLamp(boat.position.x, SEA + 3.6, boat.position.z, 1.3, scaleRGB(hex('#ffd28a'), 0.8));
+    this.boatLamp = this.lamps[this.lamps.length - 1].id;
+    this.boatV = new Vehicle(this.engine, { object: boat, kind: 'boat', label: 'Take the boat', half: [1.25, 2.4], maxSpeed: 13, chase: [9, 3.6], seat: [0, 1.5, 0.4], draft: 0.1 });
   }
 
   /** The ruined arch out in the bay: this world's gate. */
@@ -728,6 +752,7 @@ export default class Overlook implements Level {
     const arch = new Mesh(stone.build(), psxMaterial(shared, { map: this.tex.stone, vertexColors: true, texFade: [200, 700], fogScale: 0.75 }));
     arch.frustumCulled = false;
     this.root.add(arch);
+    this.solid.add(arch);
     this.gate = new Gate(this.engine, this.root, this.glows, { x: ARCH[0], y: base, z: ARCH[1], width: 21, height: 44, yaw: face, noise: this.tex.fogNoise });
   }
 
@@ -750,6 +775,7 @@ export default class Overlook implements Level {
     const tower = new Mesh(metal.build(), mat);
     tower.frustumCulled = false;
     this.root.add(tower);
+    this.solid.add(tower);
 
     // the ring: broken, tilted, still turning
     const ringB = new Builder();
@@ -993,9 +1019,18 @@ export default class Overlook implements Level {
       this.timeline.update(dt);
       if (this.timeline.done) this.timeline = null;
     }
+    let turned = false;
     if (this.moodT < 1) {
       this.moodT = Math.min(1, this.moodT + dt / this.moodDur);
-      this.now = blend(this.from, this.to, smooth(0, 1, this.moodT));
+      this.base = blend(this.from, this.to, smooth(0, 1, this.moodT));
+      turned = true;
+    }
+    // the page's scroll turns the hour on toward the next one (not while the opening is playing)
+    const sk = this.timeline ? 0 : this.scrollK;
+    if (turned || sk !== this.scrollDone) {
+      this.scrollDone = sk;
+      const next = MOODS[MOOD_ORDER[(MOOD_ORDER.indexOf(this.mood) + 1) % MOOD_ORDER.length]];
+      this.now = sk > 0.001 ? blend(this.base, next, sk) : this.base;
       this.applyMood(this.now);
     }
     const m = this.now;
@@ -1081,8 +1116,11 @@ export default class Overlook implements Level {
 
     // sky turning, cloud drifting, boat rocking, birds wheeling
     this.sky.update(dt);
-    this.boat.position.y = SEA - 0.15 + Math.sin(time * 0.9) * 0.16;
-    this.boat.rotation.z = Math.sin(time * 0.7) * 0.05;
+    if (!this.boatV.occupied && !this.boatV.moved) {
+      this.boat.position.y = SEA - 0.15 + Math.sin(time * 0.9) * 0.16;
+      this.boat.rotation.z = Math.sin(time * 0.7) * 0.05;
+    }
+    this.glows.setPos(this.boatLamp, this.boat.position.x, this.boat.position.y + 3.7, this.boat.position.z);
     this.updateBirds(time);
     this.updateOwl(dt, time, dark);
     this.updateDeep(dt, time, dark);

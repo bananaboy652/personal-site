@@ -8,6 +8,7 @@ import { Builder } from './builder';
 import type { Engine, Interactable } from './engine';
 import { GlowBatch } from './fx';
 import { smooth } from './math';
+import { Solid } from './solid';
 import { type Textures, createTextures } from './textures';
 import type { Timeline } from './timeline';
 
@@ -20,6 +21,15 @@ export abstract class BaseLevel<A extends Atmos = Atmos> {
   protected timeline: Timeline | null = null;
   /** the atmosphere as it is this frame */
   protected now!: A;
+  /** what can be stood on and bumped into: hand it meshes with `this.solid.add(mesh)` */
+  protected readonly solid = new Solid();
+  /** Scrolling the page should change the scene, not the camera. Set `drift`
+   *  to the atmosphere the foot of the page leads to and `driftK` (0..1) from
+   *  scroll(t); advance() blends toward it over whatever else is going on. */
+  protected drift: A | null = null;
+  protected driftK = 0;
+  private driftDone = -1;
+  private base!: A;
   private from!: A;
   private to!: A;
   private blendT = 1;
@@ -54,8 +64,9 @@ export abstract class BaseLevel<A extends Atmos = Atmos> {
 
   /** Set the atmosphere at once. */
   protected setAtmos(a: A) {
-    this.from = this.to = this.now = a;
+    this.from = this.to = this.now = this.base = a;
     this.blendT = 1;
+    this.driftDone = -1;
     applyAtmos(this.engine.shared, a);
     this.applyExtras(a);
   }
@@ -66,7 +77,7 @@ export abstract class BaseLevel<A extends Atmos = Atmos> {
       this.setAtmos(a);
       return;
     }
-    this.from = this.now;
+    this.from = this.base;
     this.to = a;
     this.blendT = 0;
     this.blendDur = seconds;
@@ -78,9 +89,17 @@ export abstract class BaseLevel<A extends Atmos = Atmos> {
       this.timeline.update(dt);
       if (this.timeline.done) this.timeline = null;
     }
+    let changed = false;
     if (this.blendT < 1) {
       this.blendT = Math.min(1, this.blendT + dt / this.blendDur);
-      this.now = blend(this.from, this.to, smooth(0, 1, this.blendT));
+      this.base = blend(this.from, this.to, smooth(0, 1, this.blendT));
+      changed = true;
+    }
+    // the page's scroll, laid over whatever the level itself is doing (but not over its opening)
+    const k = this.timeline || !this.drift ? 0 : this.driftK;
+    if (changed || k !== this.driftDone) {
+      this.driftDone = k;
+      this.now = k > 0.001 && this.drift ? blend(this.base, this.drift, k) : this.base;
       applyAtmos(this.engine.shared, this.now);
       this.applyExtras(this.now);
     }

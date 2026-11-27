@@ -4,7 +4,7 @@
 // loaded after the page is interactive, so the site never waits on them; if
 // the browser has no WebGL2 the still image behind stays up instead.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import styles from './World.module.css';
 import type { Settings } from './engine/engine';
 import type { Runtime } from './runtime';
@@ -17,9 +17,14 @@ export default function World() {
   const [panel, setPanel] = useState(false);
   const [bare, setBare] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const go = useRef(router);
+  go.current = router;
   const rt = runtime.current;
   const live = !!rt?.live;
-  const away = bare || !!rt?.scope;
+  // the page steps aside for the world: asked for from the debug menu, while
+  // looking through a telescope, or while somebody is walking about in it
+  const away = bare || !!rt?.scope || !!rt?.exploring;
 
   useEffect(() => {
     let dead = false;
@@ -42,6 +47,8 @@ export default function World() {
         redraw();
       };
       made.onDebugKey = () => setPanel((p) => !p);
+      // each world belongs to a page: using a gate is going to that page
+      made.onNavigate = (path) => go.current.push(path);
       if (options.debug) setPanel(true);
       try {
         await made.start(window.location.pathname);
@@ -64,8 +71,7 @@ export default function World() {
     runtime.current?.setRoute(pathname);
   }, [pathname]);
 
-  // The world on its own: the page fades out of the way (asked for from the
-  // debug menu, or while looking through a telescope).
+  // The world on its own: the page fades out of the way.
   useEffect(() => {
     const root = document.documentElement;
     if (away) root.setAttribute('data-world-only', '');
@@ -83,6 +89,11 @@ export default function World() {
       <button type="button" className={styles.sound} data-world="" data-world-ui="" onClick={() => runtime.current?.toggleSound()}>
         {rt?.engine.audio.enabled ? 'Turn the background sound off' : 'Turn the background sound on'}
       </button>
+      {rt?.level?.walk && !rt.exploring && (
+        <button type="button" className={styles.sound} data-world="" data-world-ui="" onClick={() => runtime.current?.enterExplore()}>
+          Walk around in the background world (Escape comes back)
+        </button>
+      )}
       {panel && !bare && rt && rt.level && <Panel rt={rt} onClose={() => setPanel(false)} onBare={() => setBare(true)} />}
       {bare && (
         <div className={styles.back} data-world="" data-world-ui="" onClick={() => setBare(false)}>
@@ -128,7 +139,6 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
   const remember = useCallback(() => {
     const s = engine.settings;
     const q = new URLSearchParams();
-    if (rt.world !== 'overlook') q.set('world', rt.world);
     if (rt.level?.mood) q.set('mood', rt.level.mood);
     q.set('lines', String(s.lines));
     q.set('snap', String(s.snap));
@@ -166,7 +176,7 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
       <div className={styles.row}>
         <div className={styles.rowLabel}>World</div>
         {worlds.map((w) => (
-          <Opt key={w.id} on={rt.world === w.id} label={w.title.replace('The ', '')} pick={() => void rt.travel(w.id).then(remember)} />
+          <Opt key={w.id} on={rt.world === w.id} label={w.title.replace('The ', '')} pick={() => rt.go(w.id)} />
         ))}
       </div>
       {level?.moods && (
@@ -207,6 +217,7 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
         <Opt on={engine.free.on} label={engine.free.on ? 'Free: on' : 'Free camera'} pick={() => { engine.setFree(!engine.free.on); remember(); }} />
         {engine.free.on && <Opt on={false} label="Save to link" pick={remember} />}
         <Opt on={false} label="Hide page" pick={onBare} />
+        {rt.level?.walk && <Opt on={false} label="Walk about" pick={() => rt.enterExplore()} />}
       </div>
       {engine.free.on && (
         <div className={styles.stats}>

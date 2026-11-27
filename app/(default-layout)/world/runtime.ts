@@ -1,18 +1,19 @@
-// Runs the world on a page: starts the engine, loads whichever world is
-// wanted, plays its opening, carries the visitor between worlds, and turns
-// mouse, touch, keys and scrolling into things the engine understands. It
-// knows nothing about React; World.tsx is a thin shell round it (and so is the
-// little test page the levels were built with).
+// Runs the world on a page: starts the engine, brings up the world that
+// belongs to the page being shown, plays its opening, and turns mouse, touch,
+// keys and scrolling into things the engine understands. It also looks after
+// stepping into the world to walk about (pointer lock, full screen, thumbs).
+// It knows nothing about React; World.tsx is a thin shell round it (and so is
+// the little test page the levels are built with).
 import { DEFAULTS, Engine, type IntroKind, type Level, type Settings } from './engine/engine';
 import { clamp } from './engine/math';
 import { store } from './engine/store';
-import { WORLDS, worldOf } from './engine/worlds';
+import { WORLDS, worldForPath, worldOf } from './engine/worlds';
 
 // Anything the page itself owns. The scene only reacts to the gaps between.
 const UI = 'a, button, input, textarea, select, label, iframe, img, video, nav, footer, h1, h2, h3, h4, p, li, svg, [class*="glassFrame"], [class*="resinKey"], [data-world-ui]';
 export const overUi = (target: EventTarget | null) => !(target instanceof Element) || target.closest(UI) !== null;
 
-// Each page looks at the same world from its own spot.
+// Each page has its own framing of whichever world is up.
 const SHOTS: Record<string, string> = { '/': 'home', '/games': 'games', '/media': 'media' };
 
 export interface Options {
@@ -22,6 +23,8 @@ export interface Options {
   intro: IntroKind | null;
   /** a camera position for the debug fly-about: x, y, z, yaw, pitch, fov */
   cam: number[] | null;
+  /** step straight into the world (for testing) */
+  walk: boolean;
   settings: Partial<Settings>;
 }
 
@@ -44,9 +47,13 @@ export function readOptions(): Options {
     mood: q.get('mood'),
     intro: intro === 'full' || intro === 'quick' || intro === 'none' ? intro : null,
     cam: cam && cam.length === 6 && cam.every((n) => Number.isFinite(n)) ? cam : null,
+    walk: q.has('walk'),
     settings,
   };
 }
+
+/** degrees of turn per pixel of mouse travel */
+const LOOK = 0.11;
 
 export class Runtime {
   readonly engine: Engine;
@@ -58,13 +65,21 @@ export class Runtime {
   travelling = false;
   /** the page is out of the way: looking through a telescope */
   scope = false;
+  /** somebody is walking about in the world */
+  exploring = false;
   /** something the shell should re-read has changed */
   onChange: (() => void) | null = null;
   onDebugKey: (() => void) | null = null;
+  /** go to another page of the site (the shell does it with the router) */
+  onNavigate: ((path: string) => void) | null = null;
 
   private disposed = false;
   private framing = 0;
   private drag = false;
+  private locked = false;
+  private wanted: string | null = null;
+  private lastJump = 0;
+  private touches = new Map<number, { role: 'move' | 'look'; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
   private timers: number[] = [];
   private undo: (() => void)[] = [];
 
@@ -83,28 +98,35 @@ export class Runtime {
       this.scope = on;
       this.onChange?.();
     };
-    e.onTravel = (id) => void this.travel(id);
+    e.onExplore = (on) => {
+      this.exploring = on;
+      this.onChange?.();
+    };
+    e.onTravel = (id) => this.go(id);
     e.onFinale = () => void this.finale();
     e.audio.onChange = () => this.onChange?.();
+    e.hud.dock = [{ label: 'Explore', pick: () => this.enterExplore() }];
+    if (document.fullscreenEnabled) e.hud.dock.push({ label: 'Full screen', pick: () => this.enterExplore(true) });
     this.listen();
   }
 
   /* ---- worlds ---- */
 
-  /** Load the first world and play its opening. */
+  /** Load the world this page belongs to and play its opening. */
   async start(pathname: string) {
     const e = this.engine;
     e.shotName = SHOTS[pathname] ?? 'home';
     const o = this.options;
-    const kind: IntroKind = !e.settings.motion ? 'none' : o.intro ?? (o.mood || o.cam ? 'none' : store.introSeen ? 'quick' : 'full');
-    await this.load(worldOf(o.world).id, kind);
-    store.introSeen = true;
+    const id = worldOf(o.world ?? worldForPath(pathname)?.id).id;
+    const kind: IntroKind = !e.settings.motion ? 'none' : o.intro ?? (o.mood || o.cam || o.walk ? 'none' : store.seen(id) ? 'quick' : 'full');
+    await this.load(id, kind);
     if (o.mood) this.level?.setMood?.(o.mood, 0);
     if (o.cam) {
       e.setFree(true);
       const [x, y, z, yaw, pitch, fov] = o.cam;
       Object.assign(e.free, { x, y, z, yaw, pitch, fov });
     }
+    if (o.walk) this.enterExplore();
     e.start();
   }
 
@@ -119,16 +141,33 @@ export class Runtime {
     this.frame();
     level.intro(kind);
     if (kind === 'none') this.engine.setFade(0);
+    store.markSeen(def.id);
+    this.onScroll();
     this.onChange?.();
   }
 
-  /** Go through the gate to another world. */
+  /** The gate was used. Worlds belong to pages, so going to a world means
+   *  going to its page; the page change then brings the world up. */
+  go(id: string) {
+    const def = WORLDS.find((w) => w.id === id);
+    if (!def) return;
+    if (this.onNavigate && def.path !== window.location.pathname) this.onNavigate(def.path);
+    else void this.travel(def.id);
+  }
+
+  /** Dissolve to another world. */
   async travel(id: string) {
     const e = this.engine;
     const def = WORLDS.find((w) => w.id === id);
-    if (!def || this.travelling || def.id === this.world) return;
+    if (!def) return;
+    if (this.travelling) {
+      this.wanted = def.id;                       // asked again mid-journey: go there next
+      return;
+    }
+    if (def.id === this.world) return;
     this.travelling = true;
     this.onChange?.();
+    const walking = e.exploring;
     e.audio.ui('travel');
     await e.fadeTo(1, 0.9);
     if (this.disposed) return;
@@ -138,23 +177,26 @@ export class Runtime {
     e.hovered = null;
     old?.dispose();
     try {
-      await this.load(def.id, e.settings.motion ? 'quick' : 'none');
+      // the first time a world is come to it plays its opening in full, unless you arrive on foot
+      const kind: IntroKind = !e.settings.motion ? 'none' : walking || store.seen(def.id) ? 'quick' : 'full';
+      await this.load(def.id, kind);
       e.audio.ui('arrive');
-      const q = new URLSearchParams(window.location.search);
-      if (def.id === WORLDS[0].id) q.delete('world');
-      else q.set('world', def.id);
-      q.delete('mood');
-      const s = q.toString().replace(/=(&|$)/g, '$1');
-      window.history.replaceState(null, '', window.location.pathname + (s ? `?${s}` : '') + window.location.hash);
+      if (walking) e.enterExplore();
     } finally {
       this.travelling = false;
       this.onChange?.();
     }
+    const next = this.wanted;
+    this.wanted = null;
+    if (next && next !== this.world) void this.travel(next);
   }
 
   /** Every signal is answered: go to the first world, where the tower is, and let it respond. */
   async finale() {
-    if (this.world !== WORLDS[0].id) await this.travel(WORLDS[0].id);
+    if (this.world !== WORLDS[0].id) {
+      this.go(WORLDS[0].id);
+      for (let i = 0; i < 80 && (this.world !== WORLDS[0].id || this.travelling); i++) await new Promise((r) => window.setTimeout(r, 100));
+    }
     this.level?.finale?.();
   }
 
@@ -163,9 +205,13 @@ export class Runtime {
     this.level?.intro(this.engine.settings.motion ? 'full' : 'none');
   }
 
-  /** The page changed: move to that page's view of the world. */
+  /** The page changed: bring up that page's world, or its view of this one. */
   setRoute(pathname: string) {
-    this.engine.goTo(SHOTS[pathname] ?? 'home');
+    const e = this.engine;
+    const def = worldForPath(pathname);
+    e.shotName = SHOTS[pathname] ?? 'home';
+    if (def && def.id !== this.world && this.level) void this.travel(def.id);
+    else e.goTo(e.shotName);
     this.later(() => this.frame(), 300);
   }
 
@@ -174,6 +220,84 @@ export class Runtime {
     a.flip();
     store.sound = a.enabled;
     this.engine.hud.toast(a.enabled ? 'Sound on' : 'Sound off', 1.8);
+  }
+
+  /* ---- walking about ---- */
+
+  /** Step into the world. The page gets out of the way; Escape comes back. */
+  enterExplore(fullscreen = false) {
+    const e = this.engine;
+    if (!e.enterExplore()) return;
+    document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.touchAction = 'none';
+    document.documentElement.style.cursor = '';
+    if (!e.touch) this.lock();
+    if (fullscreen) this.fullscreen(true);
+  }
+
+  exitExplore() {
+    const e = this.engine;
+    if (!e.exploring) return;
+    e.exitExplore();
+    this.locked = false;
+    this.touches.clear();
+    document.documentElement.style.overflow = '';
+    document.documentElement.style.touchAction = '';
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    this.later(() => this.frame(), 50);
+  }
+
+  /** Hold the mouse, so that moving it turns the head. */
+  private lock() {
+    try {
+      const p = document.body.requestPointerLock() as unknown as Promise<void> | undefined;
+      p?.catch?.(() => undefined);
+    } catch {
+      /* not allowed here: dragging turns the head instead */
+    }
+  }
+
+  fullscreen(on = !document.fullscreenElement) {
+    if (!document.fullscreenEnabled) return;
+    if (on && !document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => undefined);
+    else if (!on && document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+  }
+
+  /** Keys while walking. Returns true if the key was one of ours. */
+  private walkKey(key: string, down: boolean): boolean {
+    const e = this.engine;
+    const c = e.controls;
+    const v = down ? 1 : 0;
+    switch (key.toLowerCase()) {
+      case 'w': case 'arrowup': c.f = down ? 1 : c.f > 0 ? 0 : c.f; break;
+      case 's': case 'arrowdown': c.f = down ? -1 : c.f < 0 ? 0 : c.f; break;
+      case 'd': case 'arrowright': c.r = down ? 1 : c.r > 0 ? 0 : c.r; break;
+      case 'a': case 'arrowleft': c.r = down ? -1 : c.r < 0 ? 0 : c.r; break;
+      case 'shift': c.run = down; break;
+      case 'c': case 'control': c.up = down ? -1 : c.up < 0 ? 0 : c.up; break;
+      case ' ': {
+        if (down && !c.jump) {
+          // twice in quick succession: take off, or come back down
+          const now = performance.now();
+          if (now - this.lastJump < 300 && !e.explore.vehicle) {
+            e.player.flying = !e.player.flying;
+            e.hud.toast(e.player.flying ? 'Flying' : 'On foot', 1.6);
+          }
+          this.lastJump = now;
+        }
+        c.jump = down;
+        c.up = e.player.flying ? v : c.up < 0 ? c.up : 0;
+        break;
+      }
+      case 'e': case 'enter': if (down) e.use(); break;
+      case 'f': if (down) this.fullscreen(); break;
+      case 'v': if (down) e.explore.seat = !e.explore.seat; break;
+      case 'h': if (down) e.explore.hint = 10; break;
+      case 'escape': if (down) this.exitExplore(); break;
+      default: return false;
+    }
+    return true;
   }
 
   /* ---- where the page leaves room ---- */
@@ -190,6 +314,10 @@ export class Runtime {
     const edge = 26;
     const nav = document.querySelector('nav')?.getBoundingClientRect();
     const safe = e.hud.safe;
+    if (e.exploring) {
+      Object.assign(safe, { x0: 0.02, x1: 0.98, y0: 0.03, y1: 0.97 });
+      return;
+    }
     if (e.portrait) {
       e.setFocus(this.level?.portraitFocus ?? 0.5);
       let top = H;
@@ -221,11 +349,17 @@ export class Runtime {
     safe.y1 = 1 - edge / H;
   };
 
+  private onScroll = () => {
+    const doc = document.documentElement;
+    const page = window.scrollY / Math.max(1, doc.scrollHeight - window.innerHeight);
+    this.engine.setScroll(window.scrollY / (window.innerHeight * 1.1), page);
+  };
+
   /* ---- input ---- */
 
   private listen() {
     const e = this.engine;
-    const on = <K extends keyof WindowEventMap>(target: Window | HTMLElement, type: K | string, fn: (ev: never) => void, opts?: AddEventListenerOptions) => {
+    const on = (target: Window | Document | HTMLElement, type: string, fn: (ev: never) => void, opts?: AddEventListenerOptions) => {
       target.addEventListener(type, fn as EventListener, opts);
       this.undo.push(() => target.removeEventListener(type, fn as EventListener, opts));
     };
@@ -233,19 +367,77 @@ export class Runtime {
     const wake = () => {
       if (store.sound && !e.audio.enabled) e.audio.enable();
     };
+    const frameXY = (ev: PointerEvent): [number, number] => [(ev.clientX / window.innerWidth) * e.stats.w, (ev.clientY / window.innerHeight) * e.stats.h];
+
     on(window, 'pointerdown', (ev: PointerEvent) => {
       e.touch = ev.pointerType === 'touch';
       wake();
-      if (e.free.on && !overUi(ev.target)) this.drag = true;
+      if (e.exploring && e.touch) {
+        const [fx, fy] = frameXY(ev);
+        const button = e.hud.touchButton(fx, fy);
+        if (button === 'back') this.exitExplore();
+        else if (button === 'jump') {
+          e.controls.jump = true;
+          this.later(() => (e.controls.jump = false), 160);
+        } else {
+          const role = ev.clientX < window.innerWidth / 2 && !Array.from(this.touches.values()).some((t) => t.role === 'move') ? 'move' : 'look';
+          this.touches.set(ev.pointerId, { role, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, t0: performance.now(), far: 0 });
+        }
+        return;
+      }
+      if ((e.free.on || e.exploring) && !overUi(ev.target)) this.drag = true;
     });
-    on(window, 'pointerup', () => (this.drag = false));
+    const up = (ev: PointerEvent) => {
+      this.drag = false;
+      const t = this.touches.get(ev.pointerId);
+      if (!t) return;
+      this.touches.delete(ev.pointerId);
+      if (t.role === 'move') Object.assign(e.controls, { f: 0, r: 0, run: false });
+      // a touch that did not go anywhere is a tap: use what is in front
+      if (t.far < 10 && performance.now() - t.t0 < 300 && e.exploring) e.use();
+    };
+    on(window, 'pointerup', up);
+    on(window, 'pointercancel', up);
     on(window, 'pointermove', (ev: PointerEvent) => {
       e.touch = ev.pointerType === 'touch';
+      const t = this.touches.get(ev.pointerId);
+      if (t && e.exploring) {
+        const dx = ev.clientX - t.x;
+        const dy = ev.clientY - t.y;
+        t.x = ev.clientX;
+        t.y = ev.clientY;
+        t.far = Math.max(t.far, Math.hypot(t.x - t.x0, t.y - t.y0));
+        if (t.role === 'move') {
+          const sx = (t.x - t.x0) / 46;
+          const sy = (t.y - t.y0) / 46;
+          e.controls.r = clamp(sx, -1, 1);
+          e.controls.f = clamp(-sy, -1, 1);
+          e.controls.run = Math.hypot(sx, sy) > 1.7;
+        } else e.lookBy(dx * 0.28, dy * 0.28);
+        return;
+      }
+      if (e.exploring) {
+        if (this.locked || this.drag) e.lookBy(ev.movementX * LOOK, ev.movementY * LOOK);
+        return;
+      }
       if (this.drag) e.freeLook(ev.movementX, ev.movementY);
       else e.setPointer(ev.clientX, ev.clientY, overUi(ev.target));
     }, { passive: true });
+    on(document, 'pointerlockchange', () => {
+      const had = this.locked;
+      this.locked = !!document.pointerLockElement;
+      // Escape lets go of the mouse; take that as stepping back out
+      if (had && !this.locked && e.exploring) this.exitExplore();
+    });
+    on(document, 'fullscreenchange', () => this.later(() => this.frame(), 80));
     on(document.documentElement, 'pointerleave', () => e.clearPointer());
     on(window, 'click', (ev: MouseEvent) => {
+      if (e.exploring) {
+        if (e.touch) return;                          // taps are handled as touches
+        if (!this.locked && !document.pointerLockElement) this.lock();
+        e.click();
+        return;
+      }
       if (overUi(ev.target) || e.free.on) return;
       e.setPointer(ev.clientX, ev.clientY, false);
       e.click();
@@ -253,7 +445,7 @@ export class Runtime {
       if (e.touch) this.later(() => e.clearPointer(), 1900);
     });
     on(window, 'scroll', () => {
-      e.setScroll(window.scrollY / (window.innerHeight * 1.1));
+      this.onScroll();
       if (window.scrollY > 40) this.level?.hurry?.();
       if (!this.framing) this.framing = requestAnimationFrame(this.frame);
     }, { passive: true });
@@ -265,11 +457,17 @@ export class Runtime {
       if (ev.key === '`') this.onDebugKey?.();
       else if (f.on && this.flyKey(ev.key, true)) ev.preventDefault();
       else if (e.key(ev.key)) ev.preventDefault();
-      else if (ev.key === 'm' || ev.key === 'M') this.toggleSound();
+      else if (e.exploring) {
+        if (!ev.repeat && this.walkKey(ev.key, true)) ev.preventDefault();
+        else if (ev.repeat) ev.preventDefault();
+      } else if (ev.key === 'm' || ev.key === 'M') this.toggleSound();
+      else if ((ev.key === 'e' || ev.key === 'E') && this.level?.walk && !ev.repeat) this.enterExplore();
     });
     on(window, 'keyup', (ev: KeyboardEvent) => {
       if (e.free.on) this.flyKey(ev.key, false);
+      if (e.exploring) this.walkKey(ev.key, false);
     });
+    on(window, 'blur', () => Object.assign(e.controls, { f: 0, r: 0, run: false, jump: false, up: 0 }));
     const lost = () => {
       this.live = false;
       this.onChange?.();
@@ -280,7 +478,7 @@ export class Runtime {
     };
     on(this.canvas, 'webglcontextlost', lost);
     on(this.canvas, 'webglcontextrestored', restored);
-    e.setScroll(window.scrollY / (window.innerHeight * 1.1));
+    this.onScroll();
     this.frame();
     this.later(() => this.frame(), 1200);         // once late content has laid out
     this.later(() => this.frame(), 3500);
@@ -315,6 +513,8 @@ export class Runtime {
     this.timers.forEach((t) => window.clearTimeout(t));
     cancelAnimationFrame(this.framing);
     document.documentElement.style.cursor = '';
+    document.documentElement.style.overflow = '';
+    document.documentElement.style.touchAction = '';
     this.engine.dispose();
     this.level = null;
   }

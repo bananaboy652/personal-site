@@ -49,6 +49,10 @@ export class Hud {
   centred = false;
   time = 0;
   menu: Menu | null = null;
+  /** buttons that sit in the corner of the frame while the page is up ("Explore") */
+  dock: { label: string; pick: () => void }[] = [];
+  /** the pointer is over one of this layer's own buttons or menu rows */
+  hot = false;
 
   private pos = new Float32Array(MAX * 12);
   private uv = new Float32Array(MAX * 8);
@@ -62,7 +66,8 @@ export class Hud {
   private rows: { x: number; y: number; w: number; h: number }[] = [];
   private box = { x: 0, y: 0, w: 0, h: 0 };
   private menuT = 0;
-  private markers = 0;
+  private dockRects: { x: number; y: number; w: number; h: number }[] = [];
+  private dockHot = -1;
   private hovered: Interactable | null = null;
   private hoverT = 0;
   private px = -1;
@@ -185,16 +190,18 @@ export class Hud {
     m.onClose?.();
   }
 
-  /** Show the markers over everything that can be used, for a few seconds. */
-  nudge(seconds = 2.6) {
-    this.markers = Math.max(this.markers, seconds);
-  }
+  /** Kept so older levels still compile. There used to be small markers over
+   *  everything that could be used; they are gone (people find things). */
+  nudge(_seconds = 0) {}
 
   /* ---- input, in frame pixels ---- */
 
   pointer(x: number, y: number) {
     this.px = x;
     this.py = y;
+    this.dockHot = this.menu ? -1 : this.dockRects.findIndex((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+    this.hot = this.dockHot >= 0 || !!this.menu;
+    if (this.dockHot >= 0) return true;
     if (!this.menu) return false;
     const hit = this.rows.findIndex((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
     if (hit >= 0 && hit !== this.sel && !this.menu.items[hit].disabled) {
@@ -207,7 +214,14 @@ export class Hud {
   /** Returns true if the interface took the click. */
   click(x: number, y: number): boolean {
     const menu = this.menu;
-    if (!menu || this.menuT < 0.15) return !!menu;
+    if (!menu) {
+      const hit = this.dockRects.findIndex((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+      if (hit < 0 || !this.dock[hit]) return false;
+      this.engine.audio.ui('pick');
+      this.dock[hit].pick();
+      return true;
+    }
+    if (this.menuT < 0.15) return true;
     this.pointer(x, y);
     const b = this.box;
     if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) {
@@ -265,10 +279,14 @@ export class Hud {
     this.time += dt;
     const u = this.unit;
     const level = this.engine.level;
+    const walking = this.engine.exploring;
     if (level) {
       level.hud?.(this);
-      this.drawMarkers(dt, level.interactables);
+      if (walking) this.drawWalking(dt);
+      else this.drawPrompt(dt);
     }
+    if (level?.walk && !walking && !this.menu && !this.engine.inScope) this.drawDock();
+    else this.dockRects.length = 0;
     this.drawCard(dt);
     this.drawToasts(dt);
     if (this.menu) this.drawMenu(dt, this.menu);
@@ -288,10 +306,37 @@ export class Hud {
     return this.engine.project(this.tmp, out);
   }
 
-  private drawMarkers(dt: number, list: Interactable[]) {
+  /** The buttons in the corner of the frame. */
+  private drawDock() {
+    const u = this.unit;
+    const s = this.safe;
+    const gap = 5 * u;
+    const widths = this.dock.map((b) => this.measure(b.label) + 21 * u);
+    const total = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, widths.length - 1);
+    let x = this.centred ? Math.round(((s.x0 + s.x1) / 2) * this.w - total / 2) : Math.round(s.x1 * this.w - 8 * u - total);
+    const y = Math.round(s.y1 * this.h - 19 * u);
+    this.dockRects.length = 0;
+    this.dock.forEach((b, i) => {
+      const w = widths[i];
+      const on = i === this.dockHot;
+      this.dockRects.push({ x, y, w, h: 13 * u });
+      this.panel(x, y, w, 13 * u);
+      if (on) this.rect(x + u, y + u, w - 2 * u, 11 * u, [EMBER[0], EMBER[1], EMBER[2], 0.92]);
+      const ink: RGBA = on ? [0.06, 0.05, 0.05, 1] : INK;
+      this.text(G.arrow, x + 6 * u, y + 3 * u, on ? ink : EMBER, 1, false);
+      this.text(b.label, x + 15 * u, y + 3 * u, ink, 1, false);
+      x += w + gap;
+    });
+  }
+
+  /** On foot: a dot to aim with, what the thing in front of you does, and
+   *  for the first few seconds, which keys do what. */
+  private drawWalking(dt: number) {
     const u = this.unit;
     const e = this.engine;
-    this.markers = Math.max(0, this.markers - dt);
+    const ex = e.explore;
+    const cx = Math.round(this.w / 2);
+    const cy = Math.round(this.h / 2);
     const hover = this.menu ? null : e.hovered;
     if (hover !== this.hovered) {
       this.hovered = hover;
@@ -299,17 +344,67 @@ export class Hud {
       if (hover) e.audio.ui('hover');
     }
     this.hoverT += dt;
-    const fade = Math.min(1, this.markers / 0.5);
-    const step = Math.floor(this.time * 3) % 2;
-    if (fade > 0 && !this.menu) {
-      for (const it of list) {
-        if (it === hover || it.marker === false || isHidden(it)) continue;
-        if (!this.anchorOf(it, this.at)) continue;
-        const { x, y } = this.at;
-        if (x < 4 || x > this.w - 4 || y < 12 * u || y > this.h - 4) continue;
-        this.text(G.hollow, x - 2 * u, y - 12 * u - step * u, [EMBER[0], EMBER[1], EMBER[2], 0.9 * fade], 1, true);
+    if (!this.menu && !(ex.vehicle && !ex.seat)) {
+      const c: RGBA = hover ? [EMBER[0], EMBER[1], EMBER[2], 1] : [INK[0], INK[1], INK[2], 0.7];
+      this.rect(cx - u, cy - u, 2 * u, 2 * u, c);
+    }
+    if (hover) {
+      const label = `${typeof hover.label === 'function' ? hover.label() : hover.label}`;
+      const key = e.touch ? 'Tap' : 'E';
+      const kw = this.measure(key);
+      const bw = kw + this.measure(label) + 22 * u;
+      const x = Math.round(cx - bw / 2);
+      const y = cy + (ex.vehicle && !ex.seat ? Math.round(this.h * 0.26) : 14 * u);
+      this.panel(x, y, bw, 13 * u);
+      this.text(key, x + 6 * u, y + 3 * u, EMBER, 1, false);
+      this.text(label, x + 12 * u + kw, y + 3 * u, INK, 1, false);
+    }
+    if (ex.hint > 0 && !this.menu) {
+      const a = Math.ceil(Math.min(1, ex.hint / 0.8) * 4) / 4;
+      const lines = e.touch
+        ? ['Left thumb: move    Right thumb: look', 'Tap: use']
+        : ex.vehicle
+          ? ['W S drive    A D steer    Space brake', 'E get out    V view    F full screen    Esc back']
+          : ['W A S D move    Shift run    Space jump    E use', 'F full screen    Space twice: fly    Esc back'];
+      const bw = Math.max(...lines.map((l) => this.measure(l))) + 16 * u;
+      const bh = (lines.length * 10 + 7) * u;
+      const x = Math.round(cx - bw / 2);
+      const y = Math.round(this.h - bh - 12 * u);
+      this.panel(x, y, bw, bh, a);
+      lines.forEach((l, i) => this.text(l, Math.round(cx - this.measure(l) / 2), y + (4 + i * 10) * u, [INK[0], INK[1], INK[2], a], 1, false));
+    }
+    if (e.touch) {
+      // where the thumbs go, and two buttons
+      const ink: RGBA = [INK[0], INK[1], INK[2], 0.55];
+      this.touchRects = {
+        back: { x: 6 * u, y: 6 * u, w: this.measure('Back') + 16 * u, h: 15 * u },
+        jump: { x: this.w - this.measure('Jump') - 22 * u, y: this.h - 60 * u, w: this.measure('Jump') + 16 * u, h: 15 * u },
+      };
+      for (const [name, r] of Object.entries(this.touchRects)) {
+        this.panel(r.x, r.y, r.w, r.h, 0.7);
+        this.text(name, r.x + 8 * u, r.y + 4 * u, ink, 1, false);
       }
     }
+  }
+
+  /** Which touch button, if any, is at this spot of the frame. */
+  touchButton(x: number, y: number): string | null {
+    for (const [name, r] of Object.entries(this.touchRects)) if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return name;
+    return null;
+  }
+
+  private touchRects: Record<string, { x: number; y: number; w: number; h: number }> = {};
+
+  private drawPrompt(dt: number) {
+    const u = this.unit;
+    const e = this.engine;
+    const hover = this.menu ? null : e.hovered;
+    if (hover !== this.hovered) {
+      this.hovered = hover;
+      this.hoverT = 0;
+      if (hover) e.audio.ui('hover');
+    }
+    this.hoverT += dt;
     if (hover && this.anchorOf(hover, this.at)) {
       const label = `${typeof hover.label === 'function' ? hover.label() : hover.label}`;
       const tw = this.measure(label) + 9 * u;
@@ -347,7 +442,7 @@ export class Hud {
     const right = s.x1 * this.w - 8 * u;
     const x = this.centred ? Math.round(((s.x0 + s.x1) / 2) * this.w - full / 2) : Math.round(right - full);
     // on an upright phone the card goes at the top of the clear band, under the nav; otherwise bottom right
-    const y = this.centred ? Math.round(s.y0 * this.h + 12 * u) : Math.round(s.y1 * this.h - (big * 7 + 26) * u);
+    const y = this.centred ? Math.round(s.y0 * this.h + 12 * u) : Math.round(s.y1 * this.h - (big * 7 + 26 + (this.dockRects.length ? 20 : 0)) * u);
     this.text(title, x, y, [INK[0], INK[1], INK[2], a], big);
     const ruleT = Math.max(0, Math.min(1, (c.t - c.title.length / 20) / 0.5));
     if (ruleT > 0) this.rect(x, y + (big * 7 + 4) * u, Math.round(full * ruleT), u, [EMBER[0], EMBER[1], EMBER[2], a]);

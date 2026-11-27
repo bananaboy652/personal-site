@@ -55,6 +55,22 @@ export const store = {
   forget() {
     write({ ...read(), signals: [] });
   },
+  /** This world's opening has been shown in this tab already. */
+  seen(world: string) {
+    try {
+      return (window.sessionStorage.getItem('world.seen') ?? '').split(',').includes(world);
+    } catch {
+      return false;
+    }
+  },
+  markSeen(world: string) {
+    try {
+      const have = (window.sessionStorage.getItem('world.seen') ?? '').split(',').filter(Boolean);
+      if (!have.includes(world)) window.sessionStorage.setItem('world.seen', [...have, world].join(','));
+    } catch {
+      /* ignore */
+    }
+  },
   /** The opening has been shown in this tab already. */
   get introSeen() {
     try {
