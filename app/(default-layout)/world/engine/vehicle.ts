@@ -11,6 +11,9 @@ export interface VehicleOptions {
    *  default its front points down its own -Z (set `forward` otherwise). */
   object: Object3D;
   kind: 'car' | 'boat';
+  /** what sort of machine it is: its weight, its gearing and its voice follow from this.
+   *  Default: 'kei' for a car, 'outboard' for a boat. */
+  make?: 'kei' | 'pickup' | 'buggy' | 'outboard' | 'skiff';
   /** what the prompt says when you can get in, e.g. "Drive the truck" */
   label: string;
   /** half its width and half its length, metres */
@@ -66,6 +69,7 @@ export class Vehicle {
     const car = options.kind === 'car';
     this.o = {
       forward: 0,
+      make: car ? 'kei' : 'outboard',
       maxSpeed: car ? 19 : 11,
       reverse: car ? 6 : 3,
       accel: car ? 9 : 4,
