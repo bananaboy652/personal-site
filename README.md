@@ -55,14 +55,30 @@ Each world also has things of its own to click, one thing that follows the point
 
 **Explore** (in the corner of the frame, or the `E` key) steps you into the world: the page gets out of the way and you are standing in the scene. **Full screen** does the same and fills the screen.
 
-- `W A S D` move, mouse looks, `Shift` runs, `Space` jumps, `E` uses what is in front of you, `Space` twice takes off and lands, `F` toggles full screen, `Escape` steps back out. On a phone: left thumb moves, right thumb looks, a tap uses.
+- `W A S D` move, mouse looks, `Shift` runs, `Space` jumps, `E` uses what is in front of you, `Space` twice takes off and lands, `F` toggles full screen, `Escape` steps back out. On a phone: left thumb moves, right thumb looks, a tap uses, and there are buttons for back, jump and (where the browser allows it) full screen.
+- On an upright phone the frame shows one small Explore button under the nav, so that the foot of the view is left clear. A world says which side of the frame has nothing in it (`Level.dockSide`).
 - Some things can be driven (a boat, a truck): `W S` drive, `A D` steer, `Space` brakes, `V` switches between the view from behind and the seat, `E` gets out.
 - There are no invisible fences. What is solid is worked out from the scene's own triangles (`engine/solid.ts`): near-level ones are floor, steep ones are walls. Walk off a cliff and you fall; walk into the sea and you swim.
 - Stepping back out puts the scene back exactly as it is framed for the page.
+- What a world adds for somebody on foot is out of sight of the page's camera, far enough off to be a few dark pixels, or drawn only while somebody is in the world. The framed view is not changed by any of it.
+
+What there is to find on foot:
+
+| World | Places | Things to do |
+| --- | --- | --- |
+| The Overlook | A stair down the cliff (fireflies lead to it from the lantern), the tent, a cabin by the shore, the pier, the arch's island, a headland with a cairn, a jetty at the foot of the tower | Take the boat out, fish from the pier, sit on the swing, read what has been left lying about, look back at the camp through a second telescope |
+| The Relay | Stairs and ladders to a gangway and a landing stage under the deck, the control room, the mast up to its crow's nest, the walkway and the far platform, a ship at anchor, the tower's rock | Man the searchlight, take the launch, work the derrick's winch, throw the breaker, tap the key, ring the ship's bell |
+| The Switchback | A loop bridge down from the lay-by, the old road up to the tunnel and 2.5 km down to a town (a street, a depot, a frozen river, a station the train comes through), a hot spring, a wreck below the cliff, a shrine up the mountain | Drive the truck and deliver its three parcels, sound the horn, follow the fox, ring the shrine's bell |
+
+In each world something shows how many of the three signals have been answered: lamps over a door at the foot of the tower, a chart on a wall, three stones at a shrine. A world can also keep small notes of its own between visits (`store.note`), apart from the signals the gate counts.
 
 ### Scrolling
 
-The camera does not move when the page scrolls. Each world changes instead (`Level.scroll`): at the Overlook the hour turns, so that by the foot of the page the night has passed.
+The camera does not move when the page scrolls. Each world changes instead (`Level.scroll`):
+
+- **The Overlook:** the hour turns, so that by the foot of the page the night has passed.
+- **The Relay:** the storm goes through. The rain thins, the sea lies down, the moon comes up over the gate, and the storm's sound goes with it.
+- **The Switchback:** cloud comes up the valley and the snow sets in, until only the bend and the tower stand out.
 
 ### How it is put together
 

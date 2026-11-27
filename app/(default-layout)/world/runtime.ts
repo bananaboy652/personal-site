@@ -232,8 +232,18 @@ export class Runtime {
     document.documentElement.style.overflow = 'hidden';
     document.documentElement.style.touchAction = 'none';
     document.documentElement.style.cursor = '';
+    // (looking about by dragging must not select the text of the page that is out of sight)
+    this.selectable(false);
     if (!e.touch) this.lock();
     if (fullscreen) this.fullscreen(true);
+  }
+
+  /** Whether dragging over the page selects its text. */
+  private selectable(on: boolean) {
+    const style = document.documentElement.style;
+    style.userSelect = on ? '' : 'none';
+    style.setProperty('-webkit-user-select', on ? '' : 'none');
+    if (!on) window.getSelection()?.removeAllRanges();
   }
 
   exitExplore() {
@@ -244,6 +254,7 @@ export class Runtime {
     this.touches.clear();
     document.documentElement.style.overflow = '';
     document.documentElement.style.touchAction = '';
+    this.selectable(true);
     if (document.pointerLockElement) document.exitPointerLock();
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     this.later(() => this.frame(), 50);
@@ -524,6 +535,7 @@ export class Runtime {
     document.documentElement.style.cursor = '';
     document.documentElement.style.overflow = '';
     document.documentElement.style.touchAction = '';
+    this.selectable(true);
     this.engine.dispose();
     this.level = null;
   }
