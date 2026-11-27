@@ -290,8 +290,7 @@ export class Hud {
       if (walking) this.drawWalking(dt);
       else this.drawPrompt(dt);
     }
-    // (on a phone the place-name card has the top of the view to itself while it is up)
-    if (level?.walk && !walking && !this.menu && !this.engine.inScope && !(this.centred && this.card)) this.drawDock();
+    if (level?.walk && !walking && !this.menu && !this.engine.inScope) this.drawDock();
     else this.dockRects.length = 0;
     this.drawCard(dt);
     this.drawToasts(dt);
@@ -461,7 +460,9 @@ export class Hud {
     const right = s.x1 * this.w - 8 * u;
     const x = this.centred ? Math.round(((s.x0 + s.x1) / 2) * this.w - full / 2) : Math.round(right - full);
     // on an upright phone the card goes at the top of the clear band, under the nav; otherwise bottom right
-    const y = this.centred ? Math.round(s.y0 * this.h + 12 * u) : Math.round(s.y1 * this.h - (big * 7 + 26 + (this.dockRects.length ? 20 : 0)) * u);
+    // (a row of buttons may be there already: the Explore button, or the touch buttons of somebody on foot)
+    const under = this.dockRects.length || (this.engine.exploring && this.engine.touch) ? 26 : 12;
+    const y = this.centred ? Math.round(s.y0 * this.h + under * u) : Math.round(s.y1 * this.h - (big * 7 + 26 + (this.dockRects.length ? 20 : 0)) * u);
     this.text(title, x, y, [INK[0], INK[1], INK[2], a], big);
     const ruleT = Math.max(0, Math.min(1, (c.t - c.title.length / 20) / 0.5));
     if (ruleT > 0) this.rect(x, y + (big * 7 + 4) * u, Math.round(full * ruleT), u, [EMBER[0], EMBER[1], EMBER[2], a]);
@@ -478,7 +479,8 @@ export class Hud {
     const s = this.safe;
     const cx = ((s.x0 + s.x1) / 2) * this.w;
     // (on a phone: below the place-name card, the button under the nav, or the touch buttons, whichever is there)
-    let y = Math.round(s.y0 * this.h + (this.centred ? (this.card ? 44 : this.dockRects.length ? 23 : 6) : 6) * u);
+    const row = this.dockRects.length || (this.engine.exploring && this.engine.touch) ? 14 : 0;
+    let y = Math.round(s.y0 * this.h + (this.centred ? (this.card ? 44 + row : row ? 23 : 6) : 6) * u);
     if (this.engine.exploring && this.engine.touch) y = Math.max(y, 26 * u);
     this.toasts = this.toasts.filter((t) => (t.t += dt) < t.life);
     for (const t of this.toasts) {
