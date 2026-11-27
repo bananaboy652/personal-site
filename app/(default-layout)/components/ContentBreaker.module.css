@@ -4,7 +4,8 @@
     font-size: 2.4rem;
     font-weight: 500;
     letter-spacing: -0.03em;
-    max-width: calc(min(58rem, 100vw - 2 * var(--edge)) - var(--indent));
+    /* (as wide as the panels under it: 58rem unless a page sets --breaker-width) */
+    max-width: calc(min(var(--breaker-width, 58rem), 100vw - 2 * var(--edge)) - var(--indent));
     padding-top: 1.6rem;
     padding-bottom: 1.1rem;
     margin-left: calc(var(--edge) + var(--indent));

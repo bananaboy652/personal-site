@@ -34,9 +34,18 @@
   --resin-raised: #4a474d;
   --resin-well: #1c1b1e;
 
-  /* Layout: everything docks to the left, a title screen over the view. */
-  --edge: calc(var(--site-frame) + var(--site-gap));   /* where panels start */
+  /* Layout: everything docks to the left, a title screen over the view.
+     On an ultrawide monitor the page keeps to a stage twice as wide as the
+     window is tall, centred in the window (the world's camera is composed for
+     the same shape: STAGE in world/engine/engine.ts), so nothing sits against
+     the far-left edge of the glass. --stage-inset is what is left over at each
+     side of that stage; it is nothing on a laptop, a tablet or any 16:9
+     display (see the rule below this block). */
+  --stage-inset: 0px;
+  --edge-y: calc(var(--site-frame) + var(--site-gap));   /* in from the top or bottom of the bezel */
+  --edge: calc(var(--edge-y) + var(--stage-inset));      /* where panels start, in from the left (or right) */
   --indent: 1.8rem;                                    /* text set straight on the scene */
+  --title-top: 7.4rem;                                 /* where a page's name hangs: just under the nav's captions */
   --col: 44rem;                                        /* the opening column */
 
   /* Corners. A frame's inner corner is its outer radius less its thickness,
@@ -69,6 +78,24 @@
   --key-shadow: inset 0.5px 0.5px 0.5px rgba(255, 255, 255, 0.24), inset -0.5px -1.2px 1px rgba(0, 0, 0, 0.36),
     0 1.5px 1px rgba(0, 0, 0, 0.5), 0 4px 7px rgba(0, 0, 0, 0.28);
   --well-shadow: inset 1px 2px 3px rgba(0, 0, 0, 0.55), 0 0.6px 0.6px rgba(255, 255, 255, 0.12);
+}
+
+/* The stage. A 16:9 display with the browser's own bars round the page comes to
+   about 2:1, and there the page must stay docked in the corner of the bezel. So
+   it only starts to move in once the window is 2.2 times as wide as it is tall,
+   and by 2.3 it is exactly on the stage: a 21:9 monitor and anything wider.
+   (Not on a landscape phone, which can be that shape but has no room to give.) */
+@media (min-height: 37.5rem) {
+  :root {
+    --stage-inset: clamp(0px, calc((100vw - 220vh) * 1.5), max(0px, calc((100vw - 200vh) / 2)));
+  }
+}
+
+/* Under this width the nav has no captions hanging below it, so a page's name can sit closer to it. */
+@media (max-width: 48rem) {
+  :root {
+    --title-top: 6.5rem;
+  }
 }
 
 /* Scrollbar: made of the same resin as the frame it sits beside. */

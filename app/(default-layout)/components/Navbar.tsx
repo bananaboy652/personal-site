@@ -53,8 +53,10 @@ export default function Navbar(){
     const isActive = (path: any) => pathname === path;
 
     // A home-page section link is active only while that section is on screen.
+    // "Projects" is also active on any project's own page (/projects/...).
+    const onProjectPage = pathname.startsWith('/projects/');
     const sectionClass = (section: string) =>
-        isActive('/') && activeSection === section ? styles.active : styles.inactive;
+        (isActive('/') && activeSection === section) || (section === 'project' && onProjectPage) ? styles.active : styles.inactive;
     const pageClass = (path: string) => isActive(path) ? styles.active : styles.inactive;
     const trimClass = scrolled ? `${styles.trim} ${styles.trimHidden}` : styles.trim;
 

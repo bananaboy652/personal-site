@@ -23,17 +23,46 @@
     padding-bottom: 0.9rem;
 }
 
-/* Phones: the first screen is the world, with this card at its foot. */
+/* The page's name on its own, for an upright screen (see below). */
+.head{
+    display: none;
+}
+
+.title{
+    font-family: var(--font-display);
+    color: var(--ink);
+    font-size: 4rem;
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+
 @media (max-width: 46rem) {
-    .first{
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
+    .title{
+        font-size: min(3.3rem, 13.6vw);
+    }
+}
+
+/* An upright screen (a phone, or a tablet held upright) opens as a title
+   screen: the nav and the page's name at the top, and the rest of the first
+   screen left empty as a window on the world. The panel, without its heading,
+   starts below the fold. (9/10 is the shape at which the world's own camera
+   switches to its upright view.) */
+@media (max-aspect-ratio: 9/10) {
+    .head{
+        display: block;
+        box-sizing: border-box;
         min-height: 100vh;
         min-height: 100svh;
-        padding-bottom: 1.4rem;
+        margin-left: var(--edge);
+        max-width: calc(100vw - 2 * var(--edge));
+        padding-top: var(--title-top);
     }
     .main{
         margin-top: 0;
+    }
+    .main h1{
+        display: none;
     }
 }

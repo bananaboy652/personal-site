@@ -3,7 +3,7 @@
    radius plus that gap, so the two curves share a centre. */
 .main{
     position: fixed;
-    top: var(--edge);
+    top: var(--edge-y);
     left: var(--edge);
     z-index: 1000;
     max-width: calc(100vw - 2 * var(--edge));

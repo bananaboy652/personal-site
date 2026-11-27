@@ -13,11 +13,14 @@ export default function Hero(){
             <div className={styles.SteamContent}>
                 <SteamProfileCard steamid="76561198136358808" />
                 <div className={styles.Counter}>
-                    <div className={styles.CounterLine}>
-                        <SteamHours />
-                        <h1 className={styles.Hours}>Hours</h1>
+                    {/* The page's title block. The world behind the page measures it (data-world-title). */}
+                    <div data-world-title>
+                        <div className={styles.CounterLine}>
+                            <SteamHours />
+                            <h1 className={styles.Hours}>Hours</h1>
+                        </div>
+                        <h2>And counting...</h2>
                     </div>
-                    <h2>And counting...</h2>
                 </div>
             </div>
             <div className={styles.PageDescription}>

@@ -36,8 +36,8 @@
 }
 
 .main{
-    /* lines up with the headings above it */
-    margin-left: calc(var(--site-gap) + var(--indent) - 2rem);
+    /* lines up with the headings above it (which move in with the stage on a very wide window) */
+    margin-left: calc(var(--site-gap) + var(--indent) - 2rem + var(--stage-inset));
     max-width: 62.5rem;
     position: relative;
 
@@ -153,7 +153,7 @@
         padding-right: calc(var(--site-frame) + 1.1rem);
     }
     .main{
-        margin-left: 0;
+        margin-left: var(--stage-inset);
     }
     .UpperContent{
         flex-direction: column;

@@ -1,49 +1,11 @@
-/* The opening block: portrait and name side by side, docked to the left like
-   a title screen, leaving the right of the window to the view. */
+/* The opening block: the name, a greeting and the contact icons, hung under
+   the nav in the top-left corner like the title on a title screen. The rest of
+   the window is left to the view. */
 .main{
-    display: flex;
-    gap: 1.5rem;
     width: var(--col);
     max-width: calc(100vw - 2 * var(--edge));
     margin-left: var(--edge);
-    margin-top: 9.4rem;
-    background-color: transparent;
-}
-
-/* The portrait sits in its own resin frame. The photo's corner radius is the
-   frame's less its thickness, so the two curves are concentric. */
-.frame{
-    box-sizing: border-box;
-    width: 240px;
-    height: 240px;
-    padding: var(--card-t);
-    border-radius: var(--card-r);
-    background-image: var(--frame-card);
-    background-size: 100% 100%;
-    background-repeat: no-repeat;
-    box-shadow: var(--frame-shadow);
-}
-
-.img{
-    display: block;
-    width: 100%;
-    height: 100%;
-    border-radius: calc(var(--card-r) - var(--card-t));
-    object-fit: cover;
-}
-
-.profile{
-    flex: none;
-    font-family: var(--font-label);
-    color: var(--ink-muted);
-    text-align: center;
-    font-weight: 400;
-    font-size: 0.68rem;
-    letter-spacing: 0.04em;
-}
-
-.profile h3{
-    margin-top: 0.55rem;
+    margin-top: var(--title-top);
 }
 
 .titlecard{
@@ -53,7 +15,6 @@
     font-weight: 500;
     letter-spacing: -0.035em;
     line-height: 1.1;
-    margin-top: 0.4rem;
     min-width: 0;
     text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
 }
@@ -115,34 +76,29 @@
     color: var(--accent);
 }
 
-/* On a phone the first screen is a title screen: the top of it is left clear
-   as a window on the world, and the portrait, name and links sit at its foot. */
+/* Narrow screens: the same block, set smaller. */
 @media (max-width: 46rem) {
-    .main{
-        flex-direction: column;
-        justify-content: flex-end;
-        gap: 0.55rem;
-        box-sizing: border-box;
-        margin-top: 0;
-        min-height: 100vh;
-        min-height: 100svh;
-        padding-bottom: 1.6rem;
-    }
-    .frame{
-        width: 104px;
-        height: 104px;
-    }
-    .profile h3{
-        display: none;
-    }
     .titlecard{
         font-size: min(3.3rem, 13.6vw);
-        margin-top: 0;
-        margin-left: 0.2rem;
     }
     .titlecard_h2{
         font-size: 1.7rem;
         line-height: 2.1rem;
         margin-bottom: 0.6rem;
+    }
+}
+
+/* An upright screen (a phone, or a tablet held upright) opens as a title
+   screen: the nav and this block at the top, and the rest of the first screen
+   left empty as a window on the world. The page proper starts below the fold.
+   (9/10 is the shape at which the world's own camera switches to its upright
+   view.) */
+@media (max-aspect-ratio: 9/10) {
+    .main{
+        box-sizing: border-box;
+        margin-top: 0;
+        padding-top: var(--title-top);
+        min-height: 100vh;
+        min-height: 100svh;
     }
 }
