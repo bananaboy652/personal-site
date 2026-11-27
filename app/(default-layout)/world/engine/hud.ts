@@ -64,6 +64,8 @@ export class Hud {
   menu: Menu | null = null;
   /** buttons that sit in the corner of the frame while the page is up ("Explore") */
   dock: { label: string; pick: () => void }[] = [];
+  /** how many of them there is room for in the corner (the page may have a card there): the rest are left out */
+  dockRoom = 9;
   /** the browser can fill the screen: offer it to somebody walking about by touch */
   canFull = false;
   /** the pointer is over one of this layer's own buttons or menu rows */
@@ -218,6 +220,14 @@ export class Hud {
     return x >= r.x - g && x < r.x + r.w + g && y >= r.y - g && y < r.y + r.h + g;
   }
 
+  /** How wide the first `n` buttons of the corner row are together, in CSS pixels. */
+  dockSpan(n: number) {
+    const u = this.unit;
+    const k = this.thumb;
+    const w = this.dock.slice(0, n).reduce((a, b) => a + this.measure(b.label, k) + (15 + 6 * k) * u, 0) + 5 * u * Math.max(0, n - 1);
+    return (w + 8 * u) * this.texel;
+  }
+
   /** A length given in CSS pixels, in frame pixels: for things a finger has to find. */
   css(n: number) {
     return Math.round(n / this.texel);
@@ -348,7 +358,7 @@ export class Hud {
     const k = this.thumb;
     const gap = 5 * u;
     const h = (7 * k + 6) * u;
-    const widths = this.dock.map((b) => this.measure(b.label, k) + (15 + 6 * k) * u);
+    const widths = this.dock.slice(0, Math.max(1, this.dockRoom)).map((b) => this.measure(b.label, k) + (15 + 6 * k) * u);
     this.dockRects.length = 0;
     if (!widths.length) return;
     const button = (b: { label: string }, i: number, x: number, y: number, w: number) => {
@@ -364,9 +374,9 @@ export class Hud {
       const total = widths.reduce((a, b) => a + b, 0) + gap * (widths.length - 1);
       let x = Math.round(s.x1 * this.w - 8 * u - total);
       const y = Math.round(s.y1 * this.h - 6 * u - h);
-      this.dock.forEach((b, i) => {
-        button(b, i, x, y, widths[i]);
-        x += widths[i] + gap;
+      widths.forEach((bw, i) => {
+        button(this.dock[i], i, x, y, bw);
+        x += bw + gap;
       });
       return;
     }

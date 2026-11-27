@@ -409,15 +409,26 @@ export class Runtime {
     safe.x1 = 1 - (edge + inset) / W;
     safe.y0 = edge / FH;
     // The buttons in the corner of the frame are drawn behind the page, so a card that reaches the
-    // corner would cover them. At the top of the page, find the lowest spot up the right-hand side that
-    // the page leaves alone (and keep to it while the page is scrolled: the view does not shuffle about).
+    // corner would cover them. At the top of the page, see what the page leaves alone there: the whole
+    // row at the foot if it fits, else the first button alone, at the foot or as far up the right-hand
+    // side as the first clear spot. (Kept while the page is scrolled: nothing shuffles about.)
     if (window.scrollY < 4 || !this.foot) {
-      const x1 = W - edge - inset - 16;
-      let y = H - edge - 12;
-      for (let i = 0; i < 20; i++, y -= 24) {
-        if (![x1, x1 - 120, x1 - 240].some((x) => overUi(document.elementFromPoint(x, y)) || overUi(document.elementFromPoint(x, y - 22)))) break;
+      const hud = e.hud;
+      const x1 = W - edge - inset - 6;
+      const clearAt = (n: number, y: number) => {
+        const span = hud.dockSpan(n);
+        return ![0, 0.5, 1].some((k) => overUi(document.elementFromPoint(x1 - span * k, y)) || overUi(document.elementFromPoint(x1 - span * k, y - 24)));
+      };
+      const all = hud.dock.length;
+      let y = H - edge - 10;
+      let room = all;
+      if (!clearAt(all, y)) {
+        // (moved up, it stands over the scene itself: one button is as much as that should cost)
+        room = 1;
+        for (let i = 0; i < 20 && !clearAt(1, y); i++) y -= 24;
       }
-      this.foot = y + 12;
+      hud.dockRoom = room;
+      this.foot = y + 10;
     }
     safe.y1 = Math.min(H - edge, this.foot) / FH;
   };
