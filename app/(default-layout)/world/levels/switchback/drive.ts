@@ -1,16 +1,16 @@
-// The truck as something to drive. The engine's Vehicle does the driving; this
-// looks after what goes with it: the tracks it leaves, the noise it makes, the
-// horn, what the ice does to its grip, the inside of the cab, and fetching it
-// back if it ever falls out of the world.
+// The truck as something to drive. The engine's Vehicle does the driving and
+// makes the noise of it; this looks after what goes with it here: the tracks
+// it leaves in the snow, the snow its wheels throw up, the horn, the inside
+// of the cab, and fetching it back if it ever falls out of the world.
 import { BufferGeometry, Float32BufferAttribute, type Group, Mesh, type Texture } from 'three';
 import type { Engine } from '../../engine/engine';
-import { clamp, lerp, rad } from '../../engine/math';
+import type { Particles } from '../../engine/fx';
+import { clamp, rad } from '../../engine/math';
 import { Vehicle } from '../../engine/player';
 import { psxMaterial } from '../../engine/shaders';
 import type { Truck } from './props';
 import type { Ground } from './road';
-import { FLOOR, nOf, riverN, tOf } from './terrain';
-import { ICE_Y, RIVER_HALF } from './town';
+import { FLOOR } from './terrain';
 
 /** how many lengths of track are remembered before the oldest is ploughed over */
 const SEGMENTS = 520;
@@ -20,42 +20,45 @@ const WHEELS: [number, number][] = [[-0.76, -0.5], [0.5, 0.76]];
 
 export class Drive {
   readonly vehicle: Vehicle;
-  /** what is under the wheels */
-  surface: 'snow' | 'ice' = 'snow';
   private trail: Mesh;
   private pos: Float32Array;
   private head = 0;
   private last: { x: number; y: number; z: number; rx: number; rz: number } | null = null;
-  private putter = 0;
-  private crunch = 0;
-  private hiss = 0;
   private tap = { was: false, t: 9 };
-  private wasIn = false;
-  private wasBumped = false;
-  private fall = 0;
   private safe = { x: 0, y: 0, z: 0, heading: 0, t: 0 };
   private glass: Mesh | undefined;
+  private kick = 0;
+  /** how long it has been asked to go forward and gone nowhere, and the same backward; what the
+   *  driver has been told about it so far (0 nothing, 1 to back up or pull forward, 2 that the horn
+   *  brings a tow); and the last place it stood on a road, to be towed back to */
+  private stuck = 0;
+  private stuckBack = 0;
+  private told = 0;
+  private road = { x: 0, y: 0, z: 0, heading: 0, t: 0 };
+  /** (and the few before it: a tow goes back to where it was some seconds before it went wrong) */
+  private roads: { x: number; y: number; z: number; heading: number; t: number }[] = [];
 
   /** `carrier` is what moves: the truck's own model sits in it turned to face
    *  the carrier's -Z, the way the engine's vehicles point. It must already be
    *  standing where the truck is parked. */
-  constructor(private engine: Engine, root: Group, readonly carrier: Group, private truck: Truck, snow: Texture, private ground: Ground, private horn: () => void) {
+  constructor(private engine: Engine, root: Group, readonly carrier: Group, private truck: Truck, snow: Texture, private ground: Ground, private horn: () => void, private puffs: Particles) {
     this.vehicle = new Vehicle(engine, {
       object: carrier,
       kind: 'car',
+      make: 'kei',
       label: 'Drive the truck',
       half: [0.74, 1.72],
-      maxSpeed: 19,
-      reverse: 6.5,
-      accel: 8,
-      turn: 80,
-      grip: 2.3,
+      axles: [1.12, 1.08],
+      track: 0.63,
+      wheel: 0.27,
+      wheels: truck.wheels,
       chase: [6.2, 2.7],
       // behind the wheel, which is on the right
       seat: [0.33, 1.52, -0.82],
       reach: 3.4,
     });
     this.safe = { x: this.vehicle.x, y: this.vehicle.y, z: this.vehicle.z, heading: this.vehicle.heading, t: 0 };
+    this.road = { ...this.safe };
     this.glass = truck.group.children.find((m) => (m as Mesh).material === truck.cab) as Mesh | undefined;
 
     // the tracks it leaves: a long ribbon that is written into as it goes
@@ -89,9 +92,7 @@ export class Drive {
   /** Every frame while somebody is walking about. `driving` is whether they are at the wheel. */
   tick(dt: number, driving: boolean) {
     const e = this.engine;
-    const a = e.audio;
     const v = this.vehicle;
-    const speed = Math.abs(v.speed);
     // nothing far overhead counts as ground while the camera is following the truck (see Ground)
     this.ground.ceiling = driving ? v.y + 4.5 : Infinity;
 
@@ -100,78 +101,116 @@ export class Drive {
     for (const m of this.truck.cabin) m.visible = seat;
     if (this.glass) this.glass.visible = !seat;
 
-    // getting in and out
-    if (driving !== this.wasIn) {
-      this.wasIn = driving;
-      a.noise({ dur: 0.1, gain: 0.09, f: 1100, q: 2 });
-      a.tone({ f: [170, 110], dur: 0.18, type: 'sawtooth', gain: 0.03, lp: 500, at: 0.03 });
-      if (driving) a.tone({ f: [70, 96], dur: 0.5, type: 'sawtooth', gain: 0.035, lp: 380, at: 0.12 });
+    // Off the road a small truck can get itself somewhere it cannot climb out of. Asked to go and
+    // going nowhere for a while, the driver is told the way out: the horn brings the plough, which
+    // tows it back to the last stretch of road it was on.
+    // (It is parked nose-in at the end of the lay-by, so the first thing anybody does is drive it
+    // into the rail: the first thing they are told is to try the other way.)
+    const going = Math.hypot(v.vx, v.vz);
+    if (driving && going < 0.7 && !v.airborne) {
+      if (v.throttle > 0.3) this.stuck += dt;
+      else if (v.throttle < -0.3) this.stuckBack += dt;
+    } else if (going > 2.5 || !driving) this.stuck = this.stuckBack = this.told = 0;
+    if (this.told === 0 && (this.stuck > 1.6 || this.stuckBack > 1.6)) {
+      this.told = 1;
+      e.hud.toast(this.stuck > this.stuckBack ? (e.touch ? 'Nose against something: pull the stick back' : 'Nose against something: back up with S') : e.touch ? 'Backed into something: push the stick forward' : 'Backed into something: pull forward with W', 4.5);
+    }
+    if (this.told === 1 && this.fast) {
+      this.told = 2;
+      e.hud.toast(e.touch ? 'Stuck fast? Sound the horn for a tow' : 'Stuck fast? Sound the horn for a tow (H)', 6);
+    }
+    const s = v.surface;
+    if (driving && !v.airborne && going > 1.5 && (s === 'gravel' || s === 'concrete' || s === 'road')) {
+      this.road.t += dt;
+      if (this.road.t > 0.8) {
+        this.road = { x: v.x, y: v.y, z: v.z, heading: v.heading, t: 0 };
+        this.roads.push(this.road);
+        if (this.roads.length > 9) this.roads.shift();
+      }
     }
 
-    // the river is ice: next to no grip, and slow to pick up speed
-    const t = tOf(v.x, v.z);
-    const onIce = Math.abs(nOf(v.x, v.z) - riverN(t)) < RIVER_HALF && Math.abs(v.y - ICE_Y) < 0.5;
-    this.surface = onIce ? 'ice' : 'snow';
-    v.o.grip = onIce ? 0.42 : 2.3;
-    v.o.accel = onIce ? 4.5 : 8;
-
-    // the horn: Space twice (once is the brake)
+    // the horn: H (or its button), or the handbrake twice in quick succession
     const jump = driving && e.controls.jump;
     this.tap.t += dt;
+    let sound = driving && !!e.controls.horn;
+    e.controls.horn = false;
     if (jump && !this.tap.was) {
-      if (this.tap.t < 0.36) this.horn();
+      if (this.tap.t < 0.36) sound = true;
       this.tap.t = 0;
     }
     this.tap.was = jump;
-
-    if (driving) {
-      // the engine: a small one, working harder the faster it goes
-      this.putter -= dt;
-      if (this.putter <= 0) {
-        this.putter = lerp(0.125, 0.052, clamp(speed / 19));
-        a.tone({ f: [56 + speed * 3.4, 48 + speed * 2.8], dur: 0.085, type: 'sawtooth', gain: 0.018 + 0.016 * Math.abs(v.throttle), lp: 380 + speed * 32 });
-      }
-    }
-    if (speed > 0.6 && v.vy === 0) {
-      // tyres: snow creaks under them, ice sings
-      this.crunch -= dt * speed;
-      if (this.crunch <= 0) {
-        this.crunch = 1.5;
-        if (onIce) a.noise({ dur: 0.12, gain: 0.014, type: 'bandpass', f: 3200, q: 2.5 });
-        else a.noise({ dur: 0.1, gain: Math.min(0.03, 0.008 + speed * 0.0014), type: 'bandpass', f: 800 + Math.random() * 500, q: 0.7 });
-      }
-      const hr = rad(v.heading);
-      const slip = Math.abs(v.vx * Math.cos(hr) + v.vz * Math.sin(hr));
-      this.hiss -= dt;
-      if (slip > 2.6 && this.hiss <= 0) {
-        this.hiss = 0.16;
-        a.noise({ dur: 0.22, gain: Math.min(0.05, slip * 0.007), type: 'bandpass', f: onIce ? 2600 : 1500, q: 1.4, attack: 0.04 });
-      }
-    }
-    if (v.bumped && !this.wasBumped && speed > 1.2) {
-      a.noise({ dur: 0.12, gain: 0.14, type: 'lowpass', f: 260 });
-      a.tone({ f: [92, 58], dur: 0.14, gain: 0.05 });
-    }
-    this.wasBumped = v.bumped;
-    // coming down after a drop
-    if (v.vy < -6) this.fall = v.vy;
-    else if (v.vy === 0 && this.fall) {
-      a.noise({ dur: 0.18, gain: Math.min(0.2, -this.fall * 0.012), type: 'lowpass', f: 220 });
-      this.fall = 0;
+    if (sound) {
+      this.horn();
+      if (this.fast) this.tow();
     }
 
     this.lay();
+    this.spray(dt);
 
     // Falling out of the world (through the gap under an overhang, say) should
     // not be the end of the round: put it back where it last stood safely.
-    if (v.vy === 0 && v.y > FLOOR - 6 && !v.bumped) {
+    if (!v.airborne && v.y > FLOOR - 6 && !v.bumped) {
       this.safe.t += dt;
       if (this.safe.t > 0.6) this.safe = { x: v.x, y: v.y, z: v.z, heading: v.heading, t: 0 };
     }
     if (v.y < FLOOR - 40) v.place(this.safe.x, this.safe.y + 0.5, this.safe.z, this.safe.heading);
   }
 
-  /** Lay another length of tyre track behind the back wheels. */
+  /** It will go neither forward nor back. */
+  private get fast() {
+    return this.stuck > 2.5 && this.stuckBack > 2.5;
+  }
+
+  /** Back to the last stretch of road it was on (the screen goes dark for the time that takes). */
+  private tow() {
+    const e = this.engine;
+    const r = this.roads[0] ?? this.road;
+    this.roads = [r];
+    e.setFade(1);
+    void e.fadeTo(0, 1.1);
+    this.vehicle.place(r.x, r.y + 0.3, r.z, r.heading);
+    this.last = null;
+    this.stuck = this.stuckBack = this.told = 0;
+    e.hud.toast('The plough pulled you out', 3.5);
+  }
+
+  /** Snow thrown up by wheels that are spinning or sliding, or by coming down hard. */
+  private spray(dt: number) {
+    const v = this.vehicle;
+    if (!this.away || v.surface !== 'snow') return;
+    const speed = Math.hypot(v.vx, v.vz);
+    let much = v.airborne ? 0 : clamp((v.slip - 1) * 0.8) * clamp(speed / 6) + clamp(v.spin / 4) + clamp((speed - 9) / 30) * 0.5;
+    if (v.landed > 3) much += 3 + v.landed * 0.5;
+    this.kick += much * dt * 26;
+    if (this.kick < 1) return;
+    const hr = rad(v.heading);
+    const fx = Math.sin(hr), fz = -Math.cos(hr);
+    const rx = -fz, rz = fx;
+    while (this.kick >= 1) {
+      this.kick -= 1;
+      const side = Math.random() < 0.5 ? -0.63 : 0.63;
+      const end = v.landed > 3 && Math.random() < 0.5 ? 1.12 : AXLE;
+      const out = (Math.random() - 0.5) * 1.6;
+      this.puffs.spawn({
+        x: v.x + fx * end + rx * side,
+        y: v.y + 0.15,
+        z: v.z + fz * end + rz * side,
+        vx: v.vx * 0.25 - fx * (1 + v.spin * 0.5) + rx * out,
+        vy: 1.0 + Math.random() * 1.4,
+        vz: v.vz * 0.25 - fz * (1 + v.spin * 0.5) + rz * out,
+        life: 0.5 + Math.random() * 0.5,
+        size: 0.16,
+        grow: 3.5,
+        color: [0.86, 0.9, 1],
+        fade: [0.6, 0.66, 0.82],
+        alpha: 0.5,
+        drag: 1.6,
+        wander: 0.3,
+      });
+    }
+  }
+
+  /** Lay another length of tyre track behind the back wheels (in snow: a ploughed road takes none). */
   private lay() {
     const v = this.vehicle;
     if (!this.away) return;
@@ -180,8 +219,9 @@ export class Drive {
     const fz = -Math.cos(hr);
     const cur = { x: v.x + fx * AXLE, y: v.y + 0.07 + Math.sin(v.pitch) * AXLE, z: v.z + fz * AXLE, rx: Math.cos(hr), rz: Math.sin(hr) };
     const p = this.last;
-    if (!p || v.vy !== 0) {
-      this.last = v.vy === 0 ? cur : null;
+    const marks = !v.airborne && v.wheels[2].grounded && v.wheels[3].grounded && v.surface === 'snow';
+    if (!p || !marks) {
+      this.last = marks ? cur : null;
       return;
     }
     const d = Math.hypot(cur.x - p.x, cur.z - p.z);
@@ -212,14 +252,14 @@ export class Drive {
     this.trail.visible = false;
     this.head = 0;
     this.last = null;
-    this.wasIn = false;
-    this.fall = 0;
+    this.kick = 0;
+    this.stuck = this.stuckBack = this.told = 0;
+    this.roads = [];
     this.ground.ceiling = Infinity;
     for (const m of this.truck.cabin) m.visible = false;
     if (this.glass) this.glass.visible = true;
     const v = this.vehicle;
-    v.o.grip = 2.3;
-    v.o.accel = 8;
     this.safe = { x: v.x, y: v.y, z: v.z, heading: v.heading, t: 0 };
+    this.road = { ...this.safe };
   }
 }

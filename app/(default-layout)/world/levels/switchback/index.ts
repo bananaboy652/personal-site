@@ -51,6 +51,7 @@ import { Afield } from './afield';
 import { Drive } from './drive';
 import { EMBER, type Fox, type Truck, buildFox, buildPole, buildPortal, buildShelter, buildSnowman, buildTruck, buildVending } from './props';
 import { Ground, type P3, inGap } from './road';
+import { Emitters, lampBuzz, machineHum, wireSong } from './sound';
 import { FLOOR, type RoadPoint, TRACK_N, at, buildTerrain, descent, heightAt, plantPines, polar, railLine, riverN } from './terrain';
 import { type LocalTextures, createLocalTextures } from './textures';
 import { type Spark, inCorridor } from './town';
@@ -174,14 +175,22 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     games: { pos: [0, 1.94, 0], yaw: 0, pitch: 2, fov: 46 },
     media: { pos: [0, 1.9, 0], yaw: 0, pitch: 8.5, fov: 54 },
   };
+  // An upright screen is a title screen: the page's name under the nav and everything below it clear.
+  // The view is tilted up so that the moon hangs just under the name and the lay-by fills the foot of it.
   portraitShots: Record<string, Shot> = {
-    home: { pos: [0, 1.9, 0], yaw: 0, pitch: 2, fov: 68 },
-    games: { pos: [0, 1.94, 0], yaw: 0, pitch: 1, fov: 64 },
-    media: { pos: [0, 1.9, 0], yaw: 0, pitch: 7, fov: 70 },
+    home: { pos: [0, 1.9, 0], yaw: 0, pitch: 8, fov: 66 },
+    games: { pos: [0, 1.94, 0], yaw: 0, pitch: 8.3, fov: 64 },
+    media: { pos: [0, 1.9, 0], yaw: 0, pitch: 10, fov: 68 },
   };
   // the view is composed around the gap between the tower and the truck
   focusAz = 27;
   portraitFocus = 0.4;
+  // The vending machine holds the right-hand edge of the picture on any shape of window: the lamp, the
+  // truck, the fox, the moon and the tower all fall to the left of it. Where the page's panels would
+  // stand in front of the fox, the view turns a little further to bring it clear.
+  anchor = { at: [MACHINE[0], 1, MACHINE[1]] as [number, number, number], x: 0.93, portraitX: 0.84, keep: [FOX_HOME[0], 0.4, FOX_HOME[1]] as [number, number, number], most: 0.975 };
+  // (on an upright screen the Explore button goes bottom left: the radio stands bottom right)
+  dockSide = 'left' as const;
   audio: AudioSpec = {
     root: 52,
     // E with no third, then up through A and B minor to D: open, a little lonely
@@ -294,6 +303,12 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
 
   private ids = { head: [0, 0], tail: [0, 0], blink: [0, 0, 0, 0], lamp: 0, bend: 0, machine: 0, sold: 0, portal: 0 };
   private lampPos = new Vector3();
+  /** what goes on sounding where it stands: the machine, the lamp, the wires (see sound.ts) */
+  private emitters!: Emitters;
+  /** when the next far-off sound is due: a dog in the town, snow letting go of a branch */
+  private far = { dog: 38, slump: 21 };
+  private airR = rng(5150);
+  private clock = 0;
   private signPos = new Vector3();
   private machinePos = new Vector3();
   private machineFront = new Vector3();
@@ -349,6 +364,14 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     );
     this.setAtmos(NIGHT);
     this.placeTruck();
+    this.emitters = this.own(
+      new Emitters(this.engine.audio, [
+        { at: this.machinePos, reach: 7, level: 0.07, on: () => this.machineK, make: machineHum },
+        { at: this.lampPos, reach: 9, level: 0.04, on: () => this.lampK, make: lampBuzz },
+        // (the wind comes and goes; the wires run from the pole out over the valley)
+        { at: { x: this.lampPos.x + 3, y: this.lampPos.y + 2.5, z: this.lampPos.z }, reach: 18, level: 0.055, on: () => 0.5 + 0.5 * Math.sin(this.clock * 0.21) * Math.sin(this.clock * 0.067 + 1), make: wireSong },
+      ]),
+    );
   }
 
   /** Everything needed for stepping into the scene: what is solid, the truck
@@ -358,9 +381,16 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.field.visible = false;
     this.root.add(this.field);
     this.placeTruck();
-    this.drive = new Drive(e, this.root, this.carrier, this.truck, this.local.snow, this.ground, () => this.honk());
+    this.drive = new Drive(e, this.root, this.carrier, this.truck, this.local.snow, this.ground, () => this.honk(), this.puffs);
     this.drive.vehicle.interactable.hidden = () => !this.parked || !this.present;
-    this.walk = { solid: this.ground, eye: 1.86, vehicles: [this.drive.vehicle], tick: (dt, pl, v) => this.walkTick(dt, pl, v) };
+    this.walk = {
+      solid: this.ground,
+      eye: 1.86,
+      vehicles: [this.drive.vehicle],
+      tick: (dt, pl, v) => this.walkTick(dt, pl, v),
+      // (everything but the bend itself is made when somebody first steps in: until then it is all snow)
+      surface: (x, z, y) => this.afield?.surface(x, z, y) ?? 'snow',
+    };
     // Working out what is solid, and building everything that lies beyond the
     // frame, takes a moment that the page should not have to wait for: it is
     // put off until the first time somebody steps in.
@@ -494,6 +524,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.headK = this.lampK = this.machineK = 1;
     this.present = this.parked = true;
     this.truckK = 1;
+    for (const w of this.truck.wheels) w.rotation.set(0, 0, 0);
     this.lampsOn = 999;
     this.townOn = 1;
     this.snowAmt = 1;
@@ -508,6 +539,28 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.placeTruck();
   }
 
+  /** Now and then, something a long way off: a dog in the town, snow letting go of a branch. */
+  private airs(dt: number) {
+    const a = this.engine.audio;
+    if (dt <= 0 || this.timeline || !a.running) return;
+    const r = this.airR;
+    if ((this.far.dog -= dt) <= 0) {
+      this.far.dog = 45 + r() * 70;
+      const barks = 2 + Math.floor(r() * 2);
+      for (let i = 0; i < barks; i++) {
+        const at = i * (0.27 + r() * 0.08);
+        a.noise({ dur: 0.07, gain: 0.04, type: 'bandpass', f: [650, 430], q: 3, at, pan: -0.35, send: 0.9 });
+        a.tone({ f: [520, 330], dur: 0.07, type: 'sawtooth', gain: 0.022, lp: 1200, at, pan: -0.35, send: 0.9 });
+      }
+    }
+    if ((this.far.slump -= dt) <= 0) {
+      this.far.slump = 30 + r() * 55;
+      const pan = r() * 1.6 - 0.8;
+      a.noise({ dur: 0.4, gain: 0.07, type: 'lowpass', f: [380, 160], attack: 0.06, pan, send: 0.3 });
+      a.noise({ dur: 0.5, gain: 0.025, type: 'bandpass', f: 3200, q: 0.7, attack: 0.12, at: 0.05, pan, send: 0.3 });
+    }
+  }
+
   /* ---- things you can do ---- */
 
   private click(f: number, gain = 0.07) {
@@ -516,25 +569,31 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
 
   toggleTruck() {
     this.lights.truck = !this.lights.truck;
-    this.click(this.lights.truck ? 2400 : 1500, 0.1);
+    // a stalk on the column, and the relay behind the dash
+    this.click(this.lights.truck ? 2400 : 1500, 0.16);
+    this.engine.audio.noise({ dur: 0.03, gain: 0.12, type: 'lowpass', f: 420, at: 0.03, pan: 0.25 });
     if (this.lights.truck) this.hazT = 0;
   }
 
   toggleLamp(on = !this.lights.lamp) {
     this.lights.lamp = on;
     const a = this.engine.audio;
-    this.click(900, 0.12);
+    // the switch, and (lighting) the starter ticking before it catches
+    this.click(900, 0.18);
+    a.noise({ dur: 0.04, gain: 0.1, type: 'lowpass', f: 360, at: 0.01, pan: 0.25 });
     if (on) {
       this.flicker = 1;
-      a.tone({ f: [110, 120], dur: 0.6, type: 'sawtooth', gain: 0.02, lp: 500, attack: 0.1, send: 0.3 });
+      for (const at of [0.08, 0.19, 0.27]) a.noise({ dur: 0.012, gain: 0.07, f: 3400, q: 5, at, pan: 0.25, send: 0.2 });
+      a.tone({ f: [110, 120], dur: 0.7, type: 'sawtooth', gain: 0.045, lp: 600, attack: 0.1, at: 0.25, send: 0.3 });
     }
   }
 
   honk() {
     const a = this.engine.audio;
     for (const at of [0, 0.3]) {
-      a.tone({ f: 415, dur: 0.16, type: 'square', gain: 0.045, at, lp: 1700, pan: 0.25, send: 0.5 });
-      a.tone({ f: 523, dur: 0.16, type: 'square', gain: 0.04, at, lp: 1700, pan: 0.25, send: 0.5 });
+      a.tone({ f: 415, dur: 0.18, type: 'square', gain: 0.1, at, lp: 1900, pan: 0.25, send: 0.5 });
+      a.tone({ f: 523, dur: 0.18, type: 'square', gain: 0.09, at, lp: 1900, pan: 0.25, send: 0.5 });
+      a.tone({ f: 207, dur: 0.18, type: 'sawtooth', gain: 0.04, at, lp: 700, pan: 0.25, send: 0.5 });
     }
     this.beams = 1;
   }
@@ -549,11 +608,15 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     const i = 3 - this.stock;
     this.stock--;
     this.flicker = Math.max(this.flicker, 0.5);
-    // a coin, a clunk, and the can coming down
-    a.tone({ f: [2100, 1500], dur: 0.05, gain: 0.05, pan: 0.4, send: 0.2 });
-    a.noise({ dur: 0.08, gain: 0.16, type: 'lowpass', f: 420, at: 0.22, pan: 0.4 });
-    a.noise({ dur: 0.03, gain: 0.12, f: 2600, q: 2, at: 0.36, pan: 0.4 });
-    a.tone({ f: a.hz([7, 12, 14][i], 1), dur: 0.14, gain: 0.06, at: 0.5, send: 0.4 });
+    // a coin going down, the works turning over, the can knocking its way down the chute and landing in the tray
+    a.tone({ f: [2300, 1700], dur: 0.05, gain: 0.09, pan: 0.4, send: 0.2 });
+    a.tone({ f: [1500, 1200], dur: 0.04, gain: 0.06, at: 0.07, pan: 0.4, send: 0.2 });
+    a.noise({ dur: 0.09, gain: 0.2, type: 'lowpass', f: 420, at: 0.22, pan: 0.4 });
+    for (const [at, f, g] of [[0.34, 1500, 0.1], [0.43, 1150, 0.12], [0.5, 900, 0.1]]) a.noise({ dur: 0.03, gain: g, f, q: 3, at, pan: 0.4 });
+    a.noise({ dur: 0.1, gain: 0.24, type: 'lowpass', f: 300, at: 0.6, pan: 0.4 });
+    a.tone({ f: [240, 150], dur: 0.09, gain: 0.1, at: 0.6, pan: 0.4 });
+    a.noise({ dur: 0.03, gain: 0.1, f: 2600, q: 2, at: 0.68, pan: 0.4 });
+    a.tone({ f: a.hz([7, 12, 14][i], 1), dur: 0.14, gain: 0.07, at: 0.8, send: 0.4 });
     const can = this.cans[i];
     if (can) {
       can.visible = true;
@@ -612,8 +675,10 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   shooFox() {
     if (this.fox.state !== 'sit') return;
     const a = this.engine.audio;
-    a.tone({ f: [880, 1320], dur: 0.07, gain: 0.07, pan: 0.1, send: 0.4 });
-    a.tone({ f: [990, 1480], dur: 0.09, gain: 0.06, at: 0.12, pan: 0.1, send: 0.4 });
+    // a yip and a half, with breath in it
+    a.tone({ f: [880, 1320], dur: 0.07, gain: 0.1, pan: 0.1, send: 0.4 });
+    a.tone({ f: [990, 1480], dur: 0.09, gain: 0.09, at: 0.12, pan: 0.1, send: 0.4 });
+    for (const at of [0, 0.12]) a.noise({ dur: 0.06, gain: 0.04, f: [1900, 2800], q: 1.5, at, pan: 0.1, send: 0.4 });
     if (this.engine.exploring) {
       // on foot it does not run off: it has somewhere to show you
       if (this.tag.mode === 'shrine') return;
@@ -710,6 +775,9 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       this.truckFwd.set(Math.sin(hr), 0, -Math.cos(hr));
     } else {
       this.truckAt(this.truckK, this.truckPos, this.truckFwd);
+      // (as it pulls in, its wheels go round)
+      const rolled = this.truckPos.distanceTo(g.position);
+      if (rolled > 1e-4 && rolled < 2) for (const w of this.truck.wheels) w.rotation.x += rolled / 0.27;
       g.position.copy(this.truckPos);
       g.rotation.set(0, Math.atan2(this.truckFwd.x, this.truckFwd.z) + Math.PI, 0);
       g.updateMatrixWorld(true);
@@ -1102,6 +1170,9 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
 
   update(dt: number, time: number) {
     this.advance(dt);
+    this.clock = time;
+    this.emitters.update(this.engine.camera.position);
+    this.airs(dt);
     const u = this.engine.shared;
     const still = !this.engine.settings.motion;
     const ease = (v: number, to: number, rate: number) => (still ? to : v + (to - v) * (1 - Math.exp(-dt * rate)));
@@ -1451,8 +1522,9 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
         this.afoot.told = true;
         this.lights.truck = true;
         e.hud.toast('Three parcels for the town below', 7);
-        e.hud.toast('The way down is past the shelter', 7);
-        e.hud.toast('Space twice: the horn', 7);
+        // (it is parked nose-in to the rail: the way out is backwards)
+        e.hud.toast(e.touch ? 'Back out first, then past the shelter and down' : 'Back out (S), then past the shelter and down', 7);
+        e.hud.toast(e.touch ? 'Brake twice: the horn' : 'Space twice: the horn', 7);
         this.afield.showManifest(10);
       }
       return;

@@ -155,6 +155,20 @@ export function loopPath(startY: number, endY: number): Loop {
 /** The road along the bench from the foot of the loop to the old road, as (t, n). */
 const BENCH: [number, number][] = [[47, 26], [46.8, 36], [45.6, 48], [44.6, 62], [44.5, 80], [44.5, 100], [45, 122], [45.5, 145], [46.5, 165], [47, 182.5]];
 
+/** How far a spot is from the line of that road, metres. */
+function benchNear(x: number, z: number) {
+  const t = tOf(x, z);
+  const n = nOf(x, z);
+  let best = Infinity;
+  for (let i = 0; i < BENCH.length - 1; i++) {
+    const [at0, an0] = BENCH[i];
+    const [at1, an1] = BENCH[i + 1];
+    const k = clamp(((t - at0) * (at1 - at0) + (n - an0) * (an1 - an0)) / ((at1 - at0) ** 2 + (an1 - an0) ** 2));
+    best = Math.min(best, Math.hypot(t - lerp(at0, at1, k), n - lerp(an0, an1, k)));
+  }
+  return best;
+}
+
 /** Its centre line, lying a little above the ground. `ground` is the height of
  *  the land as drawn; `endY` says how high the old road is where they meet. */
 export function benchPath(ground: (x: number, z: number) => number, startY: number, endY: (x: number, z: number) => number): P3[] {
@@ -233,6 +247,47 @@ export function descentPath(ground: (x: number, z: number) => number, streetEnd:
   // lies far below the line between its neighbours
   pts[0].y = pts[1].y = pts[2].y;
   for (let pass = 0; pass < 3; pass++) for (let i = 1; i < pts.length - 1; i++) pts[i].y = Math.max(pts[i].y, (pts[i - 1].y + pts[i + 1].y) / 2 - 0.6);
+  // A road is graded. Where it goes over a rise it is built up on either side, so that the top of
+  // the rise is a curve and not a corner: at a corner a truck going at any speed leaves the ground,
+  // and lands hard on the far side of it. (Only ever built up: the land cannot be cut into.)
+  const CREST = 30;                                       // the tightest a crest may curve, as a radius in metres
+  const STEEP = 0.45;                                     // and the steepest it may run: nearly one in two
+  const gap = (i: number) => Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].z - pts[i].z) || 1;
+  for (let pass = 0; pass < 6; pass++) {
+    // (the foot of anything steeper is built out, so that it comes down over a longer run)
+    for (let i = 2; i < pts.length - 1; i++) pts[i + 1].y = Math.max(pts[i + 1].y, pts[i].y - gap(i) * STEEP);
+    for (let i = pts.length - 2; i > 2; i--) pts[i].y = Math.max(pts[i].y, pts[i + 1].y - gap(i) * STEEP);
+    for (let i = 3; i < pts.length - 1; i++) {
+      const [d1, d2] = [gap(i - 1), gap(i)];
+      pts[i + 1].y = Math.max(pts[i + 1].y, pts[i].y + d2 * ((pts[i].y - pts[i - 1].y) / d1 - (d1 + d2) / (2 * CREST)));
+    }
+    for (let i = pts.length - 2; i > 3; i--) {
+      const [d1, d2] = [gap(i - 1), gap(i)];
+      pts[i - 1].y = Math.max(pts[i - 1].y, pts[i].y - d1 * ((pts[i + 1].y - pts[i].y) / d2 + (d1 + d2) / (2 * CREST)));
+    }
+  }
+  // and it is laid in shorter lengths than it was surveyed in, each a little way round the curve
+  // from the last, so that no one joint is much of a bend, up and down or side to side
+  for (let i = pts.length - 2; i >= 2; i--) {
+    if (gap(i) < 6) continue;
+    const [p0, p1, p2, p3] = [pts[i - 1], pts[i], pts[i + 1], pts[Math.min(i + 2, pts.length - 1)]];
+    const mid = (a: number, b: number, c: number, d: number) => (-a + 9 * b + 9 * c - d) / 16;
+    const x = mid(p0.x, p1.x, p2.x, p3.x);
+    const z = mid(p0.z, p1.z, p2.z, p3.z);
+    const len = gap(i);
+    const sx = (-(p2.z - p1.z) / len) * 3.8;
+    const sz = ((p2.x - p1.x) / len) * 3.8;
+    const y = Math.max(mid(p0.y, p1.y, p2.y, p3.y), ground(x, z) + 0.3, ground(x + sx, z + sz) + 0.3, ground(x - sx, z - sz) + 0.3);
+    pts.splice(i + 1, 0, { x, y, z });
+  }
+  // (the foot of a slope is a curve too: a hollow sharper than this is filled)
+  for (let pass = 0; pass < 4; pass++) {
+    for (let i = 3; i < pts.length - 1; i++) {
+      const [d1, d2] = [gap(i - 1), gap(i)];
+      const chord = pts[i - 1].y + ((pts[i + 1].y - pts[i - 1].y) * d1) / (d1 + d2);
+      pts[i].y = Math.max(pts[i].y, chord - (d1 * d2) / (2 * 35));
+    }
+  }
   // and straight on down the town's main street, lying on the ground
   const last = DESCENT[DESCENT.length - 1];
   const end = pts[pts.length - 1];
@@ -362,12 +417,26 @@ export function loopWorks(conc: Builder, snow: Builder, hull: Hull, loop: Loop, 
     if (top - g < 1) return;
     hull.add(conc, () => conc.reset().translate(x, g, z).box(0.8, top - g, 0.8, cA, cB, 0.25), false);
   };
+  const o = h + 0.75;
+  // Where a pier stands, out from the middle of the deck on side `s`. One that would come down in
+  // the road along the bench (which leaves the foot of the loop and passes under its other turns)
+  // is stood beyond the road's far edge instead, and the beam is carried out over the road to it.
+  const stand = (i: number, s: number) => {
+    const p = pts[i];
+    const [ax, az] = across(pts, i);
+    let d = o;
+    while (d < o + 14 && benchNear(p.x + ax * d * s, p.z + az * d * s) < h + 1.1) d += 0.5;
+    return d;
+  };
   const beam = (i: number) => {
     const p = pts[i];
     const [ax, az] = across(pts, i);
     conc.reset().translate(p.x, p.y - T - 0.6, p.z).rotateY(Math.atan2(ax, az)).box(0.8, 0.6, ROAD_W + 2.2, cA, cB, 0.25);
+    for (const s of [-1, 1]) {
+      const d = stand(i, s);
+      if (d > o) conc.reset().translate(p.x + (ax * s * (o + d)) / 2, p.y - T - 0.6, p.z + (az * s * (o + d)) / 2).rotateY(Math.atan2(ax, az)).box(0.8, 0.6, d - o + 0.8, cA, cB, 0.25);
+    }
   };
-  const o = h + 0.75;
   const seen = new Map<number, { i: number; y: number }>();
   for (let i = 0; i < pts.length; i++) {
     if (Number.isNaN(theta[i])) continue;
@@ -388,8 +457,10 @@ export function loopWorks(conc: Builder, snow: Builder, hull: Hull, loop: Loop, 
   seen.forEach(({ i, y }) => {
     const p = pts[i];
     const [ax, az] = across(pts, i);
-    pier(p.x + ax * o, p.z + az * o, y - T);
-    pier(p.x - ax * o, p.z - az * o, y - T);
+    for (const s of [-1, 1]) {
+      const d = stand(i, s);
+      pier(p.x + ax * d * s, p.z + az * d * s, y - T);
+    }
   });
   // and two pairs under the span from the rim
   const first = theta.findIndex((t) => !Number.isNaN(t));

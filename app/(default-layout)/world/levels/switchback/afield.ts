@@ -17,15 +17,16 @@ import { type RGB, clamp, lerp } from '../../engine/math';
 import type { Player, Vehicle } from '../../engine/player';
 import { psxMaterial } from '../../engine/shaders';
 import { store } from '../../engine/store';
+import type { Surface } from '../../engine/surface';
 import type { Textures } from '../../engine/textures';
 import { WORLDS } from '../../engine/worlds';
 import type { Drive } from './drive';
 import { type Shrine, type Spring, type Wreck, buildShrine, buildSpring, buildWreck } from './finds';
 import type { Truck } from './props';
 import { type Ground, Hull, LOOP_GATE_AZ, type P3, ROAD, ROAD_W, across, banks, benchPath, descentPath, inGap, loopPath, loopWorks, nearest, poles, ribbon } from './road';
-import { D, FLOOR, TRACK_N, at, nOf, polar, railLine, tOf } from './terrain';
+import { D, FLOOR, TRACK_N, at, nOf, polar, railLine, riverN, tOf } from './terrain';
 import type { LocalTextures } from './textures';
-import { BRIDGE, type Spark, type Town, type Train, buildLevees, buildTown, buildTrain } from './town';
+import { BRIDGE, ICE_Y, MAIN_T, PLATFORM_Y, RIVER_HALF, type Spark, type Town, type Train, buildLevees, buildTown, buildTrain } from './town';
 
 export interface Ctx {
   engine: Engine;
@@ -120,6 +121,9 @@ export class Afield {
   /** how far along the road each of its points is */
   private roadAt: number[] = [];
   private plough: { mesh: Mesh; beacon: number; x: number; y: number; z: number; fx: number; fz: number; near: boolean; rumble: number };
+  /** the last spot the ground was asked about, and the answer (see `surface`) */
+  private under = { x: 1e9, y: 0, z: 0, is: 'snow' as Surface };
+  private boxes: [P3[], number, Surface, number, number, number, number][] = [];
 
   constructor(private c: Ctx) {
     const { engine, root, tex, local, glows, ground, floor } = c;
@@ -234,6 +238,30 @@ export class Afield {
     /* ---- the valley floor: the river's banks, the town, the station ---- */
 
     buildLevees(snowB, hull, floor);
+    // The river's ice, walked or driven out onto, is a great flat thing with nothing on it: give it
+    // what ice has. Snow the wind has combed into long drifts down the river, and the pale lines
+    // where it has cracked and healed. (Laid a finger's breadth above it; none of it is solid.)
+    {
+      const r = c.rand;
+      const lay = (t: number, n: number, len: number, wide: number, turn: number, col: RGB, lift: number) => {
+        const [x, z] = at(t, n);
+        snowB.reset().translate(x, ICE_Y + lift, z).rotateY(Math.atan2(D[0], D[1]) + turn);
+        const [h, l] = [wide / 2, len / 2];
+        // (a lozenge: drifts and cracks both taper)
+        snowB.quad([-h, 0, 0], [0, 0, l], [h, 0, 0], [0, 0, -l], [0, 0, 1, len / 3], col);
+      };
+      for (let i = 0; i < 150; i++) {
+        const t = MAIN_T - 190 + r() * 420;
+        const off = (r() * 2 - 1) * (RIVER_HALF - 5);
+        const k = 0.78 + r() * 0.3;
+        lay(t, riverN(t) + off, 5 + r() * 16, 0.7 + r() * 2.4, (r() - 0.5) * 0.3, [0.8 * k, 0.86 * k, 1.02 * k], 0.03);
+      }
+      for (let i = 0; i < 60; i++) {
+        const t = MAIN_T - 190 + r() * 420;
+        const off = (r() * 2 - 1) * (RIVER_HALF - 4);
+        lay(t, riverN(t) + off, 8 + r() * 26, 0.12 + r() * 0.1, (r() - 0.5) * 2.6, [0.62, 0.72, 0.92], 0.045);
+      }
+    }
     const kit = { lit, dark, wood, stone: conc, snow: snowB, bits, hull, ghost, ground: floor };
     const town = (this.town = buildTown(kit, c.sparks, c.station));
     lights.push(...town.lights);
@@ -303,7 +331,63 @@ export class Afield {
     root.add(pm);
     this.plough = { mesh: pm, beacon: glows.add(0, FLOOR - 80, 0, 1.3, [0, 0, 0]), x: 0, y: FLOOR - 80, z: 0, fx: 0, fz: 1, near: false, rumble: 0 };
 
+    // what each way is to a wheel or a boot (see `surface`), and the box it lies in
+    const boxed = (pts: P3[], half: number, is: Surface) => {
+      let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const p of pts) {
+        x0 = Math.min(x0, p.x);
+        z0 = Math.min(z0, p.z);
+        x1 = Math.max(x1, p.x);
+        z1 = Math.max(z1, p.z);
+      }
+      this.boxes.push([pts, half, is, x0 - half, z0 - half, x1 + half, z1 + half]);
+    };
+    boxed(loop.pts, ROAD_W / 2 + 0.3, 'concrete');
+    boxed(bench, ROAD_W / 2 + 0.2, 'gravel');
+    boxed(road, 3.9, 'gravel');
+    boxed(shrine.way, 1.2, 'wood');
+
     this.things();
+  }
+
+  /** What the ground is made of at a spot, for somebody whose feet or wheels are at height y there.
+   *  The roads are kept open by the plough: grit on packed snow, which to a tyre and to the ear is
+   *  nearer gravel than tarmac. The loop bridge, the bridge in the town and the platform are bare
+   *  concrete and stone, the river is ice, the shrine's stair is timber, the road is dry where the
+   *  tunnel covers it, and everything else is snow. */
+  surface(x: number, z: number, y: number): Surface {
+    // (asked every frame by whatever is being driven: nearly the same spot has the same answer)
+    const k = this.under;
+    if (Math.abs(x - k.x) < 0.25 && Math.abs(z - k.z) < 0.25 && Math.abs(y - k.y) < 0.4) return k.is;
+    k.x = x;
+    k.y = y;
+    k.z = z;
+    return (k.is = this.groundAt(x, z, y));
+  }
+
+  private groundAt(x: number, z: number, y: number): Surface {
+    if (y < FLOOR + 12) {
+      const t = tOf(x, z);
+      const n = nOf(x, z);
+      if (Math.abs(t - MAIN_T) < 3.7 && n > BRIDGE[0] && n < BRIDGE[3] && y > ICE_Y + 0.7) return 'concrete';
+      if (t > MAIN_T - 34 && t < MAIN_T + 62 && Math.abs(n - (TRACK_N - 6)) < 2.9 && Math.abs(y - PLATFORM_Y) < 0.6) return 'concrete';
+      if (Math.abs(n - riverN(t)) < RIVER_HALF && Math.abs(y - ICE_Y) < 0.6) return 'ice';
+    }
+    for (const [pts, half, is, x0, z0, x1, z1] of this.boxes) {
+      if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+      // (by height as well as place: the loop bridge passes over itself, and over the road)
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        if (Math.abs((a.y + b.y) / 2 - y) > 1.8) continue;
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const k = clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz));
+        if (Math.hypot(x - a.x - dx * k, z - a.z - dz * k) > half) continue;
+        // under the tunnel's lintel the road is dry
+        const m = this.c.mouth;
+        return pts === this.road && Math.hypot(x - m.x, z - m.z) < 13 ? 'road' : is;
+      }
+    }
+    return 'snow';
   }
 
   private lamp(at0: P3, color: RGB, size: number, flame = 0) {
@@ -509,7 +593,7 @@ export class Afield {
     if (c.drive.away) {
       this.town.addresses.forEach((ad, i) => {
         if (this.done[i]) return;
-        const near = Math.hypot(t.x - ad.stop.x, t.z - ad.stop.z) < 11.5 && Math.abs(t.speed) < 1.3 && t.vy === 0;
+        const near = Math.hypot(t.x - ad.stop.x, t.z - ad.stop.z) < 11.5 && Math.abs(t.speed) < 1.3 && !t.airborne;
         this.still[i] = near ? this.still[i] + dt : 0;
         if (this.still[i] > 0.45) this.deliver(i);
       });
@@ -523,7 +607,7 @@ export class Afield {
       if (v) {
         v.x += (x - pl0.x) * k;
         v.z += (z - pl0.z) * k;
-        v.speed *= 0.7;
+        v.slow(0.7);
       } else {
         pl.x += (x - pl0.x) * k;
         pl.z += (z - pl0.z) * k;
@@ -547,7 +631,7 @@ export class Afield {
         if (v) {
           v.x = nx;
           v.z = nz;
-          v.speed *= 0.6;
+          v.slow(0.6);
         } else {
           pl.x = nx;
           pl.z = nz;

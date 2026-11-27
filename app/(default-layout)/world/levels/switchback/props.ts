@@ -39,6 +39,9 @@ export interface Truck {
   parcels: Mesh[];
   /** dashboard, wheel and passenger: shown only from the driver's seat */
   cabin: Mesh[];
+  /** the four wheels, each on its own hub so that it can roll, steer and ride its spring: front left,
+   *  front right, back left, back right, as the driver has them */
+  wheels: Mesh[];
   /** places on the truck, in its own space (+z is forward) */
   lampsFront: Vector3[];
   lampsRear: Vector3[];
@@ -56,13 +59,22 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
   const whiteTop: RGB = [1.02, 1.04, 1.08];
   const dark: RGB = [0.15, 0.16, 0.19];
   const glass: RGB = [0.12, 0.15, 0.22];
-  // wheels and what is underneath
-  for (const [x, z] of [[-0.63, 1.12], [0.63, 1.12], [-0.63, -1.08], [0.63, -1.08]]) {
-    b.reset().translate(x, 0.27, z).rotateZ(Math.PI / 2).translate(0, -0.1, 0);
-    b.prism(0.27, 0.27, 0.2, 8, { color: [0.09, 0.09, 0.11], capTop: true, capBottom: true });
-    b.reset().translate(x + Math.sign(x) * 0.101, 0.27, z).rotateZ(Math.PI / 2).translate(0, -0.01, 0);
-    b.prism(0.12, 0.12, 0.02, 6, { color: [0.6, 0.62, 0.68], capTop: true, capBottom: true });
+  // the wheels (the truck's nose is its +z, so its left-hand wheels are the ones at +x)
+  const paint = psxMaterial(shared, { map: tex.panel, vertexColors: true });
+  const wheels: Mesh[] = [];
+  for (const [x, z] of [[0.63, 1.12], [-0.63, 1.12], [0.63, -1.08], [-0.63, -1.08]]) {
+    const wb = new Builder();
+    wb.reset().rotateZ(Math.PI / 2).translate(0, -0.1, 0);
+    wb.prism(0.27, 0.27, 0.2, 8, { color: [0.09, 0.09, 0.11], capTop: true, capBottom: true });
+    wb.reset().translate(Math.sign(x) * 0.101, 0, 0).rotateZ(Math.PI / 2).translate(0, -0.01, 0);
+    wb.prism(0.12, 0.12, 0.02, 6, { color: [0.6, 0.62, 0.68], capTop: true, capBottom: true });
+    // (two dark slots in the hub, so that it can be seen to turn)
+    for (const a of [0.5, 0.5 + Math.PI]) wb.reset().translate(Math.sign(x) * 0.113, Math.sin(a) * 0.065 - 0.02, Math.cos(a) * 0.065).box(0.008, 0.04, 0.04, [0.17, 0.18, 0.21]);
+    const wheel = new Mesh(wb.build(), paint);
+    wheel.position.set(x, 0.27, z);
+    wheels.push(wheel);
   }
+  // what is underneath
   b.reset().translate(0, 0.3, -0.02).box(1.3, 0.2, 3.26, dark);
   // the bed: a deck with three drop sides and a headboard
   b.reset().translate(0, 0.58, -0.67).box(1.46, 0.09, 2.04, [0.42, 0.44, 0.5]);
@@ -93,7 +105,7 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
   for (const s of [-1, 1]) b.reset().translate(s * 0.82, 1.22, 1.5).box(0.05, 0.2, 0.12, dark);
   // the load: a tarpaulin with snow on it
   b.reset().translate(0, 0.84, -0.22).blob(0.62, { seed: 12, jitter: 0.1, detail: 1, squash: [1.05, 0.44, 1.2], color: [0.15, 0.22, 0.32], colorTop: [0.8, 0.86, 1.0], uvScale: 1.2 });
-  const body = new Mesh(b.build(), psxMaterial(shared, { map: tex.panel, vertexColors: true }));
+  const body = new Mesh(b.build(), paint);
 
   // parcels still to deliver, by the tailgate
   const p = new Builder();
@@ -169,13 +181,13 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
   coneMesh.renderOrder = 13;
 
   const group = new Group();
-  for (const m of [body, ...parcels, ...cabin, new Mesh(h.build(), head), new Mesh(t.build(), tail), new Mesh(k.build(), blink), new Mesh(w.build(), cab), coneMesh]) {
+  for (const m of [body, ...wheels, ...parcels, ...cabin, new Mesh(h.build(), head), new Mesh(t.build(), tail), new Mesh(k.build(), blink), new Mesh(w.build(), cab), coneMesh]) {
     m.frustumCulled = false;
     group.add(m);
   }
   // the cab's fittings are only worth drawing for somebody sitting in it
   for (const m of cabin) m.visible = false;
-  return { group, head, tail, blink, cab, cones, parcels, cabin, lampsFront, lampsRear, blinkers, exhaust: new Vector3(-0.45, 0.26, -1.74), textures: [win] };
+  return { group, head, tail, blink, cab, cones, parcels, cabin, wheels, lampsFront, lampsRear, blinkers, exhaust: new Vector3(-0.45, 0.26, -1.74), textures: [win] };
 }
 
 /* ---- the fox ---------------------------------------------------------------- */
