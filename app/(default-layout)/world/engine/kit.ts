@@ -254,7 +254,7 @@ export interface FarTowerOptions {
 
 /** The tower with the broken ring, as every world but the Overlook sees it: a
  *  long way off, its beam standing on the horizon. It is the one thing all
- *  five worlds have in common. Set `awake` (0..1) for how brightly it burns,
+ *  worlds have in common. Set `awake` (0..1) for how brightly it burns,
  *  call flash() to have it answer something, and update() every frame. */
 export class FarTower {
   /** 0 = dark and still, 1 = beam up, ring bright */
@@ -355,7 +355,7 @@ export function answerSignal(engine: Engine): boolean {
   if (!id || !store.find(id)) return false;
   const n = store.signals.filter((s) => WORLDS.some((w) => w.id === s)).length;
   engine.hud.toast(`${G.rune(worldOf(id).rune)}  Signal answered  ${n}/${WORLDS.length}`, 6);
-  if (n === WORLDS.length) engine.hud.toast(`${G.rune(5)}  All five. Ask the gate.`, 10);
+  if (n === WORLDS.length) engine.hud.toast(`${G.rune(5)}  That is all of them. Ask the gate.`, 10);
   engine.audio.ui('found');
   return true;
 }

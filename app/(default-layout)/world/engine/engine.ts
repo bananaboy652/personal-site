@@ -172,7 +172,7 @@ export class Engine {
   shotName = 'home';
   /** a gate was used: go to another world */
   onTravel: ((world: string) => void) | null = null;
-  /** all five signals are answered and the gate was asked for what comes next */
+  /** every signal is answered and the gate was asked for what comes next */
   onFinale: (() => void) | null = null;
   onCursor: ((pointing: boolean) => void) | null = null;
   /** looking through a telescope began or ended */

@@ -236,7 +236,7 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
       <div className={styles.row}>
         <div className={styles.rowLabel}>Sound</div>
         <Opt on={engine.audio.enabled} label={engine.audio.enabled ? 'On' : 'Off'} pick={() => { rt.toggleSound(); redraw(); }} />
-        <Opt on={false} label={`Forget signals (${signals}/5)`} pick={() => void import('./runtime').then((m) => { m.store.forget(); setSignals(0); })} />
+        <Opt on={false} label={`Forget signals (${signals}/${worlds.length || 3})`} pick={() => void import('./runtime').then((m) => { m.store.forget(); setSignals(0); })} />
       </div>
       <div className={styles.stats}>{stats}</div>
     </div>

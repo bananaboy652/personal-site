@@ -36,37 +36,48 @@ The background is a small 3D game world, drawn live in the browser the way a lat
 
 Everything in it is generated in code from seeds: terrain, models, every texture (64x64 and under), the typeface, and all of the sound. No assets are loaded and none are taken from any game.
 
-### The five worlds
+### Three worlds, one to a page
 
-| World | What it is | The pointer | Its gate |
-| --- | --- | --- | --- |
-| The Overlook (`levels/overlook`) | A camp on a cliff over a bay, and the tower with the broken ring. The site opens here. | An owl watches it | The ruined arch out in the bay |
-| The Relay (`levels/relay`) | A signal platform at sea, in a storm. | Aims a searchlight | A concrete portal standing in the sea |
-| The Switchback (`levels/switchback`) | A hairpin on a snowy mountain road, a delivery truck, a town far below. | A fox watches it | The road tunnel |
-| The Nave (`levels/nave`) | The inside of a drowned cathedral. | Leaves rings on the water | A chantry doorway |
-| The Hollow (`levels/hollow`) | A cavern under a well, where the tower's root comes down. | Is a mote of light | A carved doorway across the lake |
+| World | Page | What it is | The pointer | Its gate |
+| --- | --- | --- | --- | --- |
+| The Overlook (`levels/overlook`) | `/` | A camp on a cliff over a bay, and the tower with the broken ring. | An owl watches it | The ruined arch out in the bay |
+| The Switchback (`levels/switchback`) | `/games` | A hairpin on a snowy mountain road, a delivery truck, a town far below. | A fox watches it | The road tunnel |
+| The Relay (`levels/relay`) | `/media` | A signal platform at sea, in a storm. | Aims a searchlight | A concrete portal standing in the sea |
 
-They are one place seen from five spots: the tower stands on the horizon of each. Every world has the same two fixtures, so that what you learn in one works in all of them:
+They are one place seen from three spots: the tower stands on the horizon of each. Going to a page brings up its world, and using a gate goes to the page of the world it leads to. Every world has the same two fixtures, so that what you learn in one works in all of them:
 
 - **the radio** switches the sound on and off (so does the `M` key, and there is a keyboard-focusable button for screen readers);
 - **the gate**, a doorway with something alight in it, lists the worlds and takes you between them.
 
-Each world also has things of its own to click, one thing that follows the pointer, and one hidden signal to answer. The gate keeps count of the signals; answering all five changes the Overlook for good.
+Each world also has things of its own to click, one thing that follows the pointer, and one hidden signal to answer. The gate keeps count of the signals; answering all three changes the Overlook for good.
+
+### Walking about
+
+**Explore** (in the corner of the frame, or the `E` key) steps you into the world: the page gets out of the way and you are standing in the scene. **Full screen** does the same and fills the screen.
+
+- `W A S D` move, mouse looks, `Shift` runs, `Space` jumps, `E` uses what is in front of you, `Space` twice takes off and lands, `F` toggles full screen, `Escape` steps back out. On a phone: left thumb moves, right thumb looks, a tap uses.
+- Some things can be driven (a boat, a truck): `W S` drive, `A D` steer, `Space` brakes, `V` switches between the view from behind and the seat, `E` gets out.
+- There are no invisible fences. What is solid is worked out from the scene's own triangles (`engine/solid.ts`): near-level ones are floor, steep ones are walls. Walk off a cliff and you fall; walk into the sea and you swim.
+- Stepping back out puts the scene back exactly as it is framed for the page.
+
+### Scrolling
+
+The camera does not move when the page scrolls. Each world changes instead (`Level.scroll`): at the Overlook the hour turns, so that by the foot of the page the night has passed.
 
 ### How it is put together
 
-- `world/engine/` is the runtime and knows nothing about any particular world: the renderer and low-resolution frame (`engine.ts`), the shaders (`shaders.ts`), a small modelling kit (`builder.ts`), generated textures (`textures.ts`), sky, particles, flames, rain and snow (`sky.ts`, `fx.ts`), atmosphere records that blend into one another (`atmos.ts`), cutscene timelines (`timeline.ts`), the in-frame interface and its pixel font (`hud.ts`, `font.ts`), the sound engine (`audio.ts`), the fixtures every world shares (`kit.ts`), and the list of worlds (`worlds.ts`).
-- `world/levels/<name>/` is one world: a class that extends `BaseLevel` and builds its scene, its camera positions (one set for wide windows, one for upright phones), its opening, its sound, and the things you can do there. Adding a world is a new folder and one line in `worlds.ts`.
+- `world/engine/` is the runtime and knows nothing about any particular world: the renderer and low-resolution frame (`engine.ts`), the shaders (`shaders.ts`), a small modelling kit (`builder.ts`), generated textures (`textures.ts`), sky, particles, flames, rain and snow (`sky.ts`, `fx.ts`), atmosphere records that blend into one another (`atmos.ts`), cutscene timelines (`timeline.ts`), the in-frame interface and its pixel font (`hud.ts`, `font.ts`), the sound engine (`audio.ts`), the fixtures every world shares (`kit.ts`), the walker and things that can be driven (`player.ts`, `solid.ts`), and the list of worlds (`worlds.ts`).
+- `world/levels/<name>/` is one world: a class that extends `BaseLevel` and builds its scene, its camera positions (one set for wide windows, one for upright phones), its opening, its sound, what is solid, and the things you can do there. Adding a world is a new folder and one line in `worlds.ts`.
 - `world/runtime.ts` runs it on a page (loading worlds, travel, input); `world/World.tsx` is the React shell.
-- **The interface is part of the picture.** Prompts, markers, the gate's menu and the place-name card are drawn inside the low-resolution frame in the world's own font, before the final dither pass. Nothing the world says is HTML.
-- **The opening.** On a first visit the Overlook starts in the afternoon and runs the day out: dusk, lamps coming on down the valley, the moon rising behind the tower, the tower waking. The page's own bezel, nav and panels step in after the world has had a moment alone. Later loads in the same tab get a short arrival instead, and anyone who has asked their system for reduced motion gets the settled scene as a still.
+- **The interface is part of the picture.** Prompts, the gate's menu and the place-name card are drawn inside the low-resolution frame in the world's own font, before the final dither pass. Nothing the world says is HTML.
+- **The opening.** Each world has one, played the first time its page is opened in a tab. The Overlook starts in the afternoon and runs the day out: dusk, lamps coming on down the valley, the moon rising behind the tower, the tower waking. The page's own bezel, nav and panels step in after the world has had a moment alone. Later loads in the same tab get a short arrival instead, and anyone who has asked their system for reduced motion gets the settled scene as a still.
 - **Sound** is synthesised with the Web Audio API: slow generative music (a drone, cross-fading chords, a few bell notes on a long echo, all drifting slightly out of tune like tape), a soundscape for each world, and soft effects. It is off until the visitor switches it on, and remembered after that.
-- **The page tells the scene where its panels are**, and the camera turns to keep the subject in the open part of the window. Each route (`/`, `/games`, `/media`) has its own camera position in whichever world is up.
+- **The page tells the scene where its panels are**, and the camera turns to keep the subject in the open part of the window.
 - It loads after the page is interactive, runs at half rate once you scroll past the opening view, drops resolution by itself on a machine that can't keep up, and falls back to the still image in `public/images/overlook.png` without WebGL2.
 
 ### Debug menu
 
-Add `?debug` to the address (or press the backtick key) for a scene-select menu: world, time of day, resolution, wobble, texture warp, colour depth, replaying the opening, and a free camera (drag to look, `W A S D` to move, `Q`/`E` down and up, `Shift` for speed, `[` `]` to zoom). The address bar follows your choices, including the free camera's position, so a look or a view can be shared as a link. Other address options: `?world=relay`, `?mood=dusk`, `?lines=360`, `?intro=full|quick|none`.
+Add `?debug` to the address (or press the backtick key) for a scene-select menu: world, time of day (or weather), resolution, wobble, texture warp, colour depth, replaying the opening, and a free camera (drag to look, `W A S D` to move, `Q`/`E` down and up, `Shift` for speed, `[` `]` to zoom). The address bar follows your choices, including the free camera's position, so a look or a view can be shared as a link. Other address options: `?world=relay` (a world other than the page's own), `?mood=dusk`, `?lines=360`, `?intro=full|quick|none`, `?walk` (start on foot).
 
 ## APIs
 

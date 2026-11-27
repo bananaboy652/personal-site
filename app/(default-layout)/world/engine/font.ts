@@ -23,7 +23,7 @@ export const G = {
   hollow: '\x8a',
   tick: '\x8b',
   block: '\x8c',
-  /** the rune of world n (0..4); 5 is the sign for all of them together */
+  /** the rune of world n; 5 is the sign for all of them together */
   rune: (n: number) => String.fromCharCode(0x90 + n),
 };
 
@@ -101,8 +101,8 @@ const GLYPHS: Record<string, string> = {
   [G.tick]: '..... ..... ##### .###. ..#.. ..... .....',
   [G.block]: '######## ######## ######## ######## ######## ######## ######## ########',
   // runes: the Overlook (a tower in a broken ring), the Relay (a mast and its
-  // signal), the Switchback (a road doubling back), the Nave (an arch and what
-  // is behind it), the Hollow (a well and its rope), and all five together
+  // signal), the Switchback (a road doubling back), two spare, and the sign
+  // for all of them together
   [G.rune(0)]: '...#... ...#... ##.#.## ...#... ..###.. ..###.. .#####.',
   [G.rune(1)]: '#..#..# .#.#.#. ..###.. ...#... ...#... ...#... .#####.',
   [G.rune(2)]: '.####.. ....#.. ..###.. .#..... .#####. .....#. .#####.',
