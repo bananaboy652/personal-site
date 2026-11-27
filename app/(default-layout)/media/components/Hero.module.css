@@ -22,3 +22,18 @@
     padding-top: 0.2rem;
     padding-bottom: 0.9rem;
 }
+
+/* Phones: the first screen is the world, with this card at its foot. */
+@media (max-width: 46rem) {
+    .first{
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        min-height: 100vh;
+        min-height: 100svh;
+        padding-bottom: 1.4rem;
+    }
+    .main{
+        margin-top: 0;
+    }
+}

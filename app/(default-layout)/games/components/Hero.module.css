@@ -64,3 +64,35 @@
     padding-top: 0.2rem;
     padding-bottom: 0.9rem;
 }
+
+/* Phones: the first screen is the world, with the Steam card and the count at
+   its foot, and the rest of the page comes after. (Side by side, the card and
+   the count were wider than the screen.) */
+@media (max-width: 46rem) {
+    .main{
+        margin-top: 0;
+    }
+    .SteamContent{
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: flex-end;
+        gap: 0.8rem;
+        min-height: 100vh;
+        min-height: 100svh;
+        padding-bottom: 1.4rem;
+    }
+    .Counter{
+        text-align: left;
+        margin-left: 0.2rem;
+    }
+    .CounterLine{
+        justify-content: flex-start;
+        font-size: min(3.3rem, 13.6vw);
+    }
+    .Counter h2{
+        font-size: 1.4rem;
+    }
+    .PageDescription{
+        margin-top: 0.4rem;
+    }
+}

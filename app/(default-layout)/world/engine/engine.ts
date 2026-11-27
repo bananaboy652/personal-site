@@ -166,6 +166,8 @@ export class Engine {
   time = 0;
   /** the window is taller than it is wide (a phone held upright) */
   portrait = false;
+  /** how far up the frame the picture is slid on a phone (see setLift) */
+  private lift = { x: 0, target: 0 };
   /** the last input was a finger, not a mouse */
   touch = false;
   /** the thing under the pointer, if any */
@@ -673,9 +675,21 @@ export class Engine {
       cam.rotation.set(rad(lerp(pitch, e.pitch, k)), -rad(yaw + dy * k), 0);
       cam.fov = lerp(cam.fov, e.fov, k);
     }
+    // On a phone the page's first panel may stand taller than the view was composed for.
+    // The picture is slid up the frame to clear it (the lens is shifted; nothing turns).
+    const li = this.lift;
+    li.x += (li.target - li.x) * (m ? 1 - Math.exp(-real * 4) : 1);
+    const up = li.x * (1 - ex.t * ex.t * (3 - 2 * ex.t)) * (1 - sk.t);
+    if (up > 0.002) cam.setViewOffset(cam.aspect, 1, 0, up, cam.aspect, 1);
+    else if (cam.view?.enabled) cam.clearViewOffset();
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
     this.shared.uPx.value = this.stats.h / (2 * Math.tan(rad(cam.fov) / 2));
+  }
+
+  /** On an upright phone: slide the picture up the frame by this fraction of it. */
+  setLift(v: number) {
+    this.lift.target = clamp(v, 0, 0.3);
   }
 
   /* ---- walking about ---- */

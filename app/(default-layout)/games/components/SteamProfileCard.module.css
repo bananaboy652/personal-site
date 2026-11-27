@@ -114,3 +114,10 @@
     transform: translateY(1px);
     filter: brightness(0.95);
 }
+
+/* Phones: as wide as the page allows, and no wider. */
+@media (max-width: 46rem) {
+    .card{
+        width: 100%;
+    }
+}
