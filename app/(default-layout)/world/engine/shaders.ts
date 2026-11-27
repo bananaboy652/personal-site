@@ -28,6 +28,10 @@ export function createShared(): Uniforms {
     uTime: { value: 0 },
     uSnap: { value: new Vector2(160, 120) },
     uAffine: { value: 1 },
+    // how the texture swim is kept in hand: [metres from the eye within which it is at its least,
+    // metres by which it is back in full, the share of it left up close, the furthest it may carry
+    // a texture (in repeats of that texture)]
+    uCalm: { value: new Vector4(2, 13, 0.14, 0.5) },
     uPx: { value: 300 },
     uAmbient: { value: v3() },
     uHemi: { value: v3() },
@@ -217,6 +221,7 @@ void main() {
 const PSX_FRAG = /* glsl */ `
 uniform sampler2D map;
 uniform float uAffine;
+uniform vec4 uCalm;
 uniform float uAlpha;
 uniform vec3 uEmissive;
 uniform vec3 uTexAvg;
@@ -227,7 +232,15 @@ varying vec4 vFog;
 varying float vTexFade;
 
 void main() {
-  vec2 uv = mix(vUv, vAff.xy / vAff.z, uAffine);
+  // Textures are laid straight across the screen with no regard for depth, the way a
+  // PlayStation did it, which makes them swim. From a distance that is the look. Up close
+  // it is all there is to see (and a polygon that passes behind the eye has no sane answer
+  // at all), so the swim eases off toward the eye and is never let carry a texture far.
+  float far = smoothstep(uCalm.x, uCalm.y, 1.0 / gl_FragCoord.w);
+  vec2 swim = (vAff.xy / vAff.z - vUv) * uAffine * mix(uCalm.z, 1.0, far);
+  float most = uCalm.w * mix(0.2, 1.0, far);
+  swim *= min(1.0, most / max(length(swim), 1e-5));
+  vec2 uv = vUv + swim;
   vec4 t = texture2D(map, uv);
   #ifdef CUTOUT
     if (t.a < 0.5) discard;

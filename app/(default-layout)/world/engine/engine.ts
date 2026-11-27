@@ -24,6 +24,11 @@ import { clamp, lerp, rad, smooth } from './math';
 import { type Controls, Player, type Vehicle } from './player';
 import { createShared, postMaterial } from './shaders';
 import type { Solid } from './solid';
+import type { SurfaceAt } from './surface';
+
+/** The widest shape of window a view is composed for: twice as wide as it is tall. On anything wider the
+ *  page keeps to a stage of this shape in the middle, and the world shows more to either side of it. */
+export const STAGE = 2;
 
 export interface Interactable {
   id: string;
@@ -55,6 +60,9 @@ export interface Walk {
   solid: Solid;
   /** the height of open water, if there is any: below it you swim */
   water?: number;
+  /** what the ground is made of at a spot (see surface.ts): footsteps, grip and the noise of tyres
+   *  follow from it. Without it everything is 'dirt'. */
+  surface?: SurfaceAt;
   /** where you step in (your feet) and which way you face. Default: right
    *  under the framed camera, facing what it faces. */
   spawn?: { pos: [number, number, number]; yaw: number };
@@ -96,6 +104,13 @@ export interface Level {
   focusAz: number;
   /** where across an upright phone that thing should sit (0..1, default 0.5) */
   portraitFocus?: number;
+  /** Something that holds the edge of the picture on any shape of window (the pine at the right of the
+   *  Overlook). The camera turns to put the point `at` at `x` across the frame (0 left, 1 right), and the
+   *  page's panels no longer decide where it looks: what they cover, they cover. `x` is measured on a
+   *  frame up to twice as wide as it is tall; on anything wider the view is not turned further, and the
+   *  extra width shows more of the world on both sides. `portraitX` is the same for an upright screen.
+   *  When this is set, `focusAz` and `portraitFocus` are not used. */
+  anchor?: { at: [number, number, number]; x: number; portraitX?: number };
   audio: AudioSpec;
   intro(kind: IntroKind): void;
   /** the visitor clicked or scrolled during the opening: get on with it */
@@ -641,7 +656,15 @@ export class Engine {
     const narrow = usingPortrait || sk.t > 0 ? 0 : 1 - smooth(0.7, 1.35, cam.aspect);
     const fovGuess = this.to.fov + narrow * 9;
     const tanHalf = Math.tan(rad(fovGuess) / 2) * cam.aspect;
-    const aim = (this.level?.focusAz ?? 0) - deg(Math.atan((fo.x - 0.5) * 2 * tanHalf));
+    let aim = (this.level?.focusAz ?? 0) - deg(Math.atan((fo.x - 0.5) * 2 * tanHalf));
+    const an = this.level?.anchor;
+    if (an) {
+      // hold the level's anchor at its place across the frame (see Level.anchor)
+      const want = usingPortrait ? an.portraitX ?? an.x : an.x;
+      const x = 0.5 + (want - 0.5) * Math.min(1, STAGE / cam.aspect);
+      const p = this.to.pos;
+      aim = deg(Math.atan2(an.at[0] - p[0], -(an.at[2] - p[2]))) - deg(Math.atan((x - 0.5) * 2 * tanHalf));
+    }
     const b = this.resolve(this.to, aim);
     let s = b;
     if (this.shotT < 1) {

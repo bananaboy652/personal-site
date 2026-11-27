@@ -327,7 +327,7 @@ export class Runtime {
   /** Aim the view into whatever the page leaves clear, and tell the in-frame
    *  interface where that is. On a wide window the panels are docked left, so
    *  open sky begins at the furthest right any of them reaches. On an upright
-   *  phone the clear part is the band between the nav and the name. */
+   *  screen the clear part is everything below the page's name. */
   frame = () => {
     this.framing = 0;
     const e = this.engine;
@@ -341,20 +341,23 @@ export class Runtime {
       return;
     }
     if (e.portrait) {
+      // An upright screen opens as a title screen: the nav and the page's name at the top, and the rest
+      // of it left clear as a window on the world. The clear part runs from under the name down to the
+      // first panel, which is off the foot of the screen until the page is scrolled.
       e.setFocus(this.level?.portraitFocus ?? 0.5);
+      e.setLift(0);
+      let head = (nav?.bottom ?? edge) + 6;
       let top = H;
-      // (and where the first of them stands before the page is scrolled at all)
-      let first = Infinity;
-      document.querySelectorAll('main h1, main [class*="glassFrame"], main img').forEach((el) => {
+      document.querySelectorAll('main [data-world-title], main h1, main [class*="glassFrame"], main img').forEach((el) => {
         const r = el.getBoundingClientRect();
-        if (r.height > 0 && r.bottom > (nav?.bottom ?? 0) + 8 && r.top < top) top = r.top;
-        if (r.height > 0 && r.top + window.scrollY > (nav?.bottom ?? 0) + 8) first = Math.min(first, r.top + window.scrollY);
+        if (r.height <= 0) return;
+        // (whatever starts in the top part of the first screen is the title; everything else is a panel)
+        if (r.top + window.scrollY < H * 0.4) head = Math.max(head, Math.min(r.bottom, H * 0.5) + 6);
+        else if (r.bottom > head && r.top < top) top = r.top;
       });
-      // the upright views are composed for a panel that starts two thirds of the way down the screen
-      e.setLift(first < Infinity ? 0.67 - (first - 8) / H : 0);
       safe.x0 = edge / W;
       safe.x1 = 1 - edge / W;
-      safe.y0 = Math.min(0.5, ((nav?.bottom ?? edge) + 6) / H);
+      safe.y0 = Math.min(0.5, head / H);
       safe.y1 = clamp((top - 8) / H, safe.y0 + 0.2, 1 - edge / H);
       const dim = clamp(window.scrollY / (H * 0.5));
       document.documentElement.style.setProperty('--world-dim', dim.toFixed(3));

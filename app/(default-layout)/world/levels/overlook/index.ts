@@ -71,12 +71,15 @@ export default class Overlook implements Level {
   // a phone held upright sees a tall, narrow slice: stand back and to the
   // right so the tower, the gate and the fire all fall inside it
   portraitShots: Record<string, Shot> = {
-    home: { pos: [1.6, 2.6, 2.4], yaw: 1.5, pitch: -1, fov: 70 },
-    games: { pos: [1.6, 2.8, 2.4], yaw: 1.5, pitch: -2, fov: 66 },
-    media: { pos: [1.6, 2.6, 2.4], yaw: 1.5, pitch: 4, fov: 72 },
+    home: { pos: [1.6, 2.6, 2.4], yaw: 0, pitch: 6, fov: 64 },
+    games: { pos: [1.6, 2.8, 2.4], yaw: 0, pitch: 5, fov: 62 },
+    media: { pos: [1.6, 2.6, 2.4], yaw: 0, pitch: 8, fov: 66 },
   };
   focusAz = bearing(TOWER[0], TOWER[1]);
   portraitFocus = 0.42;
+  // the pine at the right of the camp holds the right edge of the picture, whatever the shape of the
+  // window: the fire, the tent, the pier, the bay and the tower all fall to the left of it
+  anchor = { at: [13.6, 8, -13.2] as [number, number, number], x: 0.95, portraitX: 1.1 };
   audio: AudioSpec = {
     root: 50,
     // D minor with the ninth on top, then down through B flat and F to C
