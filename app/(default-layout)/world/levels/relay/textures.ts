@@ -1,7 +1,7 @@
 // Surfaces for the Relay: poured concrete, wet steel, things painted on both.
 // All generated, all 64 pixels or under, all from short palettes.
 import type { DataTexture } from 'three';
-import { CELL, COLS, advance, cellXY, fontAtlas, glyphSize, shift } from '../../engine/font';
+import { CELL, COLS, advance, cellXY, fontAtlas, glyphSize, runeRows, shift } from '../../engine/font';
 import { type RGB, clamp, fbm, hash2, hex, noise2, smooth } from '../../engine/math';
 import { makeTexture, ramp } from '../../engine/textures';
 
@@ -166,6 +166,91 @@ function windowPane() {
   }, false);
 }
 
+/** The chart on the control room wall: the tower in the middle and the three
+ *  stations round it, each under its own sign. `answered` lights the ones
+ *  whose signal the tower has had back. Painted again whenever that changes. */
+export function paintChart(tex: DataTexture, answered: boolean[]) {
+  const W = 64;
+  const H = 40;
+  const data = (tex.image as { data: Uint8Array }).data;
+  const paper = pal('#2a2620', '#342f27', '#3e382e');
+  const ink = hex('#c9b98a');
+  const dim = hex('#6c6350');
+  const lit = hex('#f08a48');
+  const mark = new Uint8Array(W * H);                   // 1 dim ink, 2 station n lit, 3 ink
+  const rune = (n: number, x0: number, y0: number) => runeRows(n).forEach((row, y) => row.split('').forEach((c, x) => {
+    if (c === '#') mark[(y0 + y) * W + x0 + x] = answered[n] ? 2 : 1;
+  }));
+  // the tower: a stem with a broken ring, and its beam going up off the sheet
+  for (let y = 6; y < 30; y++) mark[y * W + 32] = 3;
+  for (let x = 28; x <= 36; x++) if (x !== 31 && x !== 33) mark[19 * W + x] = 3;
+  for (let x = 30; x <= 34; x++) mark[30 * W + x] = 3;
+  const at: [number, number][] = [[6, 26], [29, 32], [51, 26]];
+  at.forEach(([x, y], n) => rune(n, x, y));
+  // a line from each station to the tower
+  const line = (x0: number, y0: number, x1: number, y1: number, v: number) => {
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+    for (let i = 0; i <= n; i += 2) mark[Math.round(y0 + ((y1 - y0) * i) / n) * W + Math.round(x0 + ((x1 - x0) * i) / n)] ||= v;
+  };
+  line(13, 25, 30, 14, answered[0] ? 2 : 1);
+  line(51, 25, 34, 14, answered[2] ? 2 : 1);
+  for (let yy = 0; yy < H; yy++) {
+    for (let x = 0; x < W; x++) {
+      const y = H - 1 - yy;
+      const m = mark[y * W + x];
+      const edge = x === 0 || x === W - 1 || y === 0 || y === H - 1;
+      const c = m === 2 ? lit : m === 3 ? ink : m === 1 ? dim : edge ? dim : ramp(paper, 0.3 + fbm(x / 9, y / 9, 391, 2) * 0.7, x, y);
+      const i = (yy * W + x) * 4;
+      data[i] = c[0] * 255;
+      data[i + 1] = c[1] * 255;
+      data[i + 2] = c[2] * 255;
+      data[i + 3] = 255;
+    }
+  }
+  tex.needsUpdate = true;
+}
+function chart() {
+  const t = makeTexture(64, 40, () => [0, 0, 0, 1], false);
+  paintChart(t, [false, false, false]);
+  return t;
+}
+
+/** Three crate ends side by side, each stencilled with one station's sign. */
+function cargo() {
+  const wood = pal('#3a3026', '#4a3d30', '#5c4c3b', '#6e5b46');
+  const paint = pal('#b9b4a6', '#d2ccbc');
+  return makeTexture(48, 16, (x, yy) => {
+    const y = 15 - yy;
+    const cell = Math.floor(x / 16);
+    const lx = x % 16;
+    const slat = lx === 0 || lx === 15 || y === 0 || y === 15 || y === 5 || y === 10;
+    const row = runeRows(cell)[y - 4];
+    const on = row !== undefined && row[lx - 4] === '#';
+    if (on && hash2(x, y, 41) > 0.12) {
+      const c = ramp(paint, hash2(x, y, 43), x, y);
+      return [c[0], c[1], c[2], 1];
+    }
+    const c = ramp(wood, 0.3 + fbm(x / 6, y / 3, 395 + cell, 2) * 0.6 - (slat ? 0.4 : 0), x, y);
+    return [c[0], c[1], c[2], 1];
+  }, false);
+}
+
+/** The set on the desk: a dark glass with the horizon across it and one
+ *  upright stroke for the tower's light. */
+function screen() {
+  return makeTexture(16, 16, (x, yy) => {
+    const y = 15 - yy;
+    const edge = x === 0 || x === 15 || y === 0 || y === 15;
+    if (edge) return [0.1, 0.11, 0.13, 1];
+    const beam = x === 9 && y > 2 && y < 11;
+    const horizon = y === 11 && x > 1 && x < 14;
+    const scan = y % 2 === 0 ? 0.12 : 0.07;
+    if (beam) return [1, 0.9, 0.6, 1];
+    if (horizon) return [0.3, 0.8, 0.7, 1];
+    return [scan * 0.6, scan * 1.5, scan * 1.3, 1];
+  }, false);
+}
+
 export function relayTextures() {
   return {
     concrete: concrete(),
@@ -177,6 +262,9 @@ export function relayTextures() {
     helipad: helipad(),
     signs: signs(),
     windowPane: windowPane(),
+    chart: chart(),
+    cargo: cargo(),
+    screen: screen(),
   };
 }
 export type RelayTextures = Record<keyof ReturnType<typeof relayTextures>, DataTexture>;

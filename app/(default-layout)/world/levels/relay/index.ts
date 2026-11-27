@@ -7,59 +7,44 @@
 // The pointer works the searchlight. The horn carries to a ship that answers.
 // The radar finds something under the water that is far too big. And the plate
 // on the searchlight's post says what the station is for: light answers light.
-import { BufferAttribute, BufferGeometry, DynamicDrawUsage, Group, Mesh, type ShaderMaterial, Vector3 } from 'three';
+//
+// Scrolling the page lets the storm go through: the rain thins, the sea lies
+// down and the moon comes up over the gate (see `clear` below, and scroll()).
+//
+// On foot (see "on foot" near the end, and places.ts) there is a good deal more
+// of it: stairs behind the gantry, a ladder down the east face to a gangway
+// under the deck and a landing stage with a launch, the inside of the control
+// room, rungs up the mast to a crow's nest, a winch for the derrick, the ship,
+// and a door in the foot of the tower. All of that hangs on one group (`yard`)
+// which is only drawn while somebody is walking about, and all of its lamps
+// are dark otherwise, so the view the page frames is exactly what it was.
+import { BufferAttribute, BufferGeometry, DynamicDrawUsage, Group, Mesh, type ShaderMaterial, type Texture, Vector3 } from 'three';
 import { type Atmos, applyAtmos, dirFrom, pointLight, spotLight } from '../../engine/atmos';
 import type { AudioSpec } from '../../engine/audio';
 import { BaseLevel } from '../../engine/base';
 import { type BakedLight, Builder, type V3 } from '../../engine/builder';
-import type { Engine, IntroKind, Level, Shot } from '../../engine/engine';
+import type { Engine, Interactable, IntroKind, Level, Shot, Walk } from '../../engine/engine';
 import { G } from '../../engine/font';
 import { Particles, precipitation } from '../../engine/fx';
 import { EMBER as HUD_EMBER, type Hud } from '../../engine/hud';
 import { FarTower, Gate, Radio, answerSignal } from '../../engine/kit';
+import { type Player, Vehicle } from '../../engine/player';
 import { type RGB, TAU, clamp, fbm, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
 import { psxMaterial, ripple, waterMaterial } from '../../engine/shaders';
 import { Sky } from '../../engine/sky';
 import { store } from '../../engine/store';
 import { Timeline, easeOut } from '../../engine/timeline';
-import { relayTextures } from './textures';
-
-/* ---- where things are ------------------------------------------------------ */
-
-const SEA = 0;
-const DECK = 14;
-const EYE = DECK + 4.3;                                    // you stand on a gantry 2.6 m above the deck
-/** the swell: [height, wavelength, speed], as the water shader takes it */
-const WAVE: [number, number, number] = [1.25, 2.2, 0.9];
-const polar = (az: number, d: number): [number, number] => [Math.sin(rad(az)) * d, -Math.cos(rad(az)) * d];
-const TOWER_AZ = -9;
-const TOWER = polar(TOWER_AZ, 2150);
-const GATE_AZ = -16;
-const GATE = polar(GATE_AZ, 240);
-const SHIP = polar(-4.7, 1500);
-const BUOY = polar(-12.1, 215);                            // far enough out to be seen over the edge of the deck
-/** foot of the searchlight's post, and the point its drum turns about */
-const POST: [number, number] = [-2.6, -8];
-const PIVOT = new Vector3(POST[0], DECK + 3.0, POST[1]);
-/** the walkway leaves the deck at CAT0 and reaches the far platform at CAT1 */
-const CAT0: [number, number] = [-1.5, -40];
-const CAT1: [number, number] = [3, -159];
-const CAT_LEN = Math.hypot(CAT1[0] - CAT0[0], CAT1[1] - CAT0[1]);
-const CAT_YAW = Math.atan2(-(CAT1[0] - CAT0[0]), -(CAT1[1] - CAT0[1]));
-const GAP: [number, number] = [54, 74];                    // metres along the walkway that have fallen away
-const FAR: [number, number] = [3, -170];
-const MAST: [number, number] = [5.2, -38.8];
-const CABIN = { x: 5.2, z: -35.6, w: 6, d: 4, h: 4.2 };
-const SODIUM: RGB = [1.75, 0.9, 0.38];
-/** the coil that comes up through the gap: radius of its arch, and of its body */
-const COIL = 19;
-const COIL_R = 4.2;
-
-/** A point on the walkway: x across it, s metres along it. */
-const onCat = (x: number, s: number): [number, number] => [
-  CAT0[0] + x * Math.cos(CAT_YAW) - s * Math.sin(CAT_YAW),
-  CAT0[1] - x * Math.sin(CAT_YAW) - s * Math.cos(CAT_YAW),
-];
+import { WORLDS } from '../../engine/worlds';
+import {
+  BUOY, CABIN, CAT0, CAT1, CAT_LEN, CAT_YAW, COIL, COIL_R, DECK, EYE, FAR, GAP, GATE, GATE_AZ, MAST, PIVOT, POST, SEA, SHIP, SODIUM, TOWER, TOWER_AZ, WAVE,
+  GANTRY, LADDER, LAUNCH, NEST, ROOM, SHIP_DECK, SHIP_YAW, STAGE, UNDER,
+  onCat, polar, shipAt,
+} from './layout';
+import {
+  ABOARD, BREAKER, DOOR_LAMP, FAR_DOOR, INSIDE, SHIP_LAMPS, JIB, type Fence, type Lamp as YardLamp, type Places, ROD_TIP, SWIM_LADDER, TIN, WINCH,
+  backStairs, controlRoom, crowsNest, farBits, landingStage, launchModel, mastHalf, mastLadder, newPlaces, oilskin, rungX, shipBits, underDeck,
+} from './places';
+import { paintChart, relayTextures } from './textures';
 
 /* ---- weather --------------------------------------------------------------- */
 
@@ -76,7 +61,18 @@ interface Weather extends Atmos {
   rain: number;
   wind: number;
   mistTint: RGB;
+  /** the swell's height in metres, and how much of it breaks white */
+  swell: number;
+  caps: number;
+  /** how high the moon stands, in degrees (below the horizon while the storm is on), and how many stars */
+  moonEl: number;
+  stars: number;
+  /** how often lightning comes: 1 in the thick of it, 0 not at all */
+  bolts: number;
 }
+
+/** the moon comes up over the gate as the storm goes through */
+const MOON_AZ = -17;
 
 const k = (h: string, s = 1) => scaleRGB(hex(h), s);
 
@@ -113,6 +109,11 @@ const WEATHER: Record<string, Weather> = {
     rain: 1,
     wind: 1,
     mistTint: k('#2a3a4c'),
+    swell: WAVE[0],
+    caps: 0.22,
+    moonEl: -8,
+    stars: 0,
+    bolts: 1,
   },
   // how it opens: the grey end of the afternoon, before it breaks
   dusk: {
@@ -146,8 +147,63 @@ const WEATHER: Record<string, Weather> = {
     rain: 0.14,
     wind: 0.15,
     mistTint: k('#6a737d'),
+    swell: WAVE[0],
+    caps: 0.22,
+    moonEl: -8,
+    stars: 0,
+    bolts: 1,
+  },
+  // where scrolling down the page leads: the storm gone through, the moon out, the tower plain to see
+  clear: {
+    label: 'After the storm',
+    zenith: k('#060a14'),
+    mid: k('#101a2c'),
+    horCool: k('#1a2a40'),
+    horWarm: k('#3d5b78'),
+    glowCore: k('#a9c8dc'),
+    glowAz: MOON_AZ,
+    glowWidth: 2.2,
+    fogDensity: 0.00021,
+    fogMax: 0.86,
+    mistTop: 64,
+    mistRange: 80,
+    mist: 0.3,
+    ambient: k('#141c2b'),
+    hemi: k('#22324a', 0.9),
+    sunAz: MOON_AZ,
+    sunEl: 26,
+    sunCol: k('#6f8fb8', 0.75),
+    fillCol: k('#101a2c'),
+    rim: k('#7f9fc8', 0.4),
+    cloudLit: k('#607a98'),
+    cloudShade: k('#0a0e16'),
+    clouds: 0.5,
+    waterDeep: k('#040912'),
+    waterTint: [0.85, 0.93, 1],
+    glitter: k('#b9d2e6', 0.7),
+    foam: k('#9fb2c2', 0.4),
+    rain: 0.03,
+    wind: 0.2,
+    mistTint: k('#31465c'),
+    swell: 0.5,
+    caps: 0.07,
+    moonEl: 18.5,
+    stars: 0.9,
+    bolts: 0,
   },
 };
+
+/** The station log, a page at a time. The lines are short: they have to fit a phone. */
+const LOG: string[][] = [
+  ['Station log. The Relay.', 'Tower lit at dusk. We held the', 'lamp on it to a count of three.'],
+  ['It answered. Light answers light.', 'Hold the beam still on it.', 'A sweep does nothing.'],
+  ['Word from the cliff camp:', 'they stoke the fire three times,', 'quick. The tower answers fire.'],
+  ['Word from the mountain road:', 'there it wants the dark. They', 'dip every light on the bend.'],
+  ['Something under us again.', 'The lamps dip when it passes.', 'Do not ping it. It comes to look.'],
+  ['The walkway span went in March.', 'Nobody saw it go. Take the', 'launch from the east landing.'],
+  ['Relief is overdue. I have hung', 'my oilskin in the window so the', 'ship thinks we are still manned.'],
+  ['Light here. Fire on the cliff.', 'Dark on the road. All three, and', 'the gate has more to say. Going.'],
+];
 
 /* ---- small modelling helpers ------------------------------------------------- */
 
@@ -266,7 +322,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
       { kind: 'hum', gain: 0.011, freq: 50 },
     ],
   };
-  moods: [string, string][] = [['storm', WEATHER.storm.label], ['dusk', WEATHER.dusk.label]];
+  moods: [string, string][] = [['storm', WEATHER.storm.label], ['dusk', WEATHER.dusk.label], ['clear', WEATHER.clear.label]];
   mood = 'storm';
   debug: [string, () => void][] = [
     ['Lightning', () => this.strike(true)],
@@ -361,17 +417,103 @@ export default class Relay extends BaseLevel<Weather> implements Level {
   private tmp2 = new Vector3();
   private towerMarks: Vector3[] = [];
 
+  // ---- for somebody on foot ----
+  walk!: Walk;
+  /** a second sky that carries only the moon and the stars, for when the cloud breaks */
+  private heavens!: Sky;
+  private sea!: Mesh;
+  /** everything that is only there for somebody walking about: it is not drawn from the page's view */
+  private yard = new Group();
+  private roomG = new Group();
+  private shipG = new Group();
+  /** a door in the foot of the tower, for whoever sails that far */
+  private towerG = new Group();
+  private towerDoor = new Vector3();
+  private towerLamp = new Vector3();
+  private towerGlow = 0;
+  private boarded = false;
+  private launch!: Vehicle;
+  private launchMesh!: Mesh;
+  private launchLamp = 0;
+  private yardLamps: { id: number; lamp: YardLamp }[] = [];
+  private yardMats: ShaderMaterial[] = [];
+  private screenMat!: ShaderMaterial;
+  private chartMat!: ShaderMaterial;
+  private coat!: Mesh;
+  private coatLooks = 0;
+  private coatAway = 0;
+  private coatTurned = false;
+  private coatTold = false;
+  /** dice of its own, so that nothing done on foot changes when the lightning comes */
+  private q = rng(909);
+  private walking = false;
+  private inside = false;
+  private manned = false;
+  private mannedAt: [number, number] = [0, 0];
+  private mannedOnce = false;
+  private letGo = new Vector3(0, 0, -1);
+  /** 1 while the station has power; the breaker under the deck cuts it */
+  private power = 1;
+  private blackouts = 0;
+  /** how much of a roof is over your head (0..1): the rain thins under one */
+  private cover = 0;
+  private rainAmount = 1;
+  private logPage = 0;
+  private stride = 0;
+  private wasGround = true;
+  private fallV = 0;
+  private aboard = false;
+  private putt = 0;
+  private wash = 0;
+  private bumpT = 0;
+  private gateNear = false;
+  private nestSeen = false;
+  private nestT = -1;
+  private elmo = 0;
+  private elmoGlows: number[] = [];
+  private knocked = 0;
+  private shipTries = 0;
+  private lineCut = false;
+  private hook = new Group();
+  private hookHead = new Group();
+  private hookLine!: Mesh;
+  private hookLamp!: Mesh;
+  private hookWeed!: Mesh;
+  private hookY = DECK + 12;
+  private hookFrom = DECK + 12;
+  private hookT = -1;
+  private hookGlow = 0;
+  private hauls = 0;
+  private haul = 0;
+  private onHook: 'lamp' | 'weed' | null = null;
+  private underT = 30;
+  /** the light under the water going by on a course of its own (not the one a ping brings) */
+  private passing: { x0: number; z0: number; x1: number; z1: number; t: number; dur: number; dip: boolean } | null = null;
+  private passK = 0;
+  /** the storm has gone through (the page is scrolled well down): its sound goes with it */
+  private calm = false;
+  private calmAt = -99;
+  private calmSpec: AudioSpec | null = null;
+
   constructor(engine: Engine) {
-    super(engine, 80);
+    super(engine, 150);
     const shared = engine.shared;
     for (const t of Object.values(this.rt)) this.own(t);
 
     this.sky = new Sky(shared, this.tex, { stars: 0, band: 0, moon: false, clouds: 26, cloudBand: [4, 42], seed: 21 });
     this.sky.drift = 0.0045;                               // low cloud, moving fast
     this.root.add(this.sky.group);
+    // the moon and the stars are there all along, behind the weather (its own
+    // dome would only repeat the one above, so that is taken out)
+    this.heavens = new Sky(shared, this.tex, { stars: 700, band: 500, clouds: 0, moon: true, seed: 5 });
+    const dome = this.heavens.group.children[0] as Mesh;
+    this.heavens.group.remove(dome);
+    dome.geometry.dispose();
+    (dome.material as ShaderMaterial).dispose();
+    this.root.add(this.heavens.group);
 
     this.water = waterMaterial(shared, this.tex.waterNoise, { wave: WAVE, calm: [900, 4000], foam: 0.22 });
-    this.add(seaGeometry(), this.water, -3);
+    this.sea = this.add(seaGeometry(), this.water, -3);
 
     this.rain = precipitation(shared, 2600, { box: [46, 30, 46], velocity: [6, -24, -2.5], streak: 0.05, color: [0.55, 0.62, 0.75] }, 31);
     this.root.add(this.rain.object);
@@ -379,7 +521,10 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     this.vapour = new Particles(shared, 90, 'alpha', 46, 0.8);
     this.root.add(this.splashes.points, this.vapour.points);
 
+    const before = this.root.children.length;
     this.tower = new FarTower(engine, this.root, this.glows, { x: TOWER[0], z: TOWER[1], base: SEA + 4, fogScale: 0.42, metal: this.tex.metal, white: this.tex.white });
+    const shaft = this.root.children[before] as Mesh | undefined;      // the first thing it adds is the tower itself
+    if (shaft?.isMesh) this.solid.add(shaft);
     this.tower.awake = this.restingTower();
     for (const h of [0.25, 0.6, 1, 1.5, 2.2, 3]) this.towerMarks.push(new Vector3(TOWER[0], SEA + 4 + 420 * h, TOWER[1]));
 
@@ -389,23 +534,34 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     this.buildSearchlight();
     this.buildSeaLife();
     this.buildBolt();
+    this.buildYard();
 
     this.interactables.push(
       { id: 'plate', label: 'Light answers light', center: new Vector3(POST[0] + 0.1, DECK + 2.0, POST[1] + 0.3), radius: 0.5, marker: false, onClick: () => this.tap() },
-      { id: 'horn', label: 'Sound the horn', center: new Vector3(MAST[0] - 1.4, DECK + 8.9, MAST[1] + 0.9), radius: 1.5, onClick: () => this.horn() },
-      { id: 'radar', label: 'Ping the radar', center: new Vector3(MAST[0], DECK + 14.3, MAST[1]), radius: 1.9, onClick: () => this.ping() },
+      { id: 'horn', label: 'Sound the horn', center: new Vector3(MAST[0] - 1.4, DECK + 8.9, MAST[1] + 0.9), radius: 1.5, reach: 20, hidden: () => this.inside, onClick: () => this.horn() },
+      { id: 'radar', label: 'Ping the radar', center: new Vector3(MAST[0], DECK + 14.3, MAST[1]), radius: 1.9, reach: 26, hidden: () => this.inside, onClick: () => this.ping() },
       this.radio.interactable,
-      { id: 'buoy', label: 'Ring the buoy', center: new Vector3(BUOY[0], SEA + 2, BUOY[1]), radius: 3.2, onClick: () => this.ringBuoy() },
+      { id: 'buoy', label: 'Ring the buoy', center: new Vector3(BUOY[0], SEA + 2, BUOY[1]), radius: 3.2, reach: 26, onClick: () => this.ringBuoy() },
       this.gate.interactable,
+      this.launch.interactable,
+      ...this.walkThings(),
     );
     this.setAtmos(WEATHER.storm);
+    this.walk = { solid: this.solid, water: SEA, eye: 1.7, vehicles: [this.launch], tick: (dt, pl, v) => this.walkTick(dt, pl, v) };
+  }
+
+  /** Scrolling down the page, the storm goes through: the rain thins, the
+   *  cloud breaks, the sea lies down and the moon comes out over the gate. */
+  scroll(t: number) {
+    this.drift = WEATHER.clear;
+    this.driftK = smooth(0.04, 0.9, t);
   }
 
   subtitle = () => WEATHER[this.mood]?.label ?? WEATHER.storm.label;
 
   /** How brightly the tower burns when left alone: fully, once you have answered it. */
   private restingTower() {
-    return store.has(this.id) ? 1 : 0.62;
+    return store.has(this.id) ? 1 : 0.62 + 0.2 * (this.timeline ? 0 : this.driftK);
   }
 
   /* ---- the opening ---- */
@@ -535,16 +691,19 @@ export default class Relay extends BaseLevel<Weather> implements Level {
   horn() {
     const audio = this.engine.audio;
     this.hornFlash = 1;
-    const blast = (f: number, at: number, gain: number, lp: number, pan: number, dur = 1.7) => {
-      audio.tone({ f: [f * 0.985, f], dur, type: 'sawtooth', gain, attack: 0.18, lp, at, pan, send: 0.8 });
-      audio.tone({ f: f * 1.498, dur, type: 'sawtooth', gain: gain * 0.6, attack: 0.22, lp, at, pan, send: 0.8 });
-    };
-    blast(audio.hz(-12), 0, 0.12, 620, 0.35);
+    this.blast(audio.hz(-12), 0, 0.12, 620, 0.35);
     this.after(3.3, () => {
       this.shipFlash = 1;
-      blast(audio.hz(-17), 0, 0.05, 300, 0.1, 1.2);
-      blast(audio.hz(-17), 1.5, 0.05, 300, 0.1, 2.0);
+      this.blast(audio.hz(-17), 0, 0.05, 300, 0.1, 1.2);
+      this.blast(audio.hz(-17), 1.5, 0.05, 300, 0.1, 2.0);
     });
+  }
+
+  /** One blast of a horn: a reedy fifth. */
+  private blast(f: number, at: number, gain: number, lp: number, pan: number, dur = 1.7) {
+    const audio = this.engine.audio;
+    audio.tone({ f: [f * 0.985, f], dur, type: 'sawtooth', gain, attack: 0.18, lp, at, pan, send: 0.8 });
+    audio.tone({ f: f * 1.498, dur, type: 'sawtooth', gain: gain * 0.6, attack: 0.22, lp, at, pan, send: 0.8 });
   }
 
   /** The radar sends one out. Something comes to look. */
@@ -596,7 +755,8 @@ export default class Relay extends BaseLevel<Weather> implements Level {
 
   /** Height of the swell at a point, the same sum the water shader makes. */
   private swell(x: number, z: number, t: number) {
-    const [amp, len, sp] = WAVE;
+    const [, len, sp] = WAVE;
+    const amp = this.now?.swell ?? WAVE[0];
     const a = (x * 0.09) / len + t * 0.8 * sp;
     const b = (z * 0.13) / len - t * 1.1 * sp + (x * 0.04) / len;
     return (Math.sin(a) + Math.sin(b)) * amp;
@@ -748,11 +908,11 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     this.steelMat = psxMaterial(shared, { map: this.rt.steel, vertexColors: true, baked: true });
     this.grateMat = psxMaterial(shared, { map: this.rt.grate, vertexColors: true, cut: true, twoSided: true });
     this.windowMat = psxMaterial(shared, { map: this.rt.windowPane, emissive: [1.2, 0.72, 0.34] });
-    this.add(deck, this.deckMat);
+    this.solid.add(this.add(deck, this.deckMat));
     this.steelB = steel;
     this.grateB = grate;
     this.latB = lat;
-    this.add(crate, psxMaterial(shared, { map: this.rt.container, vertexColors: true }));
+    this.solid.add(this.add(crate, psxMaterial(shared, { map: this.rt.container, vertexColors: true })));
     this.add(stripe, psxMaterial(shared, { map: this.rt.hazard, vertexColors: true }));
     this.add(pad, psxMaterial(shared, { map: this.rt.helipad, vertexColors: true, cut: true }));
     this.add(sign, psxMaterial(shared, { map: this.rt.signs, vertexColors: true, cut: true }));
@@ -890,10 +1050,11 @@ export default class Relay extends BaseLevel<Weather> implements Level {
 
     far.bake(lights);
     this.farMat = psxMaterial(shared, { map: this.rt.concrete, vertexColors: true, baked: true, texFade: [260, 800] });
-    this.add(far, this.farMat);
-    this.add(steel, this.steelMat);
-    this.add(this.grateB, this.grateMat);
-    this.add(lat, psxMaterial(shared, { map: this.rt.lattice, vertexColors: true, cut: true, twoSided: true, texFade: [420, 900] }));
+    this.solid.add(this.add(far, this.farMat));
+    this.solid.add(this.add(steel, this.steelMat));
+    this.solid.add(this.add(this.grateB, this.grateMat));
+    // lattice gets in the way but is nothing to stand on
+    this.solid.add(this.add(lat, psxMaterial(shared, { map: this.rt.lattice, vertexColors: true, cut: true, twoSided: true, texFade: [420, 900] })), { floor: false });
     this.add(pane, this.windowMat);
 
     // the bell buoy, riding the swell
@@ -905,6 +1066,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     this.buoy = this.add(buoy, psxMaterial(shared, { map: this.rt.steel, vertexColors: true }));
     this.buoy.position.set(BUOY[0], SEA, BUOY[1]);
     this.buoyLamp = this.glows.add(BUOY[0], SEA + 4.3, BUOY[1], 1.3, [0, 0, 0]);
+    this.solid.circle(BUOY[0], BUOY[1], 1.7, SEA - 6, SEA + 6);
 
     // sea mist, lying in bands between the station and the horizon
     const mist = new Builder();
@@ -1107,9 +1269,18 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     (wu.uGlitCol.value as Vector3).set(w.glitter[0], w.glitter[1], w.glitter[2]);
     (wu.uFoamCol.value as Vector3).set(w.foam[0], w.foam[1], w.foam[2]);
     const ru = this.rain.material.uniforms;
-    ru.uAmount.value = w.rain;
+    this.rainAmount = w.rain;
+    ru.uAmount.value = w.rain * (1 - this.cover);
     (ru.uVel.value as Vector3).set(lerp(1.2, 6, w.wind), lerp(-15, -24, w.wind), lerp(-0.4, -2.5, w.wind));
     (this.mistMat.uniforms.uTint.value as Vector3).set(w.mistTint[0], w.mistTint[1], w.mistTint[2]);
+    (wu.uWave.value as Vector3).x = w.swell;
+    wu.uFoam.value = w.caps;
+    // nothing of the second sky is drawn until the cloud starts to break
+    this.heavens.group.visible = w.stars > 0.004 || w.moonEl > -6;
+    this.heavens.setStars(w.stars);
+    // amber while it is low, then silver
+    const high = smooth(1, 15, w.moonEl);
+    this.heavens.setMoon(MOON_AZ, w.moonEl, 2.6, [lerp(1.05, 0.92, high), lerp(0.8, 0.95, high), lerp(0.55, 1, high)], [0.42, 0.26, 0.87]);
   }
 
   update(dt: number, time: number) {
@@ -1126,7 +1297,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     }
 
     // whatever is passing underneath puts the lamps off their stroke
-    const levi = this.leviT >= 0 ? Math.sin(Math.PI * clamp(this.leviT / 11)) : 0;
+    const levi = Math.max(this.leviT >= 0 ? Math.sin(Math.PI * clamp(this.leviT / 11)) : 0, this.passK);
     const dip = 1 - levi * 0.55 * (0.5 + 0.5 * noise2(time * 9, 3.3, 17));
 
     // lamps: the near ones by the moving lights, the rest by what was stored on the concrete
@@ -1140,7 +1311,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     this.farMat.uniforms.uBaked.value = this.lampC;
     this.steelMat.uniforms.uBaked.value = (this.lampB * dip + this.lampC) / 2;
     this.grateMat.uniforms.uBaked.value = this.lampC;
-    (this.windowMat.uniforms.uEmissive.value as Vector3).set(1.2, 0.72, 0.34).multiplyScalar(0.35 + 0.65 * this.lampB * dip);
+    (this.windowMat.uniforms.uEmissive.value as Vector3).set(1.2, 0.72, 0.34).multiplyScalar((0.35 + 0.65 * this.lampB * dip) * (0.1 + 0.9 * this.power));
     for (const l of this.lamps) {
       let v = l.bank === 'a' ? a : l.bank === 'b' ? this.lampB * dip : this.lampC;
       if (l.bad) v *= noise2(time * 13, 7.7, 23) > 0.42 ? 1 : 0.08;
@@ -1155,6 +1326,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     this.aimSearchlight(dt, time);
     this.watchTower(dt);
     this.storm(dt, w);
+    this.yardFrame(dt, time);
 
     // rain striking the deck
     if (dt > 0) {
@@ -1252,6 +1424,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     }
 
     this.sky.update(dt);
+    this.heavens.update(dt);
     this.tower.update(dt, time);
     this.gate.update(dt, time);
     this.radio.update(dt, time);
@@ -1266,11 +1439,13 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     const u = e.shared;
     const ray = this.tmp;
     const cam = e.camera.position;
-    if (e.pointerRay(ray) && !e.inScope && !e.hud.menu) {
+    const walking = e.exploring;
+    const pointed = e.pointerRay(ray);
+    if (walking ? this.manned : pointed && !e.inScope && !e.hud.menu) {
       // where the line of sight meets the sea, or a long way out along it if it never does
       const t = ray.y < -0.02 ? Math.min(900, (SEA - cam.y) / ray.y) : 900;
       this.aim.copy(ray).multiplyScalar(t).add(cam);
-      this.aimHeld = e.touch ? 5 : 1.2;
+      this.aimHeld = walking ? 0.6 : e.touch ? 5 : 1.2;
     } else {
       this.aimHeld -= dt;
       if (this.aimHeld <= 0) {
@@ -1289,6 +1464,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     this.beam.position.copy(this.lens);
     this.beam.quaternion.setFromUnitVectors(this.tmp.set(0, 1, 0), d);
     const on = this.searchOn * (0.96 + 0.04 * noise2(time * 11, 1.1, 41));
+    this.letGo.copy(ray.set(0, 0, -1).applyQuaternion(e.camera.quaternion));
     this.beamMat.uniforms.uAlpha.value = 0.105 * on;
     spotLight(u, 0, this.lens, d, 6.2, 760, 0.84 * on, 0.96 * on, 1.2 * on);
     // seen from in front, the lens is blinding; from behind, only its spill
@@ -1325,14 +1501,14 @@ export default class Relay extends BaseLevel<Weather> implements Level {
   private storm(dt: number, w: Weather) {
     const e = this.engine;
     const u = e.shared;
-    if (this.storms && dt > 0) {
-      this.nextBolt -= dt;
+    if (this.storms && dt > 0 && w.bolts > 0.02) {
+      this.nextBolt -= dt * w.bolts;
       if (this.nextBolt <= 0) {
         this.nextBolt = 7 + this.r() * 11;
         this.strike(this.r() < 0.22);
       }
       // and between the strikes, light going off inside the cloud with no bolt to it
-      this.nextFlicker -= dt;
+      this.nextFlicker -= dt * w.bolts;
       if (this.nextFlicker <= 0 && this.flashT < 0) {
         this.nextFlicker = 1.8 + this.r() * 4.4;
         this.flashT = 0;
@@ -1376,6 +1552,931 @@ export default class Relay extends BaseLevel<Weather> implements Level {
       this.applyExtras(w);
       this.wasFlashing = false;
     }
+  }
+
+  /* ---- on foot ------------------------------------------------------------------- */
+
+  /** Like after(), for things set going on foot: they do not happen if you have stepped back out by then. */
+  private soon(seconds: number, fn: () => void) {
+    this.after(seconds, () => this.walking && fn());
+  }
+
+  /** A railing as somebody walking meets it: it stops you, and can be jumped. */
+  private fence(x0: number, z0: number, x1: number, z1: number, y: number, h = 1.1) {
+    this.solid.triangle(x0, y, z0, x1, y, z1, x1, y + h, z1);
+    this.solid.triangle(x0, y, z0, x1, y + h, z1, x0, y + h, z0);
+  }
+
+  /** What is there for somebody on foot: the back stairs, the landing stage and
+   *  its launch, the gangway under the deck, the inside of the control room,
+   *  rungs up the mast and a crow's nest at the head of it, a winch for the
+   *  derrick, and what is aboard the ship. It all hangs on one group that is
+   *  only drawn while somebody is walking about, and every lamp of it is dark
+   *  otherwise: the page's own view of the station is what it always was. */
+  private buildYard() {
+    const shared = this.engine.shared;
+    const yard = this.yard;
+    yard.visible = this.roomG.visible = this.shipG.visible = this.hook.visible = false;
+    yard.add(this.roomG, this.shipG, this.hook);
+    this.root.add(yard);
+
+    // the railings that were always there, as a walker meets them
+    const [fx, fz] = FAR;
+    const fences: Fence[] = [
+      [-12, 6, -12, -40, DECK], [-12, -40, -3.2, -40, DECK], [0.2, -40, 12, -40, DECK], [12, -40, 12, 6, DECK],
+      [-12, -1.4, -3.4, -1.4, GANTRY], [3.4, -1.4, 12, -1.4, GANTRY],
+      [fx - 11, fz + 11, fx - 2.5, fz + 11, DECK], [fx + 2.5, fz + 11, fx + 11, fz + 11, DECK], [fx - 11, fz + 11, fx - 11, fz - 11, DECK],
+    ];
+    for (const side of [-1.5, 1.5]) {
+      for (const [s0, s1] of [[0, GAP[0]], [GAP[1], CAT_LEN]] as const) {
+        const [ax, az] = onCat(side, s0);
+        const [bx, bz] = onCat(side, s1);
+        fences.push([ax, az, bx, bz, DECK]);
+      }
+    }
+
+    const out = newPlaces();
+    backStairs(out);
+    landingStage(out);
+    underDeck(out);
+    mastLadder(out);
+    crowsNest(out);
+    farBits(out);
+    const room = newPlaces();
+    controlRoom(room);
+    const ship = newPlaces();
+    shipBits(ship);
+    // one mesh for each kind of surface a set of places uses; its lamps; its railings
+    const lay = (p: Places, parent: Group, powered: boolean) => {
+      const put = (b: Builder, map: Texture, cut = false) => {
+        if (!b.triangles) return;
+        b.bake(p.lights);
+        const m = psxMaterial(shared, { map, vertexColors: true, baked: true, cut, twoSided: cut });
+        if (powered) this.yardMats.push(m);
+        this.solid.add(this.add(b, m, 0, parent));
+      };
+      put(p.steel, this.rt.steel);
+      put(p.grate, this.rt.grate, true);
+      put(p.room, this.rt.concrete);
+      put(p.wood, this.tex.wood);
+      put(p.cloth, this.tex.canvas);
+      for (const lamp of p.lamps) this.yardLamps.push({ id: this.glows.add(lamp.pos[0], lamp.pos[1], lamp.pos[2], lamp.size, [0, 0, 0]), lamp });
+      fences.push(...p.fences);
+    };
+    lay(out, yard, true);
+    lay(room, this.roomG, true);
+    lay(ship, this.shipG, false);
+    for (const [x0, z0, x1, z1, y] of fences) this.fence(x0, z0, x1, z1, y);
+
+    // the figure at the window, which is a mesh of its own so that it can turn
+    const coat = oilskin();
+    const [ox, oy, oz] = INSIDE.coat;
+    coat.bake(room.lights.map((l) => ({ ...l, pos: [l.pos[0] - ox, l.pos[1] - oy, l.pos[2] - oz] as V3 })));
+    const cloth = psxMaterial(shared, { map: this.tex.canvas, vertexColors: true, baked: true });
+    this.yardMats.push(cloth);
+    this.coat = this.add(coat, cloth, 0, this.roomG);
+    this.coat.position.set(ox, oy, oz);
+    this.solid.circle(ox, oz, 0.3, DECK, DECK + 1.9);
+
+    // the chart on the back wall, and the picture on the set
+    const chart = new Builder();
+    const [hx, hy, hz] = INSIDE.chart;
+    chart.quad([hx - 0.8, hy, hz], [hx + 0.8, hy, hz], [hx + 0.8, hy + 1, hz], [hx - 0.8, hy + 1, hz], [0, 0, 1, 1]);
+    this.chartMat = psxMaterial(shared, { map: this.rt.chart, lit: false });
+    this.add(chart, this.chartMat, 0, this.roomG);
+    const screen = new Builder();
+    const [sx, , sz] = INSIDE.monitor;
+    const glass = sz - 0.175;
+    screen.quad([sx + 0.26, DECK + 0.86, glass], [sx - 0.26, DECK + 0.86, glass], [sx - 0.26, DECK + 1.26, glass], [sx + 0.26, DECK + 1.26, glass], [0, 0, 1, 1]);
+    this.screenMat = psxMaterial(shared, { map: this.rt.screen, lit: false });
+    this.add(screen, this.screenMat, 0, this.roomG);
+
+    // the ship's cargo: three crates, each with one station's sign on it
+    const crate = new Builder();
+    ABOARD.crates.forEach(([x, y, z], n) => {
+      crate.reset().translate(x, y - 0.7, z).rotateY(SHIP_YAW + n * 0.35);
+      const h = 0.7;
+      const u: [number, number, number, number] = [n / 3 + 0.01, 0, (n + 1) / 3 - 0.01, 1];
+      const c: RGB = [1.3, 1.25, 1.15];
+      crate.quad([-h, 0, h], [h, 0, h], [h, 1.4, h], [-h, 1.4, h], u, c);
+      crate.quad([h, 0, h], [h, 0, -h], [h, 1.4, -h], [h, 1.4, h], u, c);
+      crate.quad([h, 0, -h], [-h, 0, -h], [-h, 1.4, -h], [h, 1.4, -h], u, c);
+      crate.quad([-h, 0, -h], [-h, 0, h], [-h, 1.4, h], [-h, 1.4, -h], u, c);
+      crate.quad([-h, 1.4, h], [h, 1.4, h], [h, 1.4, -h], [-h, 1.4, -h], [n / 3 + 0.02, 0.02, n / 3 + 0.06, 0.28], c);
+    });
+    crate.bake(ship.lights);
+    this.solid.add(this.add(crate, psxMaterial(shared, { map: this.rt.cargo, vertexColors: true, baked: true }), 0, this.shipG));
+
+    // A long way out of bounds: a door in the foot of the tower, barred, with the three signs over it.
+    // It is on the face between two buttresses, round to the west of the side the station sees.
+    const nx = Math.cos(rad(112.5));
+    const nz = Math.sin(rad(112.5));
+    const ground = Math.max(6, this.solid.floor(TOWER[0] + nx * 24, TOWER[1] + nz * 24, 80));
+    const face = (22 - (13.5 * (ground - 4)) / 420) * Math.cos(rad(22.5)) + 0.05;
+    const door = new Builder();
+    const sill = () => door.reset().translate(TOWER[0] + nx * face, ground - 0.3, TOWER[1] + nz * face).rotateY(Math.atan2(nx, nz));
+    const stone: RGB = [0.8, 0.82, 0.9];
+    for (const x of [-1.45, 1.45]) sill().translate(x, 0, 0.1).box(0.6, 4.4, 0.7, stone, [1.15, 1.15, 1.25], 0.3);
+    sill().translate(0, 4.4, 0.1).box(3.5, 0.7, 0.7, [1.15, 1.15, 1.25], [1.15, 1.15, 1.25], 0.3);
+    sill().quad([-1.15, 0, 0.12], [1.15, 0, 0.12], [1.15, 4.4, 0.12], [-1.15, 4.4, 0.12], [0, 0, 2, 4], [1.3, 0.8, 0.5]);
+    for (const y of [1.0, 2.1, 3.2]) sill().translate(0, y, 0.2).box(2.9, 0.26, 0.22, [0.6, 0.62, 0.7], [0.9, 0.92, 1]);      // three bars across it
+    sill().translate(0, -0.6, 2.2).box(5, 0.6, 4, stone, [1, 1, 1.08], 0.2);                                                 // and a step to stand on
+    this.solid.add(this.add(door, psxMaterial(shared, { map: this.rt.steel, vertexColors: true }), 0, this.towerG));
+    const signs = new Builder();
+    const lintel = TOWER[0] + nx * face;
+    signs.translate(lintel, ground - 0.3, TOWER[1] + nz * face).rotateY(Math.atan2(nx, nz)).quad([-1.5, 5.25, 0.3], [1.5, 5.25, 0.3], [1.5, 6.25, 0.3], [-1.5, 6.25, 0.3], [0, 0, 1, 1], [1.5, 1.45, 1.3]);
+    this.add(signs, psxMaterial(shared, { map: this.rt.cargo, vertexColors: true }), 0, this.towerG);
+    this.towerDoor.set(TOWER[0] + nx * (face + 0.3), ground + 1.9, TOWER[1] + nz * (face + 0.3));
+    this.towerLamp.set(TOWER[0] + nx * (face + 0.7), ground + 7, TOWER[1] + nz * (face + 0.7));
+    this.towerGlow = this.glows.add(this.towerLamp.x, this.towerLamp.y, this.towerLamp.z, 1.6, [0, 0, 0]);
+    this.towerG.visible = false;
+    yard.add(this.towerG);
+
+    // the launch, moored at the stage
+    this.launchMesh = this.add(launchModel(), psxMaterial(shared, { map: this.tex.wood, vertexColors: true, twoSided: true, tint: [1.5, 1.5, 1.5] }), 0, yard);
+    this.launchMesh.position.set(LAUNCH[0], SEA - 0.3, LAUNCH[1]);
+    this.launch = new Vehicle(this.engine, {
+      object: this.launchMesh, kind: 'boat', label: 'Take the launch', half: [1.0, 2.7],
+      maxSpeed: 32, reverse: 5, accel: 9, turn: 55, grip: 1.6, chase: [9.5, 3.8], seat: [0, 1.35, 0.8], draft: 0.3, reach: 6,
+    });
+    this.launchLamp = this.glows.add(LAUNCH[0], SEA + 1.8, LAUNCH[1], 0.55, [0, 0, 0]);
+
+    // the derrick's hook, on its wire
+    const iron = psxMaterial(shared, { map: this.rt.steel, vertexColors: true });
+    const block = new Builder();
+    block.translate(0, -0.6, 0).box(0.36, 0.6, 0.22, [1.4, 0.85, 0.4]);
+    block.reset().translate(0, -1.3, 0).box(0.08, 0.7, 0.08, [1, 1, 1.1]);
+    block.reset().translate(0.14, -1.3, 0).box(0.36, 0.08, 0.08, [1, 1, 1.1]);
+    block.reset().translate(0.28, -1.3, 0).box(0.08, 0.36, 0.08, [1, 1, 1.1]);
+    this.add(block, iron, 0, this.hookHead);
+    const wire = new Builder();
+    wire.box(0.05, 1, 0.05, [0.75, 0.78, 0.86]);
+    this.hookLine = this.add(wire, iron, 0, this.hook);
+    // what it can bring up: a lamp that is somehow still alight, or weed and a length of chain
+    const lamp = new Builder();
+    lamp.translate(0.14, -1.86, 0).box(0.3, 0.44, 0.3, [0.5, 1.5, 1.3], [0.7, 1.9, 1.6]);
+    lamp.reset().translate(0.14, -1.42, 0).box(0.36, 0.08, 0.36, [0.3, 0.3, 0.34]);
+    this.hookLamp = this.add(lamp, psxMaterial(shared, { map: this.tex.white, lit: false, vertexColors: true }), 0, this.hookHead);
+    const weed = new Builder();
+    for (const [x, z, len, tilt] of [[0.1, 0.05, 1.5, 0.12], [0.24, -0.06, 1.1, -0.2], [0.02, -0.04, 0.9, 0.3], [0.2, 0.08, 1.7, 0.05]] as const) {
+      weed.reset().translate(x, -1.3, z).rotateZ(Math.PI + tilt).prism(0.07, 0.01, len, 4, { color: [0.3, 0.55, 0.36], colorTop: [0.14, 0.3, 0.2] });
+    }
+    for (let i = 0; i < 5; i++) weed.reset().translate(0.3, -1.7 - i * 0.2, 0.03 * (i % 2)).box(0.06, 0.16, 0.1, [0.8, 0.5, 0.35]);
+    this.hookWeed = this.add(weed, iron, 0, this.hookHead);
+    this.hookLamp.visible = this.hookWeed.visible = false;
+    this.hook.add(this.hookHead);
+    this.hook.position.set(JIB[0], 0, JIB[2]);
+    this.hookGlow = this.glows.add(JIB[0], 0, JIB[2], 1.1, [0, 0, 0]);
+
+    // St Elmo's fire, for the head of the mast in a storm
+    for (const [dx, dz] of [[-1.3, -1.3], [1.3, -1.3], [1.3, 1.3], [-1.3, 1.3]] as const) this.elmoGlows.push(this.glows.add(MAST[0] + dx, NEST + 1.15, MAST[1] + dz, 0.55, [0, 0, 0]));
+    this.elmoGlows.push(this.glows.add(MAST[0], DECK + 62.2, MAST[1], 1.3, [0, 0, 0]));
+  }
+
+  /** What can be used on foot. Each is only there from where you could really reach it. */
+  private walkThings(): Interactable[] {
+    const pl = this.engine.player;
+    const at = (p: readonly number[], dy = 0) => new Vector3(p[0], p[1] + dy, p[2]);
+    /** hidden unless your feet are at about this height, and you are not shut indoors */
+    const level = (y0: number, y1 = y0) => () => this.inside || pl.y < y0 - 0.5 || pl.y > y1 + 1.5;
+    const outdoors = () => !this.inside;
+    const use = (o: Omit<Interactable, 'walkOnly' | 'marker'>): Interactable => ({ walkOnly: true, marker: false, ...o });
+    const [mx, mz] = MAST;
+    const L1 = DECK + 7.78;
+    const L2 = DECK + 13.58;
+    /** where you stand on one of the mast's landings: beside the rungs, on the west rim */
+    const rim = (y: number): V3 => [mx - mastHalf(y - DECK) - 0.42, y, mz - 0.85];
+    const rung = (y: number) => new Vector3(rungX(y - DECK) - 0.05, y, mz);
+    const top: V3 = [mx - 0.92, NEST, mz - 0.8];
+    const lz = LADDER[1];
+    return [
+      use({ id: 'man', label: () => (this.manned ? 'Let go of the searchlight' : 'Man the searchlight'), center: PIVOT.clone(), radius: 0.9, reach: 13, hidden: level(DECK, GANTRY), onClick: () => this.man(!this.manned) }),
+
+      // the control room
+      use({ id: 'door-in', label: 'Go in', center: new Vector3(INSIDE.door[0], DECK + 1.05, CABIN.z + CABIN.d / 2 + 0.1), radius: 0.8, hidden: level(DECK), onClick: () => this.door(true) }),
+      use({ id: 'door-out', label: 'Go out', center: at(INSIDE.door), radius: 0.7, hidden: outdoors, onClick: () => this.door(false) }),
+      use({ id: 'log', label: () => (this.logPage % LOG.length ? 'Turn the page' : 'Read the log'), center: at(INSIDE.log, 0.05), radius: 0.3, hidden: outdoors, onClick: () => this.readLog() }),
+      use({ id: 'key', label: 'Tap the key', center: at(INSIDE.key), radius: 0.2, hidden: outdoors, onClick: () => this.tapKey() }),
+      use({ id: 'set', label: 'Look at the set', center: new Vector3(INSIDE.monitor[0], DECK + 1.06, INSIDE.monitor[2] - 0.17), radius: 0.32, hidden: outdoors, onClick: () => this.readSet() }),
+      use({ id: 'coat', label: 'The figure at the window', center: at(INSIDE.coat, 1.2), radius: 0.5, hidden: outdoors, onClick: () => this.lookCoat() }),
+      use({ id: 'chart', label: 'Look at the chart', center: at(INSIDE.chart, 0.5), radius: 0.6, hidden: outdoors, onClick: () => this.readChart() }),
+
+      // the mast, a landing at a time
+      use({ id: 'mast-0', label: 'Climb the mast', center: rung(DECK + 1.4), radius: 0.7, hidden: level(DECK), onClick: () => this.climb(rim(L1), 175, 8) }),
+      use({ id: 'mast-1u', label: 'Climb to the dish', center: rung(L1 + 2.3), radius: 0.6, hidden: level(L1), onClick: () => this.climb(rim(L2), 175, 7) }),
+      use({ id: 'mast-1d', label: 'Climb down', center: rung(L1 + 0.2), radius: 0.55, hidden: level(L1), onClick: () => this.climb([mx - 2.1, DECK, mz], -90, 8) }),
+      use({ id: 'mast-2u', label: 'Climb to the top', center: rung(L2 + 2.3), radius: 0.6, hidden: level(L2), onClick: () => this.climb(top, TOWER_AZ, 16) }),
+      use({ id: 'mast-2d', label: 'Climb down', center: rung(L2 + 0.2), radius: 0.55, hidden: level(L2), onClick: () => this.climb(rim(L1), 175, 7) }),
+      use({ id: 'mast-3d', label: 'Climb down', center: rung(NEST + 0.35), radius: 0.55, hidden: level(NEST), onClick: () => this.climb(rim(L2), 175, 16) }),
+      use({ id: 'tin', label: 'Open the tin', center: at(TIN, 0.12), radius: 0.3, hidden: level(NEST), onClick: () => this.openTin() }),
+
+      // the long ladder down the east face: deck, gangway, landing stage
+      use({ id: 'ladder-0', label: 'Climb down the ladder', center: new Vector3(LADDER[0] - 0.3, DECK + 0.9, lz), radius: 0.7, hidden: level(DECK), onClick: () => this.climb([11.3, UNDER.y, lz], -90, 6) }),
+      use({ id: 'ladder-1u', label: 'Climb up to the deck', center: new Vector3(LADDER[0], UNDER.y + 2.3, lz), radius: 0.6, hidden: level(UNDER.y), onClick: () => this.climb([11.2, DECK, lz], -90, 6) }),
+      use({ id: 'ladder-1d', label: 'Climb down to the landing', center: new Vector3(LADDER[0], UNDER.y + 0.2, lz), radius: 0.55, hidden: level(UNDER.y), onClick: () => this.climb([13.6, STAGE.y, lz], 90, 8) }),
+      use({ id: 'ladder-2', label: 'Climb the ladder', center: new Vector3(LADDER[0], STAGE.y + 1.6, lz), radius: 0.7, hidden: level(STAGE.y), onClick: () => this.climb([11.3, UNDER.y, lz], -90, 8) }),
+      use({ id: 'landing', label: 'Climb onto the landing', center: new Vector3(STAGE.x1 + 0.4, 0.6, SWIM_LADDER), radius: 2.6, reach: 16, hidden: () => this.inside || pl.y > STAGE.y - 0.4, onClick: () => this.ashore() }),
+
+      // under the deck
+      use({ id: 'breaker', label: () => (this.power > 0.5 ? 'Throw the breaker' : 'Throw the breaker back'), center: new Vector3(BREAKER[0], BREAKER[1], BREAKER[2] - 0.05), radius: 0.5, hidden: level(UNDER.y), onClick: () => this.breaker() }),
+      use({ id: 'rod', label: () => (this.lineCut ? 'The line is slack' : 'Reel in the line'), center: new Vector3(UNDER.x0 + 0.35, UNDER.y + 1.25, ROD_TIP[2]), radius: 0.45, hidden: level(UNDER.y), onClick: () => this.reel() }),
+
+      // the far platform
+      use({ id: 'far-door', label: 'Knock', center: at(FAR_DOOR, 1.1), radius: 0.7, hidden: level(DECK), onClick: () => this.knock() }),
+      use({ id: 'winch', label: () => (this.hookT >= 0 ? 'The winch is running' : 'Work the winch'), center: at(WINCH, 1.1), radius: 0.6, hidden: level(DECK), onClick: () => this.winch() }),
+
+      // the ship
+      use({ id: 'aboard', label: 'Climb aboard', center: new Vector3(ABOARD.ladder[0], 2.6, ABOARD.ladder[2]), radius: 3.4, reach: 24, hidden: () => pl.y > 4, onClick: () => this.boardShip() }),
+      use({ id: 'ship-down', label: 'Climb down', center: at(shipAt(2, SHIP_DECK + 0.8, 4.4)), radius: 0.7, hidden: level(SHIP_DECK), onClick: () => this.leaveShip() }),
+      use({ id: 'ship-bell', label: 'Ring her bell', center: at(ABOARD.bell), radius: 0.4, hidden: level(SHIP_DECK), onClick: () => this.shipBell() }),
+      use({ id: 'ship-horn', label: 'Sound her horn', center: at(ABOARD.lanyard), radius: 0.4, hidden: level(SHIP_DECK), onClick: () => this.shipHorn() }),
+      use({ id: 'ship-door', label: 'Try the door', center: at(shipAt(-12.9, SHIP_DECK + 1.05, 0.4)), radius: 0.6, hidden: level(SHIP_DECK), onClick: () => this.shipDoor() }),
+      use({ id: 'cargo', label: 'Look at the cargo', center: at(shipAt(8.4, SHIP_DECK + 0.8, 0.2)), radius: 1.5, hidden: level(SHIP_DECK), onClick: () => this.cargo() }),
+
+      // and for whoever goes all the way out: the door in the foot of the tower
+      use({ id: 'tower-door', label: 'The door in the tower', center: this.towerDoor, radius: 2, onClick: () => this.tryTower() }),
+
+      // with a hand on the searchlight, anywhere you look that is nothing else lets go of it
+      { id: 'let-go', label: 'Let go of the searchlight', dir: this.letGo, angle: 0.3, walkOnly: true, marker: false, hidden: () => !this.manned, onClick: () => this.man(false) },
+    ];
+  }
+
+  /** Take hold of the searchlight, or let it go. While you have it, it points where you look. */
+  private man(on: boolean) {
+    if (on === this.manned) return;
+    const e = this.engine;
+    if (on && this.searchOn < 0.5) {
+      e.hud.toast('The lamp is dead. No power.', 4);
+      e.audio.ui('deny');
+      return;
+    }
+    this.manned = on;
+    this.mannedAt = [e.player.x, e.player.z];
+    e.audio.noise({ dur: 0.06, gain: 0.2, type: 'lowpass', f: 420, attack: 0.002, send: 0.3 });
+    e.audio.tone({ f: on ? [150, 300] : [300, 150], dur: 0.25, type: 'triangle', gain: 0.045, lp: 1200, send: 0.3 });
+    if (on && !this.mannedOnce) {
+      this.mannedOnce = true;
+      e.hud.toast('It follows your eye.', 3.5);
+    }
+  }
+
+  /** Up or down a ladder: you are simply at the other end of it, to the sound of the rungs. */
+  private climb(to: readonly number[], yaw: number, rungs: number) {
+    const e = this.engine;
+    const up = to[1] > e.player.y;
+    for (let i = 0; i < rungs; i++) {
+      const at = i * 0.11;
+      e.audio.noise({ dur: 0.03, gain: 0.1, f: 1500 + this.q() * 900, q: 5, at, pan: i % 2 ? 0.2 : -0.2 });
+      e.audio.tone({ f: (up ? 300 : 380) + (up ? 12 : -12) * i, dur: 0.05, type: 'triangle', gain: 0.028, at, send: 0.2 });
+    }
+    e.setFade(1);
+    void e.fadeTo(0, 0.35 + rungs * 0.05);
+    e.player.place(to[0], to[1] + 0.02, to[2], yaw);
+    this.manned = false;
+    this.aboard = false;
+    // the first time up to the head of the mast in a storm, the mast has something to show you
+    if (to[1] >= NEST - 0.1 && !this.nestSeen && this.now.rain > 0.35 && e.settings.motion) {
+      this.nestSeen = true;
+      this.nestT = 0;
+    }
+  }
+
+  private door(inward: boolean) {
+    const e = this.engine;
+    const a = e.audio;
+    a.noise({ dur: 0.05, gain: 0.16, f: 1900, q: 4 });                                                              // the latch
+    a.tone({ f: [210, 150], dur: 0.5, type: 'sawtooth', gain: 0.03, attack: 0.1, lp: 700, at: 0.05, send: 0.4 });    // the hinge
+    a.noise({ dur: 0.12, gain: 0.25, type: 'lowpass', f: 160, attack: 0.002, at: 0.55, send: 0.4 });                 // and shut behind you
+    e.setFade(1);
+    void e.fadeTo(0, 0.55);
+    if (inward) e.player.place(INSIDE.door[0], ROOM.y + 0.02, ROOM.z1 - 0.65, -75);
+    else e.player.place(INSIDE.door[0], DECK + 0.02, CABIN.z + CABIN.d / 2 + 0.75, 180);
+    this.manned = false;
+  }
+
+  /** Which of the three signals the tower has had back, in the order of their signs. */
+  private answered() {
+    return WORLDS.map((w) => store.has(w.id));
+  }
+
+  private readLog() {
+    const hud = this.engine.hud;
+    LOG[this.logPage % LOG.length].forEach((line) => hud.toast(line, 10));
+    this.logPage++;
+    this.engine.audio.noise({ dur: 0.16, gain: 0.05, type: 'highpass', f: [1800, 4200], attack: 0.03 });
+  }
+
+  /** Dit dah dit on the key. The tower can hear that much. */
+  private tapKey() {
+    const a = this.engine.audio;
+    let at = 0;
+    for (const long of [false, true, false]) {
+      a.tone({ f: 880, dur: long ? 0.24 : 0.08, type: 'square', gain: 0.03, lp: 2400, at, send: 0.15 });
+      at += (long ? 0.24 : 0.08) + 0.09;
+    }
+    this.soon(1.4, () => {
+      this.tower.flash();
+      a.tone({ f: [a.hz(-24), a.hz(-17)], dur: 1.6, type: 'sine', gain: 0.07, attack: 0.5, send: 0.9 });
+    });
+  }
+
+  private readSet() {
+    const hud = this.engine.hud;
+    const got = this.answered();
+    const signs = got.map((yes, n) => (yes ? G.rune(n) : G.hollow)).join(' ');
+    this.engine.audio.tone({ f: 1240, dur: 0.05, type: 'square', gain: 0.02, lp: 3000 });
+    hud.toast(`Tower, bearing 351. ${got[1] ? 'It has answered.' : 'No answer yet.'}`, 7);
+    hud.toast(`${signs}   Signals ${got.filter(Boolean).length}/${got.length}`, 7);
+  }
+
+  private readChart() {
+    const hud = this.engine.hud;
+    paintChart(this.rt.chart, this.answered());
+    this.engine.audio.noise({ dur: 0.12, gain: 0.04, type: 'highpass', f: 2600, attack: 0.03 });
+    hud.toast('Three stations round one tower.', 8);
+    hud.toast('Light here. Fire. Dark.', 8);
+  }
+
+  /** The figure that can be seen at the window from the gantry. */
+  private lookCoat() {
+    const hud = this.engine.hud;
+    this.engine.audio.noise({ dur: 0.2, gain: 0.04, type: 'highpass', f: 1300, attack: 0.06 });
+    if (this.coatLooks++ === 0) {
+      hud.toast('An oilskin and a hat on a stand.', 7);
+      hud.toast('Nobody is in it.', 7);
+    } else if (this.coatTurned && !this.coatTold) {
+      this.coatTold = true;
+      hud.toast('It was facing the window.', 7);
+    } else hud.toast('Only an oilskin.', 4);
+  }
+
+  private openTin() {
+    const e = this.engine;
+    e.audio.noise({ dur: 0.04, gain: 0.14, f: 2600, q: 5 });
+    e.audio.tone({ f: [700, 500], dur: 0.12, gain: 0.04 });
+    e.hud.toast("A rigger's tin. A note in it:", 10);
+    e.hud.toast('LIGHT. FIRE. DARK.', 10);
+    e.hud.toast('THEN ASK THE GATE.', 10);
+  }
+
+  /** Out of the water (or out of the launch) and up onto the landing stage. */
+  private ashore() {
+    const e = this.engine;
+    if (e.explore.vehicle) e.board(null);
+    this.climb([STAGE.x1 - 1.1, STAGE.y, SWIM_LADDER], -90, 5);
+  }
+
+  /** The breaker under the deck: everything the station has goes off, or comes back a bank at a time. */
+  private breaker() {
+    const a = this.engine.audio;
+    a.noise({ dur: 0.09, gain: 0.3, type: 'lowpass', f: 260, attack: 0.002, send: 0.4 });
+    a.tone({ f: [140, 70], dur: 0.2, type: 'sine', gain: 0.18, send: 0.3 });
+    if (this.power > 0.5) {
+      this.power = 0;
+      this.lampA = this.lampB = this.lampC = 0;
+      this.mastOn = 0;
+      this.searchOn = 0;
+      this.manned = false;
+      a.tone({ f: [420, 60], dur: 1.8, type: 'triangle', gain: 0.06, lp: 900, send: 0.5 });       // everything winding down
+      const first = this.blackouts++ === 0;
+      this.soon(3.4, () => {
+        if (this.power > 0.5 || !this.walking) return;
+        // what keeps away from the lights comes to see where they went: right under the gangway
+        this.pass(-190, -40, 190, 2, 15, false);
+        if (first) this.engine.hud.toast('Look down.', 4);
+      });
+      return;
+    }
+    this.power = 1;
+    const back = (seconds: number, fn: () => void) => this.soon(seconds, () => this.power > 0.5 && fn());
+    back(0.35, () => this.bank('a'));
+    back(0.95, () => this.bank('b'));
+    back(1.55, () => this.bank('c'));
+    back(2.2, () => (this.mastOn = 1));
+    back(2.9, () => this.lightUp());
+  }
+
+  /** Somebody left a rod over the rail. There is something on the line. */
+  private reel() {
+    const a = this.engine.audio;
+    const hud = this.engine.hud;
+    for (let i = 0; i < 14; i++) a.noise({ dur: 0.02, gain: 0.07, f: 2600, q: 6, at: i * 0.07 });
+    if (this.lineCut) {
+      hud.toast('Slack. Whatever it was has gone.', 5);
+      return;
+    }
+    this.lineCut = true;
+    this.soon(1.2, () => {
+      hud.toast('The line goes tight.', 5);
+      a.tone({ f: [90, 150], dur: 0.9, type: 'sawtooth', gain: 0.03, lp: 600, attack: 0.2, send: 0.4 });
+    });
+    this.soon(3, () => this.walking && this.pass(-9, 150, -12, -190, 13, true));
+    this.soon(9, () => hud.toast('Then slack again.', 5));
+  }
+
+  /** The far blockhouse has a door on the side you cannot see from the station. */
+  private knock() {
+    const a = this.engine.audio;
+    const hud = this.engine.hud;
+    const rap = (at: number, gain: number, f: number) => {
+      a.noise({ dur: 0.05, gain, type: 'lowpass', f, attack: 0.002, at, send: 0.35 });
+      a.tone({ f: f * 0.45, dur: 0.07, type: 'sine', gain: gain * 0.5, at, send: 0.3 });
+    };
+    for (let i = 0; i < 3; i++) rap(i * 0.22, 0.22, 520);
+    const n = ++this.knocked;
+    if (n === 1) {
+      for (let i = 0; i < 3; i++) rap(1.7 + i * 0.5, 0.2, 300);
+      this.soon(2.9, () => hud.toast('Three knocks come back.', 5));
+    } else if (n === 2) {
+      for (let i = 0; i < 3; i++) rap(1.5 + i * 0.6, 0.2, 210);
+      this.soon(3, () => hud.toast('It answers again. From lower down.', 5));
+    } else if (n === 3) {
+      this.soon(2.2, () => {
+        hud.toast('Nothing. Then the whole leg rings,', 7);
+        hud.toast('three times, from under the sea.', 7);
+        for (let i = 0; i < 3; i++) {
+          a.tone({ f: [74, 70], dur: 1.4, type: 'sine', gain: 0.2, at: i * 0.9, send: 0.9 });
+          a.noise({ dur: 0.12, gain: 0.2, type: 'lowpass', f: 140, at: i * 0.9, send: 0.6 });
+        }
+        if (this.walking) this.pass(FAR[0] - 170, FAR[1] + 40, FAR[0] + 180, FAR[1] - 30, 14, false);
+      });
+    } else this.soon(1.6, () => hud.toast('Nobody answers.', 4));
+  }
+
+  /** What the hook brings up on its nth trip down. */
+  private catchOf(n: number): 'lamp' | 'weed' | 'taken' | 'nothing' {
+    return n === 0 ? 'lamp' : n === 1 ? 'weed' : n === 2 ? 'taken' : n % 2 ? 'nothing' : 'weed';
+  }
+
+  /** Send the derrick's hook down into the sea and bring it back. */
+  private winch() {
+    if (this.hookT >= 0) return;
+    this.hookT = 0;
+    this.hookFrom = this.hookY;
+    this.haul = this.hauls++;
+    const a = this.engine.audio;
+    a.noise({ dur: 0.08, gain: 0.2, type: 'lowpass', f: 300, attack: 0.002 });
+    for (let i = 0; i < 28; i++) a.noise({ dur: 0.02, gain: 0.05, f: 1900, q: 5, at: 0.1 + i * 0.13 });
+    a.tone({ f: [70, 58], dur: 3.6, type: 'sawtooth', gain: 0.03, lp: 320, attack: 0.3, send: 0.3 });
+  }
+
+  private boardShip() {
+    const e = this.engine;
+    if (e.explore.vehicle) e.board(null);
+    this.climb(ABOARD.deck, -147, 9);
+  }
+
+  /** Down the pilot ladder: into the launch if she is lying there, into the sea if not. */
+  private leaveShip() {
+    const e = this.engine;
+    const L = this.launch;
+    if (Math.hypot(L.x - ABOARD.ladder[0], L.z - ABOARD.ladder[2]) < 45) {
+      this.climb([L.x, L.y, L.z], L.heading, 9);
+      e.board(L);
+    } else this.climb(shipAt(2, -1.2, 6.4), 33, 9);
+  }
+
+  private shipBell() {
+    const a = this.engine.audio;
+    a.chime(12, { gain: 0.13, decay: 2.2 });
+    a.chime(12, { gain: 0.1, decay: 2.2, at: 0.36 });
+    // and far off, the buoy
+    this.soon(2.6, () => {
+      this.bell = 1;
+      a.chime(7, { gain: 0.03, decay: 2.6 });
+    });
+  }
+
+  /** Her horn; and from the station, where there is nobody, an answer. */
+  private shipHorn() {
+    const a = this.engine.audio;
+    this.shipFlash = 1;
+    this.blast(a.hz(-17), 0, 0.13, 420, 0, 1.2);
+    this.blast(a.hz(-17), 1.5, 0.13, 420, 0, 2.0);
+    this.soon(5.4, () => {
+      this.hornFlash = 1;
+      this.blast(a.hz(-12), 0, 0.04, 300, -0.3);
+      this.engine.hud.toast('The station answers. Nobody is there.', 5);
+    });
+  }
+
+  private shipDoor() {
+    const a = this.engine.audio;
+    const hud = this.engine.hud;
+    a.noise({ dur: 0.05, gain: 0.16, f: 1500, q: 4 });
+    a.noise({ dur: 0.05, gain: 0.14, f: 1300, q: 4, at: 0.18 });
+    const n = this.shipTries++;
+    if (n === 0) {
+      // the tune every world hums, as far as its third note
+      [7, 8, 7].forEach((semi, i) => a.tone({ f: a.hz(semi), dur: 0.5, type: 'sine', gain: 0.035, attack: 0.08, lp: 900, at: 0.5 + i * 0.55, vib: [5, 14], send: 0.6 }));
+      hud.toast('Locked. Inside, somebody is humming.', 6);
+    } else if (n === 1) hud.toast('Locked. The humming has stopped.', 5);
+    else hud.toast('Locked.', 3);
+  }
+
+  private cargo() {
+    const hud = this.engine.hud;
+    this.engine.audio.noise({ dur: 0.06, gain: 0.1, type: 'lowpass', f: 380, attack: 0.002 });
+    hud.toast(`${G.rune(0)} ${G.rune(1)} ${G.rune(2)}   A crate for each station.`, 8);
+    hud.toast('Firewood. Lamp oil. Blackout cloth.', 8);
+  }
+
+  /** The door in the foot of the tower: it is barred until the tower has had all three signals. */
+  private tryTower() {
+    const hud = this.engine.hud;
+    const a = this.engine.audio;
+    const got = this.answered();
+    const n = got.filter(Boolean).length;
+    a.noise({ dur: 0.2, gain: 0.3, type: 'lowpass', f: 110, attack: 0.004, send: 0.8 });
+    a.tone({ f: [62, 55], dur: 1.6, type: 'sine', gain: 0.16, send: 0.9 });
+    hud.toast(`${got.map((yes, i) => (yes ? G.rune(i) : G.hollow)).join(' ')}   ${n} of ${got.length} have answered.`, 9);
+    hud.toast(n === got.length ? 'Nothing bars it now. Ask the gate.' : 'Barred. It wants all three.', 9);
+  }
+
+  /** The light under the water goes by on a course of its own. */
+  private pass(x0: number, z0: number, x1: number, z1: number, seconds: number, dip: boolean) {
+    if (this.leviT >= 0 || !this.engine.settings.motion) return;
+    this.passing = { x0, z0, x1, z1, t: 0, dur: seconds, dip };
+    const a = this.engine.audio;
+    a.tone({ f: [58, 42], dur: seconds * 0.45, type: 'sine', gain: 0.17, attack: seconds * 0.2, vib: [0.6, 30], send: 0.9 });
+    a.tone({ f: [116, 86], dur: seconds * 0.4, type: 'triangle', gain: 0.04, attack: seconds * 0.22, vib: [0.6, 26], lp: 480, at: 0.3, send: 1 });
+  }
+
+  /** Something goes into the sea. */
+  private splash(x: number, z: number, k: number) {
+    const a = this.engine.audio;
+    const q = this.q;
+    const y = SEA + this.swell(x, z, this.engine.time);
+    a.noise({ dur: 0.5, gain: 0.22 * k, type: 'lowpass', f: [1400, 300], attack: 0.01, send: 0.3 });
+    a.noise({ dur: 0.25, gain: 0.1 * k, type: 'highpass', f: 2500, attack: 0.01 });
+    for (let i = 0; i < 10; i++) {
+      this.vapour.spawn({
+        x: x + (q() - 0.5) * 1.2, y: y + 0.2, z: z + (q() - 0.5) * 1.2,
+        vx: (q() - 0.5) * 4, vy: 3 + q() * 5, vz: (q() - 0.5) * 4,
+        life: 0.8 + q() * 0.5, size: 0.5 + q() * 0.4, grow: 2.2, color: [0.62, 0.7, 0.8], fade: [0.24, 0.3, 0.38], alpha: 0.6, gravity: 9, drag: 0.5,
+      });
+    }
+    ripple(this.water, this.time, x, z, 1);
+  }
+
+  /** One footfall, on whatever is underfoot. */
+  private footstep(x: number, y: number, z: number) {
+    const a = this.engine.audio;
+    const q = this.q;
+    const slab = Math.abs(y - DECK) < 0.25 && ((x > -12.1 && x < 12.1 && z > -40.1 && z < 6.1) || (Math.abs(x - FAR[0]) < 11.1 && Math.abs(z - FAR[1]) < 11.1));
+    if (this.inside) {
+      a.noise({ dur: 0.05, gain: 0.07, type: 'lowpass', f: 420 + q() * 120, attack: 0.002 });
+      a.tone({ f: 150 + q() * 30, dur: 0.05, type: 'sine', gain: 0.03 });
+    } else if (slab) a.noise({ dur: 0.06, gain: 0.06, type: 'lowpass', f: 300 + q() * 150, attack: 0.002, send: 0.1 });
+    else {
+      // grating and plate ring a little
+      a.noise({ dur: 0.035, gain: 0.07, f: 1700 + q() * 900, q: 3.5, send: 0.2 });
+      a.tone({ f: 520 + q() * 240, dur: 0.07, type: 'triangle', gain: 0.018, send: 0.3 });
+    }
+  }
+
+  /** Every frame while somebody is walking about, before the frame is drawn. */
+  private walkTick(dt: number, pl: Player, v: Vehicle | null) {
+    const e = this.engine;
+    const a = e.audio;
+    const t = e.time;
+    const q = this.q;
+    const L = this.launch;
+    const px = v ? v.x : pl.x;
+    const py = v ? v.y : pl.y;
+    const pz = v ? v.z : pl.z;
+    // the sea is not level: whoever is in it or on it rides the swell
+    this.walk.water = SEA + this.swell(px, pz, t);
+
+    const inside = !v && px > ROOM.x0 && px < ROOM.x1 && pz > ROOM.z0 && pz < ROOM.z1 && py > DECK - 0.5 && py < ROOM.top - 0.4;
+    if (inside !== this.inside) {
+      this.inside = inside;
+      this.roomG.visible = inside;
+      if (inside) paintChart(this.rt.chart, this.answered());
+    }
+    if (this.manned && (v || inside || Math.hypot(px - this.mannedAt[0], pz - this.mannedAt[1]) > 2.4)) this.man(false);
+
+    // under a roof the rain thins out; indoors there is none
+    const roofed = this.solid.floor(px, pz, py + 40) > py + 2.2;
+    this.cover += ((inside ? 1 : roofed ? 0.9 : 0) - this.cover) * Math.min(1, dt * 4);
+
+    // the figure in the control room: once you have had a look at it, it does not like your back
+    if (inside && this.coatLooks > 0) {
+      const dx = px - INSIDE.coat[0];
+      const dz = pz - INSIDE.coat[2];
+      const yr = rad(pl.yaw);
+      const seen = (-dx * Math.sin(yr) + dz * Math.cos(yr)) / Math.max(0.01, Math.hypot(dx, dz));
+      this.coatAway = seen < 0.3 ? this.coatAway + dt : 0;
+      const want = Math.atan2(dx, dz);
+      const off = want - this.coat.rotation.y;
+      if (this.coatAway > 1.2 && Math.abs(Math.atan2(Math.sin(off), Math.cos(off))) > 0.5) {
+        this.coat.rotation.y = want;
+        this.coatTurned = true;
+        a.noise({ dur: 0.25, gain: 0.025, type: 'highpass', f: 1500, attack: 0.08 });
+      }
+    }
+
+    // feet
+    if (!v) {
+      const speed = Math.hypot(pl.vx, pl.vz);
+      if (pl.splashed) this.splash(px, pz, 1);
+      if (pl.swimming) {
+        this.stride += dt * (0.5 + speed * 0.25);
+        if (this.stride > 1) {
+          this.stride = 0;
+          a.noise({ dur: 0.32, gain: 0.045, type: 'lowpass', f: [450, 900], attack: 0.1, pan: q() - 0.5 });
+        }
+      } else if (pl.onGround) {
+        if (!this.wasGround && this.fallV < -7) a.noise({ dur: 0.1, gain: Math.min(0.3, -this.fallV * 0.014), type: 'lowpass', f: 190, attack: 0.002, send: 0.3 });
+        this.stride += speed * dt;
+        if (this.stride > (speed > 6 ? 1.3 : 0.82)) {
+          this.stride = 0;
+          this.footstep(px, py, pz);
+        }
+      }
+      this.wasGround = pl.onGround || pl.swimming;
+      this.fallV = pl.vy;
+    }
+
+    // The fallen span is steep enough that somebody coming down onto it at a run can go through its
+    // floor between one frame and the next. Anybody found just under it, in the air, is put back on it.
+    if (!v && !pl.onGround && !pl.swimming && !pl.flying && pl.vy < 0 && py > this.walk.water - 0.9) {
+      const dx = px - CAT0[0];
+      const dz = pz - CAT0[1];
+      const along = -(dx * Math.sin(CAT_YAW) + dz * Math.cos(CAT_YAW));
+      const across = dx * Math.cos(CAT_YAW) - dz * Math.sin(CAT_YAW);
+      if (along > GAP[1] - 11 && along < GAP[1] && Math.abs(across) < 1.8) {
+        const g = this.solid.floor(px, pz, py + 6);
+        if (g > py + 0.25 && g < DECK - 0.05) {
+          pl.y = g;
+          pl.vy = 0;
+          pl.onGround = true;
+        }
+      }
+    }
+
+    // stepping out of the launch beside the landing or under the ship's ladder, you go up, not into the sea
+    if (this.aboard && !v) {
+      if (L.x > STAGE.x1 - 1 && L.x < STAGE.x1 + 9 && L.z > STAGE.z0 - 4 && L.z < STAGE.z1 + 4) this.climb([STAGE.x1 - 1.1, STAGE.y, clamp(L.z, STAGE.z0 + 1, STAGE.z1 - 1)], -90, 4);
+      else if (Math.hypot(L.x - ABOARD.ladder[0], L.z - ABOARD.ladder[2]) < 11) this.climb(ABOARD.deck, -147, 9);
+    }
+    this.aboard = v === L;
+    if (this.aboard && !this.boarded) {
+      this.boarded = true;
+      e.hud.toast('She will take you to the gate,', 7);
+      e.hud.toast('the buoy, or out to the ship.', 7);
+    }
+
+    // the launch rides the swell wherever she lies, and sits on the slope of it
+    const hr = rad(L.heading);
+    const fx = Math.sin(hr);
+    const fz = -Math.cos(hr);
+    const k = clamp(Math.abs(L.speed) / L.o.maxSpeed);
+    if (v === L || Math.abs(L.speed) < 0.06) {
+      if (v !== L) L.y = SEA + this.swell(L.x, L.z, t) - L.o.draft;
+      L.pitch = Math.atan2(this.swell(L.x + fx * 2.2, L.z + fz * 2.2, t) - this.swell(L.x - fx * 2.2, L.z - fz * 2.2, t), 4.4) + k * 0.07;
+      L.roll = Math.atan2(this.swell(L.x - fz, L.z + fx, t) - this.swell(L.x + fz, L.z - fx, t), 2) - L.steer * k * 0.3;
+      L.sync();
+    }
+    if (v === L) {
+      // her engine, the wash, and anything she runs into
+      this.putt -= dt;
+      if (this.putt <= 0) {
+        this.putt = 0.19 - 0.11 * k;
+        a.tone({ f: 58 + 46 * k + q() * 5, dur: 0.06, type: 'square', gain: 0.022 + 0.02 * k, lp: 380 + 520 * k });
+      }
+      this.wash -= dt;
+      if (this.wash <= 0 && k > 0.12) {
+        this.wash = 0.3;
+        a.noise({ dur: 0.45, gain: 0.05 * k, f: 800 + 600 * k, q: 0.6, attack: 0.12 });
+      }
+      this.bumpT -= dt;
+      if (L.bumped && this.bumpT <= 0) {
+        this.bumpT = 0.5;
+        a.noise({ dur: 0.12, gain: 0.25, type: 'lowpass', f: 170, attack: 0.002, send: 0.3 });
+      }
+      if (k > 0.25 && q() < dt * 26 * k) {
+        this.vapour.spawn({
+          x: L.x + fx * 2.3 + (q() - 0.5) * 1.6, y: L.y + 0.5, z: L.z + fz * 2.3 + (q() - 0.5) * 1.6,
+          vx: -fx * 2 + (q() - 0.5) * 4, vy: 2.5 + q() * 3, vz: -fz * 2 + (q() - 0.5) * 4,
+          life: 0.7 + q() * 0.5, size: 0.6, grow: 2.4, color: [0.6, 0.68, 0.78], fade: [0.25, 0.3, 0.38], alpha: 0.5, gravity: 8, drag: 0.6,
+        });
+      }
+      // out in open water, now and then, the light goes by underneath her
+      if (Math.hypot(L.x, L.z + 17) > 90 && Math.abs(L.speed) > 4) this.underT -= dt;
+      if (this.underT <= 0 && !this.passing && this.leviT < 0) {
+        this.underT = 40 + q() * 40;
+        const lead = 6;
+        const tx = L.x + fx * L.speed * lead;
+        const tz = L.z + fz * L.speed * lead;
+        const ang = hr + (q() < 0.5 ? 1 : -1) * (0.9 + q() * 0.5);
+        const dx = Math.sin(ang) * 170;
+        const dz = -Math.cos(ang) * 170;
+        this.pass(tx - dx, tz - dz, tx + dx, tz + dz, lead * 2, false);
+      }
+    }
+
+    // come into the gate's opening, by boat or swimming, and it asks where you are going
+    const gy = -rad(GATE_AZ);
+    const gdx = px - GATE[0];
+    const gdz = pz - GATE[1];
+    const lx = gdx * Math.cos(gy) - gdz * Math.sin(gy);
+    const lz = gdx * Math.sin(gy) + gdz * Math.cos(gy);
+    const near = py < 6 && Math.abs(lx) < 8.5 && Math.abs(lz) < 10.5;
+    if (near && !this.gateNear && !e.hud.menu) {
+      this.gate.open();
+      a.ui('open');
+    }
+    if (near) this.gateNear = true;
+    else if (Math.abs(lx) > 13 || Math.abs(lz) > 17) this.gateNear = false;
+  }
+
+  /** The parts of every frame that belong to walking about, and to the page's scroll. */
+  private yardFrame(dt: number, time: number) {
+    const e = this.engine;
+    const a = e.audio;
+    const on = this.walking ? 1 : 0;
+    const cam = e.camera.position;
+    // the sea is drawn round whoever is looking at it, so it is as finely made a mile out as at the station
+    this.sea.position.set(on ? cam.x : 0, 0, on ? cam.z : 0);
+    this.rain.material.uniforms.uAmount.value = this.rainAmount * (1 - this.cover * on);
+
+    // the storm's own sound goes when the storm does (the page scrolled well down)
+    const k = this.timeline ? 0 : this.driftK;
+    const calm = k > 0.62 ? true : k < 0.4 ? false : this.calm;
+    const clock = performance.now() / 1000;
+    if (calm !== this.calm && clock - this.calmAt > 6) {
+      this.calm = calm;
+      this.calmAt = clock;
+      this.calmSpec ??= {
+        ...this.audio,
+        ambience: [{ kind: 'rain', gain: 0.012 }, { kind: 'sea', gain: 0.09, period: 8 }, { kind: 'wind', gain: 0.045, pitch: 300, gust: 0.6 }, { kind: 'hum', gain: 0.011, freq: 50 }],
+      };
+      a.setSpec(calm ? this.calmSpec : this.audio);
+    }
+
+    // the light under the water, on a course of its own
+    this.passK = 0;
+    const p = this.passing;
+    if (p && this.leviT < 0) {
+      p.t += dt;
+      const q = p.t / p.dur;
+      if (q >= 1 || !on) {
+        this.passing = null;
+        this.levi.visible = false;
+      } else {
+        const glow = Math.sin(Math.PI * q);
+        this.levi.visible = true;
+        this.levi.position.set(lerp(p.x0, p.x1, q), SEA + 0.5, lerp(p.z0, p.z1, q));
+        this.levi.rotation.y = Math.atan2(-(p.x1 - p.x0), -(p.z1 - p.z0));
+        this.leviMat.uniforms.uAlpha.value = 0.9 * glow * (0.85 + 0.15 * Math.sin(time * 2.1));
+        if (p.dip) this.passK = glow;
+      }
+    } else if (p) this.passing = null;                       // a ping has brought the real thing: it has the water to itself
+
+    // the derrick's hook
+    this.hook.visible = on > 0 && Math.hypot(cam.x - FAR[0], cam.z - FAR[1]) < 420;
+    let shake = 0;
+    if (this.hookT >= 0) {
+      const before = this.hookT;
+      this.hookT += dt;
+      const t = this.hookT;
+      const what = this.catchOf(this.haul);
+      const up = what === 'taken' ? 10.5 : 5.6;                // when it starts back
+      const crossed = (at: number) => before < at && t >= at;
+      const top = DECK + 3.4;
+      this.hookY = t < up ? lerp(this.hookFrom, -3.5, smooth(0, 4, t)) : lerp(-3.5, top, smooth(up, up + 6, t));
+      if (crossed(3.5)) {
+        this.splash(JIB[0], JIB[2], 0.5);
+        this.onHook = null;
+      }
+      if (what === 'taken') {
+        if (crossed(5.2)) {
+          e.hud.toast('Something has hold of the hook.', 5);
+          a.tone({ f: [64, 48], dur: 3, type: 'sawtooth', gain: 0.05, lp: 260, attack: 0.6, vib: [7, 40], send: 0.8 });
+          this.pass(FAR[0] - 180, FAR[1] - 20, FAR[0] + 170, FAR[1] + 30, 12, false);
+        }
+        if (t > 5.2 && t < up) shake = 1;
+      }
+      if (crossed(up)) {
+        this.onHook = what === 'lamp' || what === 'weed' ? what : null;
+        for (let i = 0; i < 30; i++) a.noise({ dur: 0.02, gain: 0.05, f: 1700, q: 5, at: i * 0.19 });
+        a.tone({ f: [52, 64], dur: 5.4, type: 'sawtooth', gain: 0.035, lp: 300, attack: 0.3, send: 0.3 });
+      }
+      if (t >= up + 6) {
+        this.hookT = -1;
+        e.hud.toast(what === 'lamp' ? 'It brings up a lamp. Still lit.' : what === 'weed' ? 'Weed, and a length of chain.' : what === 'taken' ? 'The hook comes back straightened.' : 'Nothing this time.', 6);
+        a.noise({ dur: 0.08, gain: 0.2, type: 'lowpass', f: 300, attack: 0.002 });
+      }
+    }
+    const jx = shake * noise2(time * 13, 2.2, 61) * 0.5 - shake * 0.25;
+    const jz = shake * noise2(time * 11, 5.1, 67) * 0.5 - shake * 0.25;
+    this.hookHead.position.set(jx, this.hookY, jz);
+    this.hookLine.position.set(jx * 0.5, this.hookY - 0.02, jz * 0.5);
+    this.hookLine.scale.y = Math.max(0.1, JIB[1] - this.hookY);
+    this.hookLamp.visible = this.onHook === 'lamp';
+    this.hookWeed.visible = this.onHook === 'weed';
+    const lit = this.onHook === 'lamp' ? on * (0.8 + 0.2 * Math.sin(time * 3.1)) : 0;
+    this.glows.setPos(this.hookGlow, JIB[0] + 0.14 + jx, this.hookY - 1.64, JIB[2] + jz);
+    this.glows.setColor(this.hookGlow, 0.25 * lit, 0.95 * lit, 0.8 * lit);
+
+    // the head of the mast, the first time up there in a storm
+    if (this.nestT >= 0) {
+      const before = this.nestT;
+      this.nestT += dt;
+      const t = this.nestT;
+      if (!on || e.player.y < NEST - 1) this.nestT = -1;
+      else {
+        if (before < 2.5 && t >= 2.5) {
+          e.hud.toast('The rail hums under your hand.', 5);
+          for (let i = 0; i < 34; i++) a.noise({ dur: 0.02, gain: 0.03 + this.q() * 0.03, type: 'highpass', f: 3000 + this.q() * 3000, at: this.q() * 7 });
+          a.tone({ f: [2100, 2700], dur: 3.4, type: 'sine', gain: 0.008, attack: 2, send: 0.4 });
+        }
+        if (before < 9.6 && t >= 9.6) {
+          // and then the mast is the tallest thing for miles
+          this.strike(true, e.player.yaw);
+          e.flash(0.5, 0.55, 0.7);
+          a.noise({ dur: 0.3, gain: 0.4, f: [2600, 400], q: 0.7, attack: 0.002, send: 0.6 });
+          a.noise({ dur: 2.6, gain: 0.34, type: 'lowpass', f: [300, 50], attack: 0.01, send: 0.6 });
+        }
+        if (t > 11) this.nestT = -1;
+      }
+    }
+    const fire = this.nestT >= 2.5 && this.nestT < 9.6 ? smooth(2.5, 5.5, this.nestT) : 0;
+    this.elmo += (fire - this.elmo) * Math.min(1, dt * 6);
+    this.elmoGlows.forEach((id, i) => {
+      const f = this.elmo * on * (0.45 + 0.55 * noise2(time * 17, i * 3.1, 77));
+      this.glows.setColor(id, 0.5 * f, 0.6 * f, 1.4 * f);
+    });
+
+    // lamps that are only there for somebody on foot: all dark from the page's view
+    const flick = 0.95 + 0.05 * noise2(time * 6, 4.4, 9);
+    const shipNear = on * (1 - smooth(500, 800, Math.hypot(cam.x - SHIP[0], cam.z - SHIP[1])));
+    this.shipG.visible = shipNear > 0;
+    for (const { id, lamp } of this.yardLamps) {
+      const f = (lamp.on === 'ship' ? shipNear : lamp.on === 'power' ? on * this.power : on) * flick * 0.62;
+      this.glows.setColor(id, lamp.color[0] * f, lamp.color[1] * f, lamp.color[2] * f);
+    }
+    const lf = on * flick * 0.6;
+    this.glows.setColor(this.launchLamp, 1.25 * lf, 0.85 * lf, 0.42 * lf);
+    const towerNear = on * (1 - smooth(700, 1100, Math.hypot(cam.x - TOWER[0], cam.z - TOWER[1])));
+    this.towerG.visible = towerNear > 0;
+    this.glows.setColor(this.towerGlow, 1.3 * towerNear * flick, 0.8 * towerNear * flick, 0.36 * towerNear * flick);
+    if (!on) return;
+    for (const m of this.yardMats) m.uniforms.uBaked.value = this.power;
+    (this.screenMat.uniforms.uTint.value as Vector3).setScalar((0.25 + 0.95 * this.tower.awake) * (0.9 + 0.1 * noise2(time * 23, 1.7, 3)) * (0.05 + 0.95 * this.power));
+    (this.chartMat.uniforms.uTint.value as Vector3).set(1.15, 1.05, 0.9).multiplyScalar(0.3 + 0.7 * this.power);
+    // with the power off, one lamp under the deck runs off a battery
+    if (this.power < 0.5) pointLight(e.shared, 0, UNDER.x0 + 1, DECK - 2.1, -19, 11, 0.22, 0.75, 0.62);
+    const lp = this.tmp.set(0, 2.05, -1.9).applyMatrix4(this.launchMesh.matrixWorld);
+    this.glows.setPos(this.launchLamp, lp.x, lp.y, lp.z);
+    // down at the water the gantry's lamp is nothing to you: the launch's own lamp has its light instead
+    if (this.aboard || e.player.y < 8) pointLight(e.shared, 2, lp.x, lp.y - 0.3, lp.z, 10, 1.5 * flick, 1.0 * flick, 0.5 * flick);
+    // and out on the far platform, the lamp over the door on its blind side
+    else if (Math.hypot(cam.x - FAR[0], cam.z - FAR[1]) < 70) pointLight(e.shared, 2, DOOR_LAMP[0] + 0.3, DOOR_LAMP[1], DOOR_LAMP[2], 9, 1.5 * this.power * flick, 0.78 * this.power * flick, 0.33 * this.power * flick);
+    // Far from the station its lamps are nothing to you, and the lights that move go to what is near:
+    // the lamp over the tower's door (thrown from a little way out in front, so that it falls on the
+    // door and not down the wall), and the three that light the ship's decks.
+    if (Math.hypot(cam.x - TOWER[0], cam.z - TOWER[1]) < 260) pointLight(e.shared, 0, this.towerLamp.x + Math.cos(rad(112.5)) * 2.6, this.towerLamp.y - 3.6, this.towerLamp.z + Math.sin(rad(112.5)) * 2.6, 20, 2.8 * flick, 1.75 * flick, 0.8 * flick);
+    else if (Math.hypot(cam.x - SHIP[0], cam.z - SHIP[1]) < 320) SHIP_LAMPS.forEach((p, i) => pointLight(e.shared, i < 2 ? i : 3, p[0], p[1] - 0.2, p[2], 24, 1.7 * flick, 1.05 * flick, 0.5 * flick));   // (the launch's lamp keeps slot 2)
+  }
+
+  /** Somebody steps into the world, or back out to the page. Everything made
+   *  for walking about hangs on one group that is only drawn while they are
+   *  in it; on the way out the station is put back as the page shows it. */
+  explore(on: boolean) {
+    this.walking = on;
+    this.yard.visible = on;
+    if (on) {
+      paintChart(this.rt.chart, this.answered());
+      this.wasGround = true;
+      this.fallV = 0;
+      this.stride = 0;
+      return;
+    }
+    this.manned = false;
+    this.inside = false;
+    this.roomG.visible = false;
+    this.cover = 0;
+    this.gateNear = false;
+    this.aboard = false;
+    if (this.power < 1) {
+      // the breaker was left thrown: everything back on, without ceremony
+      this.power = 1;
+      this.lampA = this.lampB = this.lampC = 1;
+      this.mastOn = 1;
+      this.searchOn = 1;
+    }
+    this.passing = null;
+    if (this.leviT < 0) this.levi.visible = false;
+    this.nestT = -1;
+    this.elmo = 0;
+    this.hookT = -1;
+    this.hookY = this.hookFrom = DECK + 12;
+    this.onHook = null;
+    this.coat.rotation.y = 0;
+    this.coatAway = 0;
+    this.walk.water = SEA;
   }
 
   hud(hud: Hud) {
