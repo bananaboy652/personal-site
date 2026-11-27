@@ -1,4 +1,4 @@
-// What the world remembers between visits: whether you wanted sound, which
+// What the world remembers between visits: whether you turned the sound off, which
 // worlds' signals you have answered, and any small things a world wants to
 // keep for itself. Kept in the browser; if storage is blocked it simply forgets.
 const KEY = 'world.v1';
@@ -18,9 +18,10 @@ function read(): Saved {
     const v = raw ? (JSON.parse(raw) as Partial<Saved>) : {};
     const notes: Record<string, string[]> = {};
     if (v.notes && typeof v.notes === 'object') for (const [world, list] of Object.entries(v.notes)) notes[world] = strings(list);
-    return { sound: v.sound === true, signals: strings(v.signals), notes };
+    // (sound is on unless somebody has switched it off)
+    return { sound: v.sound !== false, signals: strings(v.signals), notes };
   } catch {
-    return { sound: false, signals: [], notes: {} };
+    return { sound: true, signals: [], notes: {} };
   }
 }
 

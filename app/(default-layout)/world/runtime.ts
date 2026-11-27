@@ -79,12 +79,11 @@ export class Runtime {
   private drag = false;
   private locked = false;
   private wanted: string | null = null;
-  private lastJump = 0;
+  /** the click that stepped into the world is still being handed round: it is not also a click on the world */
+  private stepping = false;
   /** the next arrival in a world is to be the short one */
   private brisk = false;
   private touches = new Map<number, { role: 'move' | 'look' | 'jump' | 'button'; spot: TouchSpot | null; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
-  /** how far down the window the frame's own buttons can sit without being under the page (CSS pixels) */
-  private foot = 0;
   /** reads the phone's notch and home-bar margins (see insets()) */
   private probe: HTMLElement | null = null;
   private timers: number[] = [];
@@ -112,8 +111,9 @@ export class Runtime {
     e.onTravel = (id) => this.go(id);
     e.onFinale = () => void this.finale();
     e.audio.onChange = () => this.onChange?.();
-    e.hud.dock = [{ label: 'Explore', pick: () => this.enterExplore() }];
-    if (document.fullscreenEnabled) e.hud.dock.push({ label: 'Full screen', pick: () => this.enterExplore(true) });
+    // sound is on unless it was switched off on an earlier visit (it starts at the first click, tap or key)
+    e.audio.wanted = store.sound;
+    e.onSound = () => this.onChange?.();
     e.hud.canFull = document.fullscreenEnabled;
     // a phone is a finger from the start, before anything has been touched: its buttons are drawn to suit
     e.touch = window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches;
@@ -225,7 +225,6 @@ export class Runtime {
 
   /** The page changed: bring up that page's world, or its view of this one. */
   setRoute(pathname: string) {
-    this.foot = 0;
     const e = this.engine;
     const def = worldForPath(pathname);
     e.shotName = SHOTS[pathname] ?? 'home';
@@ -234,11 +233,19 @@ export class Runtime {
     this.later(() => this.frame(), 300);
   }
 
+  /** Sound on or off: the page's own button, the M key, the debug menu. (The radio in the scene does the same.) */
+  setSound(on: boolean) {
+    this.engine.setSound(on);
+    this.engine.hud.toast(on ? 'Sound on' : 'Sound off', 1.8);
+  }
+
   toggleSound() {
-    const a = this.engine.audio;
-    a.flip();
-    store.sound = a.enabled;
-    this.engine.hud.toast(a.enabled ? 'Sound on' : 'Sound off', 1.8);
+    this.setSound(!this.engine.audio.wanted);
+  }
+
+  /** Whether the browser can fill the screen (an iPhone cannot). */
+  get canFullscreen() {
+    return document.fullscreenEnabled;
   }
 
   /* ---- walking about ---- */
@@ -247,6 +254,9 @@ export class Runtime {
   enterExplore(fullscreen = false) {
     const e = this.engine;
     if (!e.enterExplore()) return;
+    // (asked for by a button of the page's: the same click reaches the window a moment later)
+    this.stepping = true;
+    this.later(() => (this.stepping = false), 0);
     document.documentElement.style.overflow = 'hidden';
     document.documentElement.style.touchAction = 'none';
     document.documentElement.style.cursor = '';
@@ -310,20 +320,10 @@ export class Runtime {
       case 'a': case 'arrowleft': c.r = down ? -1 : c.r < 0 ? 0 : c.r; break;
       case 'shift': c.run = down; break;
       case 'c': case 'control': c.up = down ? -1 : c.up < 0 ? 0 : c.up; break;
-      case ' ': {
-        if (down && !c.jump) {
-          // twice in quick succession: take off, or come back down
-          const now = performance.now();
-          if (now - this.lastJump < 300 && !e.explore.vehicle) {
-            e.player.flying = !e.player.flying;
-            e.hud.toast(e.player.flying ? 'Flying' : 'On foot', 1.6);
-          }
-          this.lastJump = now;
-        }
+      case ' ':
         c.jump = down;
         c.up = e.player.flying ? v : c.up < 0 ? c.up : 0;
         break;
-      }
       case 'e': case 'enter': if (down) e.use(); break;
       case 'f': if (down) this.fullscreen(); break;
       case 'v': if (down) e.explore.seat = !e.explore.seat; break;
@@ -408,29 +408,7 @@ export class Runtime {
     safe.x0 = crowded ? 0.3 : f + 10 / W;
     safe.x1 = 1 - (edge + inset) / W;
     safe.y0 = edge / FH;
-    // The buttons in the corner of the frame are drawn behind the page, so a card that reaches the
-    // corner would cover them. At the top of the page, see what the page leaves alone there: the whole
-    // row at the foot if it fits, else the first button alone, at the foot or as far up the right-hand
-    // side as the first clear spot. (Kept while the page is scrolled: nothing shuffles about.)
-    if (window.scrollY < 4 || !this.foot) {
-      const hud = e.hud;
-      const x1 = W - edge - inset - 6;
-      const clearAt = (n: number, y: number) => {
-        const span = hud.dockSpan(n);
-        return ![0, 0.5, 1].some((k) => overUi(document.elementFromPoint(x1 - span * k, y)) || overUi(document.elementFromPoint(x1 - span * k, y - 24)));
-      };
-      const all = hud.dock.length;
-      let y = H - edge - 10;
-      let room = all;
-      if (!clearAt(all, y)) {
-        // (moved up, it stands over the scene itself: one button is as much as that should cost)
-        room = 1;
-        for (let i = 0; i < 20 && !clearAt(1, y); i++) y -= 24;
-      }
-      hud.dockRoom = room;
-      this.foot = y + 10;
-    }
-    safe.y1 = Math.min(H - edge, this.foot) / FH;
+    safe.y1 = (H - edge) / FH;
   };
 
   /** The margins a phone keeps for its notch and home bar, in CSS pixels. */
@@ -460,9 +438,10 @@ export class Runtime {
       target.addEventListener(type, fn as EventListener, opts);
       this.undo.push(() => target.removeEventListener(type, fn as EventListener, opts));
     };
-    // a returning visitor who had the sound on gets it back at their first touch of the page
+    // Sound is on unless it has been switched off, but a browser will not let it start by itself: it
+    // starts at the visitor's first click, tap or key press, wherever on the page that is.
     const wake = () => {
-      if (store.sound && !e.audio.enabled) e.audio.enable();
+      if (e.audio.wanted && !e.audio.enabled) e.audio.enable();
     };
     /** The stick, pushed to a place on the frame: work out what it is asking for. */
     const pushStick = (fx: number, fy: number) => {
@@ -599,6 +578,7 @@ export class Runtime {
     on(document, 'fullscreenchange', () => this.later(() => this.frame(), 80));
     on(document.documentElement, 'pointerleave', () => e.clearPointer());
     on(window, 'click', (ev: MouseEvent) => {
+      if (this.stepping) return;
       if (e.exploring) {
         if (e.touch) return;                          // taps are handled as touches
         if (!this.locked && !document.pointerLockElement) this.lock();

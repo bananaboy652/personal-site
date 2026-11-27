@@ -102,7 +102,10 @@ interface Voice {
 type Ctx = BaseAudioContext;
 
 export class AudioEngine {
-  /** the visitor has asked for sound */
+  /** The visitor wants sound. It is on unless they have switched it off, but a browser lets none
+   *  start before their first click, tap or key press: until then this is true and `enabled` is not. */
+  wanted = true;
+  /** sound is running */
   enabled = false;
   onChange: ((enabled: boolean) => void) | null = null;
   /** 0..1; a world can pull the music back and let it swell */
@@ -196,20 +199,6 @@ export class AudioEngine {
       }, 700);
     }
     this.onChange?.(false);
-  }
-
-  /** Throw the switch, as one act with its own little sound; returns the new
-   *  state. For a returning visitor the sound is restored at their first touch
-   *  of the page; if that same touch was on the switch, it means "on". */
-  flip() {
-    if (this.enabled && performance.now() - this.since > 700) {
-      this.ui('off');
-      this.disable();
-    } else {
-      if (!this.enabled) this.enable();
-      this.ui('on');
-    }
-    return this.enabled;
   }
 
   /** The page was hidden or shown. */

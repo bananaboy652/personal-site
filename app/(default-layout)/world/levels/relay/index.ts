@@ -315,8 +315,6 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     ['Answer (hold the light on the tower)', () => this.solve()],
     ['Cut the mast lights', () => this.setBreaker('mast', !this.power.mast)],
   ];
-  /** (on an upright screen the hut and the gate are at the right of the view) */
-  dockSide = 'left' as const;
   walk!: Walk;
   /** the service road, from the yard's gate to the bottom, for anything that wants to follow it */
   readonly road = ROAD;

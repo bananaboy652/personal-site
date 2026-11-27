@@ -189,8 +189,6 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   // truck, the fox, the moon and the tower all fall to the left of it. Where the page's panels would
   // stand in front of the fox, the view turns a little further to bring it clear.
   anchor = { at: [MACHINE[0], 1, MACHINE[1]] as [number, number, number], x: 0.93, portraitX: 0.84, keep: [FOX_HOME[0], 0.4, FOX_HOME[1]] as [number, number, number], most: 0.975 };
-  // (on an upright screen the Explore button goes bottom left: the radio stands bottom right)
-  dockSide = 'left' as const;
   audio: AudioSpec = {
     root: 52,
     // E with no third, then up through A and B minor to D: open, a little lonely

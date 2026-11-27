@@ -25,6 +25,7 @@ import { type Controls, Player, type Vehicle } from './player';
 import { createShared, postMaterial } from './shaders';
 import type { Solid } from './solid';
 import { Steps } from './steps';
+import { store } from './store';
 import type { SurfaceAt } from './surface';
 
 /** The widest shape of window a view is composed for: twice as wide as it is tall. On anything wider the
@@ -88,6 +89,18 @@ export interface Walk {
   tick?(dt: number, player: Player, vehicle: Vehicle | null): void;
 }
 
+/** Somewhere a person stands or sits about a world. */
+export interface Spot {
+  /** the ground under them */
+  at: [number, number, number];
+  /** which way they face, degrees, like a walker's yaw: 0 looks down -Z, positive turns right */
+  yaw: number;
+  /** what they are doing there. Sitting, `seat` is how high above `at` the thing they sit on is
+   *  (default 0.45); leaning, their back is against something behind them. */
+  pose: 'stand' | 'sit' | 'lean';
+  seat?: number;
+}
+
 /** A camera position. Angles are in degrees; yaw is positive to the right.
  *  Without `look`, yaw is an offset from the bearing the engine works out to
  *  put the level's subject in the clear part of the window. With `look`, the
@@ -146,8 +159,9 @@ export interface Level {
   finale?(): void;
   /** present if the world can be walked around in */
   walk?: Walk;
-  /** on an upright screen, which bottom corner of the frame the Explore button goes in: the one with nothing in it (right if not said) */
-  dockSide?: 'left' | 'right';
+  /** Who is about. `will` is where the site's owner is to be found, to be talked to (the figure and
+   *  the talk are the engine's; a level only says where he is and what he is doing there). */
+  cast?: { will?: Spot };
   /** somebody stepped into the world, or back out to the page. On the way
    *  out, put back anything that changes the framed view. */
   explore?(on: boolean): void;
@@ -222,6 +236,8 @@ export class Engine {
   onScope: ((on: boolean) => void) | null = null;
   /** somebody stepped into the world to walk about, or stepped back out */
   onExplore: ((on: boolean) => void) | null = null;
+  /** the sound was switched on or off (the radio, a key, or the page's own button) */
+  onSound: (() => void) | null = null;
   /** whoever is walking about */
   readonly player = new Player();
   private steps = new Steps();
@@ -335,6 +351,22 @@ export class Engine {
     if (document.hidden) this.stop();
     else this.start();
   };
+
+  /** The visitor wants sound, or does not, and it is remembered. Call it from a click, a tap or a key
+   *  press: a browser lets sound start no other way. */
+  setSound(on: boolean) {
+    const a = this.audio;
+    a.wanted = on;
+    store.sound = on;
+    if (on) {
+      a.enable();
+      a.ui('on');
+    } else {
+      if (a.enabled) a.ui('off');
+      a.disable();
+    }
+    this.onSound?.();
+  }
 
   /* ---- sizing ---- */
 

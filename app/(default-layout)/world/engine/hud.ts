@@ -62,10 +62,6 @@ export class Hud {
   centred = false;
   time = 0;
   menu: Menu | null = null;
-  /** buttons that sit in the corner of the frame while the page is up ("Explore") */
-  dock: { label: string; pick: () => void }[] = [];
-  /** how many of them there is room for in the corner (the page may have a card there): the rest are left out */
-  dockRoom = 9;
   /** the browser can fill the screen: offer it to somebody walking about by touch */
   canFull = false;
   /** the pointer is over one of this layer's own buttons or menu rows */
@@ -83,8 +79,6 @@ export class Hud {
   private rows: { x: number; y: number; w: number; h: number }[] = [];
   private box = { x: 0, y: 0, w: 0, h: 0 };
   private menuT = 0;
-  private dockRects: Rect[] = [];
-  private dockHot = -1;
   private hovered: Interactable | null = null;
   private hoverT = 0;
   private px = -1;
@@ -214,20 +208,6 @@ export class Hud {
 
   /* ---- input, in frame pixels ---- */
 
-  /** Is (x, y) on this box? A finger gets some grace round the edges that a mouse does not. */
-  private on(r: Rect, x: number, y: number) {
-    const g = this.engine.touch ? this.css(9) : 0;
-    return x >= r.x - g && x < r.x + r.w + g && y >= r.y - g && y < r.y + r.h + g;
-  }
-
-  /** How wide the first `n` buttons of the corner row are together, in CSS pixels. */
-  dockSpan(n: number) {
-    const u = this.unit;
-    const k = this.thumb;
-    const w = this.dock.slice(0, n).reduce((a, b) => a + this.measure(b.label, k) + (15 + 6 * k) * u, 0) + 5 * u * Math.max(0, n - 1);
-    return (w + 8 * u) * this.texel;
-  }
-
   /** A length given in CSS pixels, in frame pixels: for things a finger has to find. */
   css(n: number) {
     return Math.round(n / this.texel);
@@ -236,9 +216,7 @@ export class Hud {
   pointer(x: number, y: number) {
     this.px = x;
     this.py = y;
-    this.dockHot = this.menu ? -1 : this.dockRects.findIndex((r) => this.on(r, x, y));
-    this.hot = this.dockHot >= 0 || !!this.menu;
-    if (this.dockHot >= 0) return true;
+    this.hot = !!this.menu;
     if (!this.menu) return false;
     const hit = this.rows.findIndex((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
     if (hit >= 0 && hit !== this.sel && !this.menu.items[hit].disabled) {
@@ -251,13 +229,7 @@ export class Hud {
   /** Returns true if the interface took the click. */
   click(x: number, y: number): boolean {
     const menu = this.menu;
-    if (!menu) {
-      const hit = this.dockRects.findIndex((r) => this.on(r, x, y));
-      if (hit < 0 || !this.dock[hit]) return false;
-      this.engine.audio.ui('pick');
-      this.dock[hit].pick();
-      return true;
-    }
+    if (!menu) return false;
     if (this.menuT < 0.15) return true;
     this.pointer(x, y);
     const b = this.box;
@@ -322,8 +294,6 @@ export class Hud {
       if (walking) this.drawWalking(dt);
       else this.drawPrompt(dt);
     }
-    if (level?.walk && !walking && !this.menu && !this.engine.inScope) this.drawDock();
-    else this.dockRects.length = 0;
     this.drawCard(dt);
     this.drawToasts(dt);
     if (this.menu) this.drawMenu(dt, this.menu);
@@ -346,43 +316,6 @@ export class Hud {
   /** Type for things a finger has to hit: doubled where the frame's pixels are small (a phone). */
   private get thumb() {
     return this.engine.touch && this.unit * this.texel < 1.9 ? 2 : 1;
-  }
-
-  /** The buttons in the corner of the frame: in a row at the bottom right. On
-   *  an upright screen it is the first button alone, in the bottom corner the
-   *  level says has nothing in it (full screen is offered once you have
-   *  stepped in). */
-  private drawDock() {
-    const u = this.unit;
-    const s = this.safe;
-    const k = this.thumb;
-    const gap = 5 * u;
-    const h = (7 * k + 6) * u;
-    const widths = this.dock.slice(0, Math.max(1, this.dockRoom)).map((b) => this.measure(b.label, k) + (15 + 6 * k) * u);
-    this.dockRects.length = 0;
-    if (!widths.length) return;
-    const button = (b: { label: string }, i: number, x: number, y: number, w: number) => {
-      const on = i === this.dockHot;
-      this.dockRects.push({ x, y, w, h });
-      this.panel(x, y, w, h);
-      if (on) this.rect(x + u, y + u, w - 2 * u, h - 2 * u, [EMBER[0], EMBER[1], EMBER[2], 0.92]);
-      const ink: RGBA = on ? [0.06, 0.05, 0.05, 1] : INK;
-      this.text(G.arrow, x + 6 * u, y + 3 * u, on ? ink : EMBER, k, false);
-      this.text(b.label, x + (9 + 6 * k) * u, y + 3 * u, ink, k, false);
-    };
-    if (!this.centred) {
-      const total = widths.reduce((a, b) => a + b, 0) + gap * (widths.length - 1);
-      let x = Math.round(s.x1 * this.w - 8 * u - total);
-      const y = Math.round(s.y1 * this.h - 6 * u - h);
-      widths.forEach((bw, i) => {
-        button(this.dock[i], i, x, y, bw);
-        x += bw + gap;
-      });
-      return;
-    }
-    const w = widths[0];
-    const x = this.engine.level?.dockSide === 'left' ? Math.round(s.x0 * this.w + 2 * u) : Math.round(s.x1 * this.w - 2 * u - w);
-    button(this.dock[0], 0, x, Math.round(s.y1 * this.h - this.css(14) - h), w);
   }
 
   /** On foot: a dot to aim with, what the thing in front of you does, and
@@ -423,7 +356,7 @@ export class Hud {
           : ['Stick: walk (push it far to run)', 'Drag: look', 'Tap: use']
         : ex.vehicle
           ? ['W drive    S brake, then back up    A D steer    Space handbrake', 'H horn    E get out    V view    F full screen    Esc back']
-          : ['W A S D move    Shift run    Space jump    E use', 'F full screen    Space twice: fly    Esc back'];
+          : ['W A S D move    Shift run    Space jump    E use', 'F full screen    H these keys    Esc back'];
       const bw = Math.max(...lines.map((l) => this.measure(l))) + 16 * u;
       const bh = (lines.length * 10 + 7) * u;
       const x = Math.round(cx - bw / 2);
@@ -615,11 +548,10 @@ export class Hud {
     const s = this.safe;
     const right = s.x1 * this.w - 8 * u;
     const x = this.centred ? Math.round(((s.x0 + s.x1) / 2) * this.w - full / 2) : Math.round(right - full);
-    // The card goes at the foot of the clear part, above the buttons there. (Somebody on foot with their
-    // thumbs on the screen has the foot of it in use: then it goes up under the buttons at the top.)
+    // The card goes at the foot of the clear part. (Somebody on foot with their thumbs on the screen
+    // has the foot of it in use: then it goes up under the buttons at the top.)
     const thumbs = this.engine.exploring && this.engine.touch;
-    const row = this.dockRects.length ? (this.dockRects[0].h + (this.centred ? this.css(14) + 6 * u : 12 * u)) / u : 0;
-    const y = thumbs ? Math.round(s.y0 * this.h + this.css(64)) : Math.round(s.y1 * this.h - (big * 7 + 22 + row) * u);
+    const y = thumbs ? Math.round(s.y0 * this.h + this.css(64)) : Math.round(s.y1 * this.h - (big * 7 + 22) * u);
     this.text(title, x, y, [INK[0], INK[1], INK[2], a], big);
     const ruleT = Math.max(0, Math.min(1, (c.t - c.title.length / 20) / 0.5));
     if (ruleT > 0) this.rect(x, y + (big * 7 + 4) * u, Math.round(full * ruleT), u, [EMBER[0], EMBER[1], EMBER[2], a]);

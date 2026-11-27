@@ -1,5 +1,5 @@
-// Getting about in a world: on foot (walk, run, jump, swim, and fly if you
-// like), or in something you can drive. Nothing here knows about any one
+// Getting about in a world: on foot (walk, run, jump, swim), or in something
+// you can drive or fly. Nothing here knows about any one
 // world; it only asks the level's Solid where the ground and the walls are.
 import { clamp, rad } from './math';
 import type { Solid } from './solid';
@@ -53,6 +53,7 @@ export class Player {
   pitch = 0;
   onGround = false;
   swimming = false;
+  /** weightless, going wherever you look: for looking a world over while building it (nothing a visitor can switch on) */
   flying = false;
   /** eye height above the feet */
   eye = 1.62;

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import styles from './World.module.css';
+import { publishWorld } from './controls';
 import type { Settings } from './engine/engine';
 import type { Runtime } from './runtime';
 
@@ -42,8 +43,14 @@ export default function World() {
       }
       runtime.current = made;
       (window as unknown as { __world?: unknown }).__world = made;
+      const rt = made;
       made.onChange = () => {
-        root.dataset.world = made?.live ? 'live' : 'still';
+        root.dataset.world = rt.live ? 'live' : 'still';
+        // (what the page's own buttons go by: see controls.ts)
+        publishWorld(
+          { live: rt.live, canPlay: !!rt.level?.walk, canFullscreen: rt.canFullscreen, sound: rt.engine.audio.wanted, playing: rt.exploring, title: rt.level?.title ?? '' },
+          { play: (fullscreen) => rt.enterExplore(!!fullscreen), setSound: (on) => rt.setSound(on) },
+        );
         redraw();
       };
       made.onDebugKey = () => setPanel((p) => !p);
@@ -63,6 +70,7 @@ export default function World() {
       dead = true;
       window.clearTimeout(settle);
       made?.dispose();
+      publishWorld(null);
       runtime.current = null;
     };
   }, []);
@@ -87,7 +95,7 @@ export default function World() {
       </div>
       {/* the radio in the scene does this too; this is for keyboards and screen readers */}
       <button type="button" className={styles.sound} data-world="" data-world-ui="" onClick={() => runtime.current?.toggleSound()}>
-        {rt?.engine.audio.enabled ? 'Turn the background sound off' : 'Turn the background sound on'}
+        {rt?.engine.audio.wanted === false ? 'Turn the background sound on' : 'Turn the background sound off'}
       </button>
       {rt?.level?.walk && !rt.exploring && (
         <button type="button" className={styles.sound} data-world="" data-world-ui="" onClick={() => runtime.current?.enterExplore()}>
@@ -235,7 +243,7 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
       </div>
       <div className={styles.row}>
         <div className={styles.rowLabel}>Sound</div>
-        <Opt on={engine.audio.enabled} label={engine.audio.enabled ? 'On' : 'Off'} pick={() => { rt.toggleSound(); redraw(); }} />
+        <Opt on={engine.audio.wanted} label={engine.audio.wanted ? 'On' : 'Off'} pick={() => { rt.toggleSound(); redraw(); }} />
         <Opt on={false} label={`Forget signals (${signals}/${worlds.length || 3})`} pick={() => void import('./runtime').then((m) => { m.store.forget(); setSignals(0); })} />
       </div>
       <div className={styles.stats}>{stats}</div>

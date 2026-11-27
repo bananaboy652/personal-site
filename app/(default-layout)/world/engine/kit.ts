@@ -1,8 +1,8 @@
 // Things that turn up in every world, so that once you have learnt them in
 // one place you know them everywhere:
 //   the radio - switches the sound on and off
-//   the gate  - a doorway with something alight in it; the way between worlds
-//   signals   - each world has one to answer; the gate keeps count
+//   the gate  - a doorway with something alight in it; the way on to the next world
+//   the tower - seen from far off in every world but its own
 import { Group, Mesh, type Object3D, type ShaderMaterial, type Texture, Vector3 } from 'three';
 import { Builder } from './builder';
 import type { Engine, Interactable } from './engine';
@@ -11,9 +11,8 @@ import type { GlowBatch } from './fx';
 import { EMBER, type Hud, MUTED } from './hud';
 import { type RGB, TAU, hash2, hex, lerp, scaleRGB } from './math';
 import { psxMaterial } from './shaders';
-import { store } from './store';
 import { makeTexture, ramp } from './textures';
-import { WORLDS, worldOf } from './worlds';
+import { nextWorld } from './worlds';
 
 /* ---- the radio ------------------------------------------------------------- */
 
@@ -52,8 +51,9 @@ export interface RadioOptions {
   scale?: number;
 }
 
-/** A small set that switches the world's sound on and off. Give it somewhere
- *  flat to sit. Call update() and hud() from the level. */
+/** A small set that switches the world's sound on and off. It is playing unless
+ *  somebody has switched it off. Give it somewhere flat to sit. Call update()
+ *  and hud() from the level. */
 export class Radio {
   readonly interactable: Interactable;
   readonly pos: Vector3;
@@ -100,7 +100,7 @@ export class Radio {
     this.top = new Vector3(o.x, o.y + (h + 0.35) * s, o.z);
     this.interactable = {
       id: 'radio',
-      label: () => (engine.audio.enabled ? 'Switch the radio off' : 'Switch the radio on'),
+      label: () => (engine.audio.wanted ? 'Switch the radio off' : 'Switch the radio on'),
       center: this.pos,
       radius: 0.5 * s,
       anchor: this.top,
@@ -110,13 +110,13 @@ export class Radio {
   }
 
   toggle() {
-    const a = this.engine.audio;
-    if (a.flip()) this.nextNote = 0.4;
-    store.sound = a.enabled;
+    const on = !this.engine.audio.wanted;
+    this.engine.setSound(on);
+    if (on) this.nextNote = 0.4;
   }
 
   update(dt: number, time: number) {
-    const on = this.engine.audio.enabled;
+    const on = this.engine.audio.wanted;
     const k = on ? 0.75 + 0.25 * Math.sin(time * 2.1) : 0;
     this.glows.setColor(this.glow, 1.0 * k, 0.55 * k, 0.24 * k);
     const e = this.mat.uniforms.uEmissive.value as Vector3;
@@ -139,7 +139,7 @@ export class Radio {
     const u = hud.unit;
     const { x, y } = this.at;
     if (x < 0 || x > hud.w || y < 0 || y > hud.h) return;
-    if (!this.engine.audio.enabled) {
+    if (!this.engine.audio.wanted) {
       if (this.engine.hovered === this.interactable || hud.menu) return;
       const blink = Math.floor(hud.time * 1.6) % 2;
       hud.text(G.note, x - 2 * u, y - 9 * u - blink * u, [MUTED[0], MUTED[1], MUTED[2], 0.85]);
@@ -173,8 +173,9 @@ export interface GateOptions {
   noise: Texture;
 }
 
-/** The light standing in a doorway. Every world has one; using it brings up
- *  the list of places to go. The stonework round it is the level's business. */
+/** The light standing in a doorway. Every world has one, and each leads on to
+ *  the next world round (worlds.ts): use it, or walk into it, and you are on
+ *  your way. The stonework round it is the level's business. */
 export class Gate {
   readonly interactable: Interactable;
   /** 0..1 of extra light, for cutscenes and for the moment of leaving */
@@ -183,6 +184,7 @@ export class Gate {
   private glow: number;
   private tint: RGB;
   private size: number;
+  private used = -1e9;
 
   constructor(private engine: Engine, parent: Object3D, private glows: GlowBatch, private o: GateOptions) {
     this.tint = o.tint ?? [0.5, 1.1, 1.25];
@@ -200,7 +202,7 @@ export class Gate {
     this.glow = glows.add(mid.x, mid.y, mid.z, this.size, [0, 0, 0]);
     this.interactable = {
       id: 'gate',
-      label: 'The gate',
+      label: () => `To ${nextWorld(engine.level?.id).title}`,
       center: mid,
       radius: Math.max(o.width, o.height) * 0.55,
       anchor: new Vector3(o.x, o.y + o.height * 1.05, o.z),
@@ -208,22 +210,13 @@ export class Gate {
     };
   }
 
+  /** Go through: on to the next world round. A level calls this too, when somebody walks into the light. */
   open() {
-    const here = this.engine.level?.id;
-    const found = store.signals;
-    const items = WORLDS.map((w) => ({
-      label: w.title,
-      hint: w.id === here ? 'here' : w.ready === false ? 'soon' : found.includes(w.id) ? G.rune(w.rune) : G.mid,
-      disabled: w.id === here || w.ready === false,
-      pick: () => this.engine.onTravel?.(w.id),
-    }));
-    // with every signal answered, the gate has one more thing to offer
-    if (store.hasAll(WORLDS.map((w) => w.id))) items.push({ label: 'Answer them all', hint: G.rune(5), disabled: false, pick: () => this.engine.onFinale?.() });
-    this.engine.hud.open({
-      title: 'The gate',
-      items,
-      footer: `Signals answered ${found.filter((id) => WORLDS.some((w) => w.id === id)).length}/${WORLDS.length}`,
-    });
+    // (once is enough: walking on through the light while the picture dissolves must not ask again)
+    const now = performance.now();
+    if (now - this.used < 4000) return;
+    this.used = now;
+    this.engine.onTravel?.(nextWorld(this.engine.level?.id).id);
   }
 
   update(_dt: number, time: number) {
@@ -349,13 +342,8 @@ export class FarTower {
 
 /* ---- signals --------------------------------------------------------------- */
 
-/** The visitor has answered this world's signal. Says so the first time. */
-export function answerSignal(engine: Engine): boolean {
-  const id = engine.level?.id;
-  if (!id || !store.find(id)) return false;
-  const n = store.signals.filter((s) => WORLDS.some((w) => w.id === s)).length;
-  engine.hud.toast(`${G.rune(worldOf(id).rune)}  Signal answered  ${n}/${WORLDS.length}`, 6);
-  if (n === WORLDS.length) engine.hud.toast(`${G.rune(5)}  That is all of them. Ask the gate.`, 10);
-  engine.audio.ui('found');
-  return true;
+/** There was once a count of signals answered, which the gate kept. Nothing is counted now: a world's
+ *  tower answers when it pleases. Always false; here only until the worlds stop calling it. */
+export function answerSignal(_engine: Engine): boolean {
+  return false;
 }
