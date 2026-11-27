@@ -662,7 +662,8 @@ export class Engine {
     ex.t = clamp(ex.t + (ex.on ? real / 0.9 : -real / 0.01));
     if (ex.t > 0) {
       const e = this.eyePose(real);
-      const k = ex.t * ex.t * (3 - 2 * ex.t);
+      // (looking through a telescope takes the view away from the walker's eye for a while)
+      const k = ex.t * ex.t * (3 - 2 * ex.t) * (1 - sk.t * sk.t * (3 - 2 * sk.t));
       let dy = (e.yaw - yaw) % 360;
       if (dy > 180) dy -= 360;
       if (dy < -180) dy += 360;
@@ -747,6 +748,10 @@ export class Engine {
   /** Use whatever is in front of you (or under the pointer). */
   use(): boolean {
     const ex = this.explore;
+    if (this.scope.on) {
+      this.exitScope();
+      return true;
+    }
     if (ex.vehicle && !this.hovered) {
       this.board(null);
       return true;
@@ -772,7 +777,7 @@ export class Engine {
     const ex = this.explore;
     const w = this.level?.walk;
     if (!ex.on || !w) return;
-    const c = this.hud.menu ? { f: 0, r: 0, run: false, jump: false, up: 0 } : this.controls;
+    const c = this.hud.menu || this.scope.on ? { f: 0, r: 0, run: false, jump: false, up: 0 } : this.controls;
     const pl = this.player;
     const water = w.water ?? null;
     ex.hint = Math.max(0, ex.hint - dt);

@@ -34,13 +34,14 @@ import { EMBER as HUD_EMBER, MUTED } from '../../engine/hud';
 import { Gate, Radio, answerSignal } from '../../engine/kit';
 import { Vehicle } from '../../engine/player';
 import { type RGB, TAU, clamp, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
-import { psxMaterial, waterMaterial } from '../../engine/shaders';
+import { psxMaterial, ripple, waterMaterial } from '../../engine/shaders';
 import { Solid } from '../../engine/solid';
 import { store } from '../../engine/store';
 import { Sky } from '../../engine/sky';
 import { type Textures, createTextures } from '../../engine/textures';
 import { Timeline, easeOut } from '../../engine/timeline';
 import { WORLDS } from '../../engine/worlds';
+import { Explore, cabinShell } from './explore';
 import { MOODS, MOOD_ORDER, type Mood } from './moods';
 import { PATH, SEA, brinkZ, buildSea, buildTerrain, heightAt, plantPines } from './terrain';
 
@@ -102,7 +103,7 @@ export default class Overlook implements Level {
     ['Wake the tower', () => this.wake()],
     ['Let it sleep', () => this.sleep()],
     ['Answer (3 stokes)', () => this.acknowledge()],
-    ['All five answered', () => this.finale(true)],
+    ['All three answered', () => this.finale(true)],
     ['Something surfaces', () => (this.whaleIn = 0)],
   ];
 
@@ -179,6 +180,7 @@ export default class Overlook implements Level {
   walk!: Walk;
   private solid = new Solid();
   private boatV!: Vehicle;
+  private boatBoards!: Mesh;
   private boatLamp = 0;
   /** the mood before scrolling is taken into account, and how far the page has turned the hour on */
   private base: Mood = MOODS.night;
@@ -191,12 +193,18 @@ export default class Overlook implements Level {
   private whaleT = -1;
   private whaleIn = 38;
   private whalePos = new Vector3();
+  private whaleNext: Vector3 | null = null;
+  private whaleYaw = 0;
+  // what is only found on foot (see explore.ts)
+  private extra!: Explore;
+  private pierEnd = { x: 0, z: 0, dx: 0, dz: 1 };
+  private owlHoot = 0;
 
   constructor(private engine: Engine) {
     const shared = engine.shared;
     this.tex = createTextures();
-    this.glows = new GlowBatch(shared, 110);
-    this.flames = new FlameBatch(shared, this.tex.waterNoise, 4);
+    this.glows = new GlowBatch(shared, 190);
+    this.flames = new FlameBatch(shared, this.tex.waterNoise, 10);
     this.embers = new Particles(shared, 200, 'add', 3, 0.5);
     this.smoke = new Particles(shared, 40, 'alpha', 44, 1);
     this.motes = new Particles(shared, 40, 'add', 3, 0.5);
@@ -236,7 +244,53 @@ export default class Overlook implements Level {
     this.interactables.push(this.boatV.interactable);
     this.applyMood(this.now);
     this.whole = this.mend = store.hasAll(WORLDS.map((w) => w.id)) ? 1 : 0;
-    this.walk = { solid: this.solid, water: SEA, vehicles: [this.boatV] };
+    this.extra = new Explore({
+      engine,
+      root: this.root,
+      tex: this.tex,
+      glows: this.glows,
+      flames: this.flames,
+      solid: this.solid,
+      spray: this.streaks,
+      gate: this.gate,
+      boat: this.boatV,
+      fire: this.firePos,
+      lantern: new Vector3(LANTERN[0], 0, LANTERN[1]),
+      arch: { x: ARCH[0], z: ARCH[1], yaw: -Math.atan2(ARCH[0], -ARCH[1]), base: SEA + 7 },
+      tower: { x: TOWER[0], z: TOWER[1] },
+      pierEnd: this.pierEnd,
+      ripple: (x, z, strength) => ripple(this.waterMat, this.engine.time, x, z, strength),
+      surface: (x, z, yaw) => {
+        this.whaleNext = new Vector3(x, SEA, z);
+        this.whaleYaw = yaw;
+        this.whaleIn = 0;
+      },
+      surfaced: () => this.whaleT >= 0,
+      rand: this.r,
+    });
+    const lanternAt = new Vector3(LANTERN[0] + 0.4, heightAt(LANTERN[0], LANTERN[1]) + 1.8, LANTERN[1] + 0.25);
+    this.interactables.push(...this.extra.interactables, {
+      id: 'lantern',
+      label: () => (this.extra.lantern ? 'Put out the lantern' : 'Light the lantern'),
+      center: lanternAt,
+      radius: 0.45,
+      reach: 4,
+      walkOnly: true,
+      marker: false,
+      onClick: () => {
+        this.extra.lantern = this.extra.lantern ? 0 : 1;
+        const audio = this.engine.audio;
+        if (this.extra.lantern) audio.noise({ dur: 0.25, gain: 0.07, type: 'lowpass', f: [1200, 300], attack: 0.03 });
+        else audio.tone({ f: [500, 260], dur: 0.1, type: 'triangle', gain: 0.06, lp: 900 });
+      },
+    });
+    this.walk = { solid: this.solid, water: SEA, vehicles: [this.boatV], tick: (dt, player, vehicle) => this.extra.tick(dt, player, vehicle) };
+  }
+
+  /** Somebody stepped into the scene, or back out of it. */
+  explore(on: boolean) {
+    this.extra.explore(on);
+    this.boatBoards.visible = on;
   }
 
   /** Scrolling the page turns the hour on: by the foot of the page the night has passed. */
@@ -247,7 +301,7 @@ export default class Overlook implements Level {
   subtitle = () => this.now.label;
 
   /** Every world has been answered. The broken ring closes, the beam whitens,
-   *  and the five signs stand over the tower for a while. */
+   *  and the three signs stand over the tower for a while. */
   finale(force = false) {
     if (!force && !store.hasAll(WORLDS.map((w) => w.id))) return;
     const e = this.engine;
@@ -261,7 +315,7 @@ export default class Overlook implements Level {
     t.at(1.4, () => (this.runesT = 18));
     t.at(2.0, () => [0, 7, 12, 14, 19, 24, 26].forEach((n, i) => audio.chime(n, { at: i * 0.2, gain: 0.12, decay: 5 })));
     t.at(5.5, () => (this.pulse = 1));
-    t.at(7.5, () => e.hud.title('All five answered', 'The tower knows you now', 10));
+    t.at(7.5, () => e.hud.title('All three answered', 'The tower knows you now', 10));
     t.at(18, () => undefined);
   }
 
@@ -434,7 +488,9 @@ export default class Overlook implements Level {
     // stand just past the end of the tube, so the telescope itself is not in the way
     const d = this.tmp.set(TOWER[0] - SCOPE[0], 0, TOWER[1] - SCOPE[1]).normalize();
     const y = heightAt(SCOPE[0], SCOPE[1]) + 1.9;
-    this.engine.enterScope({ pos: [SCOPE[0] + d.x * 1.6, y, SCOPE[1] + d.z * 1.6], look: [TOWER[0], TOWER_BASE + TOWER_H * 0.66, TOWER[1]], yaw: 0, pitch: 0, fov: 10.5 });
+    const shot: Shot = { pos: [SCOPE[0] + d.x * 1.6, y, SCOPE[1] + d.z * 1.6], look: [TOWER[0], TOWER_BASE + TOWER_H * 0.66, TOWER[1]], yaw: 0, pitch: 0, fov: 10.5 };
+    this.engine.enterScope(shot);
+    if (this.engine.exploring) this.engine.cut(shot);        // on foot there is no framed view to travel from
   }
 
   /** A star of the constellation, touched. */
@@ -694,7 +750,7 @@ export default class Overlook implements Level {
     // a cabin by the shore with a light left on
     const [hx, hz] = [-5, -183];
     const hy = heightAt(hx, hz) - 0.3;
-    wood.reset().translate(hx, hy, hz).rotateY(0.25).box(7, 3.4, 5.5, [0.55, 0.5, 0.48], [0.8, 0.75, 0.7], 0.3);
+    cabinShell(wood);                              // four walls and a doorway: it can be gone into
     wood.reset().translate(hx, hy + 3.4, hz).rotateY(0.25 + Math.PI / 4).prism(5.6, 0, 2.6, 4, { color: [0.5, 0.45, 0.45], colorTop: [0.7, 0.65, 0.65], uRepeat: 4, vRepeat: 1 });
     addLamp(hx + 1.2, hy + 1.7, hz + 3.1, 1.5, scaleRGB(hex('#ffc070'), 1.1));
     // the pier, running out into the bay
@@ -710,6 +766,7 @@ export default class Overlook implements Level {
       }
     }
     const end = new Vector3(Math.sin(heading), 0, Math.cos(heading));
+    this.pierEnd = { x: px + end.x * LEN, z: pz + end.z * LEN, dx: end.x, dz: end.z };
     for (const d of [LEN * 0.5, LEN]) {
       const [x, z] = [px + end.x * d + 1.2, pz + end.z * d];
       wood.reset().translate(x, SEA + 1.4, z).box(0.2, 3, 0.2, [0.6, 0.55, 0.5]);
@@ -730,9 +787,18 @@ export default class Overlook implements Level {
     boat.frustumCulled = false;
     this.boat = boat;
     this.root.add(boat);
+    // boards and two thwarts in it, clear of the water it sits in. From the camp the hull is a few pixels and reads
+    // as it always did, so these are only there for somebody on foot, who looks down into it.
+    const boards = new Builder();
+    boards.translate(0, 0.26, 0).scale(1, 1, 2.7).prism(0.92, 0.92, 0.04, 6, { color: [0.5, 0.46, 0.42], colorTop: [0.72, 0.68, 0.62], uRepeat: 3, capTop: true });
+    for (const z of [-1.2, 1.25]) boards.reset().translate(0, 0.5, z).box(1.56, 0.06, 0.3, [0.7, 0.65, 0.6], [0.92, 0.87, 0.8], 0.5);
+    this.boatBoards = new Mesh(boards.build(), boat.material);
+    this.boatBoards.frustumCulled = false;
+    this.boatBoards.visible = false;
+    boat.add(this.boatBoards);
     addLamp(boat.position.x, SEA + 3.6, boat.position.z, 1.3, scaleRGB(hex('#ffd28a'), 0.8));
     this.boatLamp = this.lamps[this.lamps.length - 1].id;
-    this.boatV = new Vehicle(this.engine, { object: boat, kind: 'boat', label: 'Take the boat', half: [1.25, 2.4], maxSpeed: 13, chase: [9, 3.6], seat: [0, 1.5, 0.4], draft: 0.1 });
+    this.boatV = new Vehicle(this.engine, { object: boat, kind: 'boat', label: 'Take the boat', half: [1.25, 2.4], forward: Math.PI, maxSpeed: 13, chase: [9, 3.6], seat: [0, 1.5, -0.4], draft: 0.1 });
   }
 
   /** The ruined arch out in the bay: this world's gate. */
@@ -861,8 +927,12 @@ export default class Overlook implements Level {
         this.whaleT = 0;
         const az = this.focusAz - 22 + this.r() * 34;
         const dist = 300 + this.r() * 260;
-        dirFrom(az, 0, this.whalePos).multiplyScalar(dist).setY(SEA);
-        this.whale.rotation.y = rad(az) + (this.r() < 0.5 ? 1.2 : -1.2);
+        const beside = this.whaleNext;                                  // somebody is out on the water: come up beside them
+        if (beside) this.whalePos.copy(beside);
+        else dirFrom(az, 0, this.whalePos).multiplyScalar(dist).setY(SEA);
+        this.whaleNext = null;
+        const turn = rad(az) + (this.r() < 0.5 ? 1.2 : -1.2);
+        this.whale.rotation.y = beside ? this.whaleYaw : turn;
         this.whale.visible = true;
         const audio = this.engine.audio;
         audio.tone({ f: [audio.hz(-17), audio.hz(-22)], dur: 3.2, type: 'sine', gain: 0.1, attack: 0.9, vib: [3.5, 18], send: 1 });
@@ -1067,7 +1137,7 @@ export default class Overlook implements Level {
       const k = lampK(l.order);
       this.glows.setColor(l.id, l.color[0] * k, l.color[1] * k, l.color[2] * k);
     }
-    const lf = (0.9 + 0.1 * noise2(time * 4, 9.1, 3)) * lampK(0);
+    const lf = (0.9 + 0.1 * noise2(time * 4, 9.1, 3)) * lampK(0) * this.extra.lantern;
     pointLight(u, 1, LANTERN[0] + 0.4, heightAt(LANTERN[0], LANTERN[1]) + 1.8, LANTERN[1] + 0.25, 8, 1.0 * lf, 0.62 * lf, 0.3 * lf);
     this.glows.setColor(this.lanternGlow, 0.9 * lf, 0.64 * lf, 0.36 * lf);
 
@@ -1124,6 +1194,7 @@ export default class Overlook implements Level {
     this.updateBirds(time);
     this.updateOwl(dt, time, dark);
     this.updateDeep(dt, time, dark);
+    this.extra.update(dt, time);
     this.radio.update(dt, time);
 
     this.embers.update(dt, time);
@@ -1135,8 +1206,9 @@ export default class Overlook implements Level {
 
   hud(hud: Hud) {
     this.radio.hud(hud);
+    this.extra.hud(hud);
     if (this.runesT > 0 && !this.engine.inScope && hud.place(this.topPos, this.at)) {
-      // the five signs, one after another, standing over the tower
+      // the signs, one after another, standing over the tower
       const u = hud.unit;
       const shown = Math.min(WORLDS.length, Math.floor((18 - this.runesT) / 0.7) + 1);
       const fade = Math.ceil(Math.min(1, this.runesT / 1.5) * 4) / 4;
@@ -1155,7 +1227,19 @@ export default class Overlook implements Level {
     const e = this.engine;
     // it watches the pointer; left alone, it looks about
     const ray = this.tmp2;
-    if (e.pointerRay(ray) && !e.inScope) {
+    if (e.exploring && !e.inScope) {
+      // on foot it is you it watches, and it has something to say when you walk up
+      const p = ray.copy(e.camera.position);
+      let rel = Math.atan2(p.x - o.pos.x, p.z - o.pos.z) - o.facing;
+      rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+      o.want = clamp(Math.round(rel / 0.3) * 0.3, -2.9, 2.9);
+      o.hold = 1.5;
+      this.owlHoot = Math.max(0, this.owlHoot - dt);
+      if (this.extra.owlNoticed(Math.hypot(p.x - o.pos.x, p.z - o.pos.z)) && this.owlHoot <= 0) {
+        this.owlHoot = 20;
+        this.hoot();
+      }
+    } else if (e.pointerRay(ray) && !e.inScope) {
       const d = this.tmp.copy(o.pos).sub(e.camera.position).length();
       const p = ray.multiplyScalar(d).add(e.camera.position);
       let rel = Math.atan2(p.x - o.pos.x, p.z - o.pos.z) - o.facing;
@@ -1226,5 +1310,6 @@ export default class Overlook implements Level {
     });
     for (const t of Object.values(this.tex)) (Array.isArray(t) ? t : [t]).forEach((x) => x.dispose());
     this.radio.dispose();
+    this.extra.dispose();
   }
 }
