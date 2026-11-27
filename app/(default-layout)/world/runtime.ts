@@ -79,7 +79,7 @@ export class Runtime {
   private locked = false;
   private wanted: string | null = null;
   private lastJump = 0;
-  private touches = new Map<number, { role: 'move' | 'look'; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
+  private touches = new Map<number, { role: 'move' | 'look' | 'full'; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
   private timers: number[] = [];
   private undo: (() => void)[] = [];
 
@@ -107,6 +107,7 @@ export class Runtime {
     e.audio.onChange = () => this.onChange?.();
     e.hud.dock = [{ label: 'Explore', pick: () => this.enterExplore() }];
     if (document.fullscreenEnabled) e.hud.dock.push({ label: 'Full screen', pick: () => this.enterExplore(true) });
+    e.hud.canFull = document.fullscreenEnabled;
     this.listen();
   }
 
@@ -379,6 +380,9 @@ export class Runtime {
         else if (button === 'jump') {
           e.controls.jump = true;
           this.later(() => (e.controls.jump = false), 160);
+        } else if (button === 'full') {
+          // (a browser only lets the screen be filled as a finger lifts, so it waits for that)
+          this.touches.set(ev.pointerId, { role: 'full', x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, t0: performance.now(), far: 0 });
         } else {
           const role = ev.clientX < window.innerWidth / 2 && !Array.from(this.touches.values()).some((t) => t.role === 'move') ? 'move' : 'look';
           this.touches.set(ev.pointerId, { role, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, t0: performance.now(), far: 0 });
@@ -392,6 +396,10 @@ export class Runtime {
       const t = this.touches.get(ev.pointerId);
       if (!t) return;
       this.touches.delete(ev.pointerId);
+      if (t.role === 'full') {
+        if (ev.type === 'pointerup') this.fullscreen();
+        return;
+      }
       if (t.role === 'move') Object.assign(e.controls, { f: 0, r: 0, run: false });
       // a touch that did not go anywhere is a tap: use what is in front
       if (t.far < 10 && performance.now() - t.t0 < 300 && e.exploring) e.use();
@@ -407,6 +415,7 @@ export class Runtime {
         t.x = ev.clientX;
         t.y = ev.clientY;
         t.far = Math.max(t.far, Math.hypot(t.x - t.x0, t.y - t.y0));
+        if (t.role === 'full') return;
         if (t.role === 'move') {
           const sx = (t.x - t.x0) / 46;
           const sy = (t.y - t.y0) / 46;

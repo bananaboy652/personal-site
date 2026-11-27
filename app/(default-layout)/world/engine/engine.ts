@@ -107,6 +107,8 @@ export interface Level {
   finale?(): void;
   /** present if the world can be walked around in */
   walk?: Walk;
+  /** on an upright phone, which side of the frame the Explore button goes: the one with nothing in it (right if not said) */
+  dockSide?: 'left' | 'right';
   /** somebody stepped into the world, or back out to the page. On the way
    *  out, put back anything that changes the framed view. */
   explore?(on: boolean): void;
@@ -812,13 +814,22 @@ export class Engine {
       return { x: p.x, y: p.y, z: p.z, yaw, pitch: pl.pitch, fov: 70 };
     }
     const [dist, height] = v.o.chase;
-    let x = v.x - Math.sin(yr) * dist;
-    let z = v.z + Math.cos(yr) * dist;
+    const x = v.x - Math.sin(yr) * dist;
+    const z = v.z + Math.cos(yr) * dist;
     let y = v.y + height;
-    const g = this.level?.walk?.solid.floor(x, z, y + 30) ?? -Infinity;
-    if (y < g + 0.5) y = g + 0.5;
-    void x;
-    void z;
+    // Keep out of a hillside rising behind it. The ground is followed out from
+    // the vehicle a stride at a time, so that something far overhead (a bridge
+    // deck, a tunnel's roof) is never taken for it.
+    const solid = this.level?.walk?.solid;
+    if (solid) {
+      let g = v.y;
+      const steps = Math.max(1, Math.ceil(dist / 1.2));
+      for (let i = 1; i <= steps; i++) {
+        const f = solid.floor(v.x + ((x - v.x) * i) / steps, v.z + ((z - v.z) * i) / steps, Math.max(g, v.y) + 2.6);
+        if (f > -1e8) g = f;
+      }
+      if (y < g + 0.5) y = g + 0.5;
+    }
     return { x, y, z, yaw, pitch: pl.pitch - 9, fov: 62 };
   }
 

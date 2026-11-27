@@ -419,6 +419,8 @@ export default class Relay extends BaseLevel<Weather> implements Level {
 
   // ---- for somebody on foot ----
   walk!: Walk;
+  /** (on a phone the mast stands on the right of the view) */
+  dockSide = 'left' as const;
   /** a second sky that carries only the moon and the stars, for when the cloud breaks */
   private heavens!: Sky;
   private sea!: Mesh;

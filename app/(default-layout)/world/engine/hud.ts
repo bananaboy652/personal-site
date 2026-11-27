@@ -35,6 +35,9 @@ const MAX = 1800;
 const AW = COLS * CELL;
 const AH = ROWS * CELL;
 
+/** what the touch buttons say */
+const TOUCH: Record<string, string> = { back: 'Back', jump: 'Jump', full: 'Full screen' };
+
 export class Hud {
   readonly scene = new Scene();
   readonly camera = new Camera();
@@ -51,6 +54,8 @@ export class Hud {
   menu: Menu | null = null;
   /** buttons that sit in the corner of the frame while the page is up ("Explore") */
   dock: { label: string; pick: () => void }[] = [];
+  /** the browser can fill the screen: offer it to somebody walking about by touch */
+  canFull = false;
   /** the pointer is over one of this layer's own buttons or menu rows */
   hot = false;
 
@@ -285,7 +290,8 @@ export class Hud {
       if (walking) this.drawWalking(dt);
       else this.drawPrompt(dt);
     }
-    if (level?.walk && !walking && !this.menu && !this.engine.inScope) this.drawDock();
+    // (on a phone the place-name card has the top of the view to itself while it is up)
+    if (level?.walk && !walking && !this.menu && !this.engine.inScope && !(this.centred && this.card)) this.drawDock();
     else this.dockRects.length = 0;
     this.drawCard(dt);
     this.drawToasts(dt);
@@ -306,27 +312,41 @@ export class Hud {
     return this.engine.project(this.tmp, out);
   }
 
-  /** The buttons in the corner of the frame. */
+  /** The buttons in the corner of the frame: in a row at the bottom right. An
+   *  upright phone has the foot of its view full of everything worth looking
+   *  at, so there it is the first button alone, up under the nav (full screen
+   *  is offered once you have stepped in). */
   private drawDock() {
     const u = this.unit;
     const s = this.safe;
     const gap = 5 * u;
+    const h = 13 * u;
     const widths = this.dock.map((b) => this.measure(b.label) + 21 * u);
-    const total = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, widths.length - 1);
-    let x = this.centred ? Math.round(((s.x0 + s.x1) / 2) * this.w - total / 2) : Math.round(s.x1 * this.w - 8 * u - total);
-    const y = Math.round(s.y1 * this.h - 19 * u);
     this.dockRects.length = 0;
-    this.dock.forEach((b, i) => {
-      const w = widths[i];
+    if (!widths.length) return;
+    const button = (b: { label: string }, i: number, x: number, y: number, w: number) => {
       const on = i === this.dockHot;
-      this.dockRects.push({ x, y, w, h: 13 * u });
-      this.panel(x, y, w, 13 * u);
-      if (on) this.rect(x + u, y + u, w - 2 * u, 11 * u, [EMBER[0], EMBER[1], EMBER[2], 0.92]);
+      this.dockRects.push({ x, y, w, h });
+      this.panel(x, y, w, h);
+      if (on) this.rect(x + u, y + u, w - 2 * u, h - 2 * u, [EMBER[0], EMBER[1], EMBER[2], 0.92]);
       const ink: RGBA = on ? [0.06, 0.05, 0.05, 1] : INK;
       this.text(G.arrow, x + 6 * u, y + 3 * u, on ? ink : EMBER, 1, false);
       this.text(b.label, x + 15 * u, y + 3 * u, ink, 1, false);
-      x += w + gap;
-    });
+    };
+    if (!this.centred) {
+      const total = widths.reduce((a, b) => a + b, 0) + gap * (widths.length - 1);
+      let x = Math.round(s.x1 * this.w - 8 * u - total);
+      const y = Math.round(s.y1 * this.h - 19 * u);
+      this.dock.forEach((b, i) => {
+        button(b, i, x, y, widths[i]);
+        x += widths[i] + gap;
+      });
+      return;
+    }
+    // just under the nav, on the side the level says has nothing in it
+    const w = widths[0];
+    const x = this.engine.level?.dockSide === 'left' ? Math.round(s.x0 * this.w + 6 * u) : Math.round(s.x1 * this.w - 6 * u - w);
+    button(this.dock[0], 0, x, Math.round(s.y0 * this.h + 6 * u), w);
   }
 
   /** On foot: a dot to aim with, what the thing in front of you does, and
@@ -374,15 +394,14 @@ export class Hud {
       lines.forEach((l, i) => this.text(l, Math.round(cx - this.measure(l) / 2), y + (4 + i * 10) * u, [INK[0], INK[1], INK[2], a], 1, false));
     }
     if (e.touch) {
-      // where the thumbs go, and two buttons
+      // buttons for what the thumbs cannot do
       const ink: RGBA = [INK[0], INK[1], INK[2], 0.55];
-      this.touchRects = {
-        back: { x: 6 * u, y: 6 * u, w: this.measure('Back') + 16 * u, h: 15 * u },
-        jump: { x: this.w - this.measure('Jump') - 22 * u, y: this.h - 60 * u, w: this.measure('Jump') + 16 * u, h: 15 * u },
-      };
+      const back = { x: 6 * u, y: 6 * u, w: this.measure('Back') + 16 * u, h: 15 * u };
+      this.touchRects = { back, jump: { x: this.w - this.measure('Jump') - 22 * u, y: this.h - 60 * u, w: this.measure('Jump') + 16 * u, h: 15 * u } };
+      if (this.canFull) this.touchRects.full = { x: back.x + back.w + 5 * u, y: 6 * u, w: this.measure(TOUCH.full) + 16 * u, h: 15 * u };
       for (const [name, r] of Object.entries(this.touchRects)) {
         this.panel(r.x, r.y, r.w, r.h, 0.7);
-        this.text(name, r.x + 8 * u, r.y + 4 * u, ink, 1, false);
+        this.text(TOUCH[name] ?? name, r.x + 8 * u, r.y + 4 * u, ink, 1, false);
       }
     }
   }
@@ -458,7 +477,9 @@ export class Hud {
     const u = this.unit;
     const s = this.safe;
     const cx = ((s.x0 + s.x1) / 2) * this.w;
-    let y = Math.round(s.y0 * this.h + (this.centred && this.card ? 44 : 6) * u);
+    // (on a phone: below the place-name card, the button under the nav, or the touch buttons, whichever is there)
+    let y = Math.round(s.y0 * this.h + (this.centred ? (this.card ? 44 : this.dockRects.length ? 23 : 6) : 6) * u);
+    if (this.engine.exploring && this.engine.touch) y = Math.max(y, 26 * u);
     this.toasts = this.toasts.filter((t) => (t.t += dt) < t.life);
     for (const t of this.toasts) {
       const a = Math.ceil(Math.min(1, t.t / 0.12, (t.life - t.t) / 0.6) * 4) / 4;

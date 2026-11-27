@@ -98,47 +98,56 @@ export class Player {
       this.vx += (dvx / dl) * accel;
       this.vz += (dvz / dl) * accel;
     }
-    // small steps, so a fast fall or a run does not pass through a wall
+    // Small steps, each checked against the walls and then the ground, so that a
+    // run or a fall cannot carry you through a wall, or into a hillside faster
+    // than your feet find it. (Ground can climb about twice as far as you travel
+    // and still be ground, see solid.ts; a step this short keeps that within reach.)
     const moved = Math.hypot(this.vx, this.vz) * dt;
-    const n = Math.max(1, Math.ceil(moved / 0.2));
-    for (let i = 0; i < n; i++) {
-      this.x += (this.vx * dt) / n;
-      this.z += (this.vz * dt) / n;
-      solid.push(this, this.y, this.radius);
-    }
-
-    const g = solid.floor(this.x, this.z, this.y + (this.onGround ? STEP : 0.3));
+    const n = Math.max(1, Math.ceil(moved / 0.14));
+    const h = dt / n;
     // afloat: wherever the water is deeper than you are tall
     const afloat = water !== null ? water - 1.3 : -Infinity;
-    if (afloat > g && this.y <= afloat + 0.04) {
-      if (!this.swimming && this.vy < -3) this.splashed = true;
-      this.swimming = true;
-      this.onGround = false;
-      this.vy = 0;
-      this.y += (afloat + Math.sin(performance.now() * 0.002) * 0.05 - this.y) * Math.min(1, dt * 5);
+    for (let i = 0; i < n; i++) {
+      this.x += this.vx * h;
+      this.z += this.vz * h;
+      solid.push(this, this.y, this.radius);
+      const g = solid.floor(this.x, this.z, this.y + (this.onGround ? STEP : 0.3));
+      if (afloat > g && this.y <= afloat + 0.04) {
+        if (!this.swimming && this.vy < -3) this.splashed = true;
+        this.swimming = true;
+        this.onGround = false;
+        this.vy = 0;
+        this.y += (afloat + Math.sin(performance.now() * 0.002) * 0.05 - this.y) * Math.min(1, h * 5);
+        continue;
+      }
+      this.swimming = false;
+      if (this.onGround) {
+        if (c.jump) {
+          this.y = Math.max(this.y, g);
+          this.vy = 7.4;
+          this.onGround = false;
+        } else if (g < this.y - 0.75) {
+          this.onGround = false;                     // walked off an edge
+        } else {
+          // ease up steps and kerbs, but never sink far into ground that climbs faster than that
+          this.y = Math.max(this.y + (g - this.y) * Math.min(1, h * 20), g - 0.2);
+          this.vy = 0;
+        }
+      }
+      if (!this.onGround) {
+        this.vy -= 24 * h;
+        this.y += this.vy * h;
+        // come down on it; or, still going up, the ground has risen to meet you
+        if (this.y <= g && (this.vy <= 0 || this.y < g - 0.1)) {
+          this.y = g;
+          this.vy = 0;
+          this.onGround = true;
+        }
+      }
+    }
+    if (this.swimming) {
       this.bob *= 0.9;
       return;
-    }
-    this.swimming = false;
-    if (this.onGround) {
-      if (c.jump) {
-        this.vy = 7.4;
-        this.onGround = false;
-      } else if (g < this.y - 0.75) {
-        this.onGround = false;                     // walked off an edge
-      } else {
-        this.y += (g - this.y) * Math.min(1, dt * 20);
-        this.vy = 0;
-      }
-    }
-    if (!this.onGround) {
-      this.vy -= 24 * dt;
-      this.y += this.vy * dt;
-      if (this.vy <= 0 && this.y <= g) {
-        this.y = g;
-        this.vy = 0;
-        this.onGround = true;
-      }
     }
     // fell out of the world: back to where you came in
     if (this.y < -2500) this.place(this.home.x, this.home.y + 2, this.home.z, this.home.yaw);
@@ -201,6 +210,8 @@ export class Vehicle {
   readonly interactable: Interactable;
   private center = new Vector3();
   private p = { x: 0, z: 0 };
+  /** where each wheel last found the ground: front left, front right, back left, back right */
+  private under = [0, 0, 0, 0];
   private home: { x: number; y: number; z: number; heading: number; rotation: Euler };
 
   constructor(engine: Engine, options: VehicleOptions) {
@@ -225,6 +236,7 @@ export class Vehicle {
     this.heading = (-(ob.rotation.y - this.o.forward) * 180) / Math.PI;
     this.center.copy(ob.position).setY(ob.position.y + 1);
     this.home = { x: this.x, y: this.y, z: this.z, heading: this.heading, rotation: ob.rotation.clone() };
+    this.under.fill(this.y);
     this.interactable = {
       id: `vehicle-${options.label}`,
       label: () => (this.occupied ? 'Get out' : options.label),
@@ -240,6 +252,7 @@ export class Vehicle {
   /** Put it somewhere, pointing some way. */
   place(x: number, y: number, z: number, heading: number) {
     Object.assign(this, { x, y, z, heading, speed: 0, vx: 0, vz: 0, vy: 0 });
+    this.under.fill(y);
     this.sync();
   }
 
@@ -254,6 +267,7 @@ export class Vehicle {
   reset() {
     const h = this.home;
     Object.assign(this, { x: h.x, y: h.y, z: h.z, heading: h.heading, speed: 0, vx: 0, vz: 0, vy: 0, pitch: 0, roll: 0, steer: 0, occupied: false });
+    this.under.fill(h.y);
     const ob = this.o.object;
     ob.position.set(h.x, h.y, h.z);
     ob.rotation.copy(h.rotation);
@@ -294,6 +308,7 @@ export class Vehicle {
       }
       this.x = p.x;
       this.z = p.z;
+      if (o.kind === 'car') this.settle(dt / n, solid, fx, fz);
     }
     if (this.bumped) {
       this.speed *= 1 - Math.min(1, dt * 9);
@@ -318,24 +333,6 @@ export class Vehicle {
       this.pitch = Math.sin(t * 0.8 + this.z * 0.04) * 0.035 - this.speed * 0.006;
       this.roll = Math.sin(t * 0.7) * 0.05 - this.steer * this.speed * 0.012;
     } else {
-      // stand on its four corners
-      const [hw, hl] = o.half;
-      const rx = Math.cos(hr), rz = Math.sin(hr);
-      const at = (a: number, b: number) => solid.floor(this.x + fx * a + rx * b, this.z + fz * a + rz * b, this.y + 1.1);
-      const fl = at(hl, -hw), fr = at(hl, hw), bl = at(-hl, -hw), br = at(-hl, hw);
-      const best = Math.max(fl, fr, bl, br);
-      const use = (h: number) => (h > -1e8 ? h : best);
-      const g = best > -1e8 ? (use(fl) + use(fr) + use(bl) + use(br)) / 4 : -Infinity;
-      if (this.y > g + 0.25) {
-        this.vy -= 24 * dt;
-        this.y = Math.max(g, this.y + this.vy * dt);
-      } else {
-        this.vy = 0;
-        this.y += (g - this.y) * Math.min(1, dt * 18);
-        const kk = Math.min(1, dt * 10);
-        this.pitch += (Math.atan2((use(fl) + use(fr)) / 2 - (use(bl) + use(br)) / 2, hl * 2) - this.pitch) * kk;
-        this.roll += (Math.atan2((use(fr) + use(br)) / 2 - (use(fl) + use(bl)) / 2, hw * 2) - this.roll) * kk;
-      }
       if (water !== null && this.y < water - 0.9) {
         // it is not a boat
         this.speed *= 1 - Math.min(1, dt * 3);
@@ -345,6 +342,41 @@ export class Vehicle {
       if (this.y < -2500) this.y = 50;
     }
     this.sync();
+  }
+
+  /** A car stands on its four wheels. Done at every step of its travel, so
+   *  that at speed (or on a slow machine) a rising road is never left behind.
+   *  Each wheel follows its own ground from where it last found it: a steep
+   *  climb is not lost to the wheels still at the bottom of it, and nothing
+   *  far overhead (a bridge, a tunnel's roof) is mistaken for the road. */
+  private settle(h: number, solid: Solid, fx: number, fz: number) {
+    const [hw, hl] = this.o.half;
+    const rx = -fz, rz = fx;
+    const u = this.under;
+    let best = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      const a = i < 2 ? hl : -hl;
+      const b = i % 2 ? hw : -hw;
+      const f = solid.floor(this.x + fx * a + rx * b, this.z + fz * a + rz * b, Math.max(u[i], this.y) + 1.1);
+      u[i] = f > -1e8 ? f : NaN;
+      if (f > best) best = f;
+    }
+    // a wheel over nothing goes along with the others
+    const use = (i: number) => (u[i] === u[i] ? u[i] : best);
+    const fl = use(0), fr = use(1), bl = use(2), br = use(3);
+    const g = best > -1e8 ? (fl + fr + bl + br) / 4 : -Infinity;
+    for (let i = 0; i < 4; i++) if (u[i] !== u[i]) u[i] = this.y;
+    if (this.y > g + 0.25) {
+      this.vy -= 24 * h;
+      this.y = Math.max(g, this.y + this.vy * h);
+    } else {
+      this.vy = 0;
+      // ease over bumps, but never sink far into a road that climbs faster than that
+      this.y = Math.max(this.y + (g - this.y) * Math.min(1, h * 18), g - 0.3);
+      const kk = Math.min(1, h * 10);
+      this.pitch += (Math.atan2((fl + fr) / 2 - (bl + br) / 2, hl * 2) - this.pitch) * kk;
+      this.roll += (Math.atan2((fr + br) / 2 - (fl + bl) / 2, hw * 2) - this.roll) * kk;
+    }
   }
 
   /** Write position and attitude to the model. */
