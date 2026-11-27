@@ -35,13 +35,13 @@
         linear-gradient(180deg, rgba(7, 7, 14, 0.32) 0, rgba(7, 7, 14, 0) 24%);
 }
 
-/* On a phone the top of the first screen is left as a window on the world and
-   the name sits low, so only the lower part is dimmed. Once the page scrolls
-   and its panels cover the picture, the whole of it dims (the runtime sets
-   --world-dim from the scroll position). */
-@media (max-width: 46rem) {
+/* An upright screen opens as a title screen: the page's name under the nav and
+   the rest left clear as a window on the world, so only the top is dimmed.
+   Once the page scrolls and its panels cover the picture, the whole of it dims
+   (the runtime sets --world-dim from the scroll position). */
+@media (max-aspect-ratio: 9/10) {
     .scrim{
-        background: linear-gradient(180deg, rgba(7, 7, 14, 0.3) 0, rgba(7, 7, 14, 0) 15%, rgba(7, 7, 14, 0) 46%, rgba(7, 7, 14, 0.46) 70%, rgba(7, 7, 14, 0.6) 100%);
+        background: linear-gradient(180deg, rgba(7, 7, 14, 0.56) 0, rgba(7, 7, 14, 0.4) 14%, rgba(7, 7, 14, 0.12) 28%, rgba(7, 7, 14, 0) 40%);
     }
     .scrim::after{
         content: "";
@@ -58,7 +58,7 @@
     composes: label from global;
     position: fixed;
     left: var(--edge);
-    bottom: var(--edge);
+    bottom: var(--edge-y);
     z-index: 1100;
     padding: 0.55rem 0.8rem;
     color: var(--ink);
@@ -81,12 +81,12 @@
 .panel{
     composes: glassFramePill from global;
     position: fixed;
-    top: var(--edge);
+    top: var(--edge-y);
     right: var(--edge);
     z-index: 1100;
     width: 24rem;
     max-width: calc(100vw - 2 * var(--edge));
-    max-height: calc(100vh - 2 * var(--edge));
+    max-height: calc(100vh - 2 * var(--edge-y));
     overflow-y: auto;
     height: auto;
     padding: calc(var(--ft) + 0.75rem) calc(var(--ft) + 0.95rem) calc(var(--ft) + 0.7rem);
@@ -152,7 +152,7 @@
     composes: label from global;
     position: fixed;
     left: 50%;
-    bottom: calc(var(--edge) + 1rem);
+    bottom: calc(var(--edge-y) + 1rem);
     transform: translateX(-50%);
     z-index: 1100;
     padding: 0.5rem 0.8rem;

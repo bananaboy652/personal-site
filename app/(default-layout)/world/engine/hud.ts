@@ -36,7 +36,10 @@ const AW = COLS * CELL;
 const AH = ROWS * CELL;
 
 /** what the touch buttons say */
-const TOUCH: Record<string, string> = { back: 'Back', jump: 'Jump', full: 'Full screen' };
+const TOUCH: Record<string, string> = { back: 'Back', full: 'Full screen', out: 'Get out', view: 'View', horn: 'Horn' };
+
+export type TouchSpot = 'back' | 'full' | 'out' | 'view' | 'horn' | 'jump' | 'stick';
+interface Rect { x: number; y: number; w: number; h: number }
 
 export class Hud {
   readonly scene = new Scene();
@@ -46,6 +49,13 @@ export class Hud {
   h = 240;
   /** frame pixels per font pixel */
   unit = 1;
+  /** CSS pixels per frame pixel */
+  texel = 2;
+  /** The thumb stick, for the runtime to write and this to draw: where its base is (frame pixels; null
+   *  while it rests at home), how far it is pushed (-1..1 each way) and whether a thumb is on it. */
+  stick = { held: false, at: null as { x: number; y: number } | null, dx: 0, dy: 0 };
+  /** the jump (or brake) button is down */
+  jumpHeld = false;
   /** the part of the frame the page leaves clear, as fractions of it */
   safe = { x0: 0.5, y0: 0.06, x1: 0.97, y1: 0.95 };
   /** centred layouts (a phone held upright) instead of right-aligned ones */
@@ -71,7 +81,7 @@ export class Hud {
   private rows: { x: number; y: number; w: number; h: number }[] = [];
   private box = { x: 0, y: 0, w: 0, h: 0 };
   private menuT = 0;
-  private dockRects: { x: number; y: number; w: number; h: number }[] = [];
+  private dockRects: Rect[] = [];
   private dockHot = -1;
   private hovered: Interactable | null = null;
   private hoverT = 0;
@@ -98,6 +108,7 @@ export class Hud {
   resize(w: number, h: number, texel: number) {
     this.w = w;
     this.h = h;
+    this.texel = texel;
     this.unit = Math.max(1, Math.round(1.9 / texel));
     this.material.uniforms.uRes.value.set(w, h);
   }
@@ -201,10 +212,21 @@ export class Hud {
 
   /* ---- input, in frame pixels ---- */
 
+  /** Is (x, y) on this box? A finger gets some grace round the edges that a mouse does not. */
+  private on(r: Rect, x: number, y: number) {
+    const g = this.engine.touch ? this.css(9) : 0;
+    return x >= r.x - g && x < r.x + r.w + g && y >= r.y - g && y < r.y + r.h + g;
+  }
+
+  /** A length given in CSS pixels, in frame pixels: for things a finger has to find. */
+  css(n: number) {
+    return Math.round(n / this.texel);
+  }
+
   pointer(x: number, y: number) {
     this.px = x;
     this.py = y;
-    this.dockHot = this.menu ? -1 : this.dockRects.findIndex((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+    this.dockHot = this.menu ? -1 : this.dockRects.findIndex((r) => this.on(r, x, y));
     this.hot = this.dockHot >= 0 || !!this.menu;
     if (this.dockHot >= 0) return true;
     if (!this.menu) return false;
@@ -220,7 +242,7 @@ export class Hud {
   click(x: number, y: number): boolean {
     const menu = this.menu;
     if (!menu) {
-      const hit = this.dockRects.findIndex((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+      const hit = this.dockRects.findIndex((r) => this.on(r, x, y));
       if (hit < 0 || !this.dock[hit]) return false;
       this.engine.audio.ui('pick');
       this.dock[hit].pick();
@@ -311,16 +333,22 @@ export class Hud {
     return this.engine.project(this.tmp, out);
   }
 
-  /** The buttons in the corner of the frame: in a row at the bottom right. An
-   *  upright phone has the foot of its view full of everything worth looking
-   *  at, so there it is the first button alone, up under the nav (full screen
-   *  is offered once you have stepped in). */
+  /** Type for things a finger has to hit: doubled where the frame's pixels are small (a phone). */
+  private get thumb() {
+    return this.engine.touch && this.unit * this.texel < 1.9 ? 2 : 1;
+  }
+
+  /** The buttons in the corner of the frame: in a row at the bottom right. On
+   *  an upright screen it is the first button alone, in the bottom corner the
+   *  level says has nothing in it (full screen is offered once you have
+   *  stepped in). */
   private drawDock() {
     const u = this.unit;
     const s = this.safe;
+    const k = this.thumb;
     const gap = 5 * u;
-    const h = 13 * u;
-    const widths = this.dock.map((b) => this.measure(b.label) + 21 * u);
+    const h = (7 * k + 6) * u;
+    const widths = this.dock.map((b) => this.measure(b.label, k) + (15 + 6 * k) * u);
     this.dockRects.length = 0;
     if (!widths.length) return;
     const button = (b: { label: string }, i: number, x: number, y: number, w: number) => {
@@ -329,23 +357,22 @@ export class Hud {
       this.panel(x, y, w, h);
       if (on) this.rect(x + u, y + u, w - 2 * u, h - 2 * u, [EMBER[0], EMBER[1], EMBER[2], 0.92]);
       const ink: RGBA = on ? [0.06, 0.05, 0.05, 1] : INK;
-      this.text(G.arrow, x + 6 * u, y + 3 * u, on ? ink : EMBER, 1, false);
-      this.text(b.label, x + 15 * u, y + 3 * u, ink, 1, false);
+      this.text(G.arrow, x + 6 * u, y + 3 * u, on ? ink : EMBER, k, false);
+      this.text(b.label, x + (9 + 6 * k) * u, y + 3 * u, ink, k, false);
     };
     if (!this.centred) {
       const total = widths.reduce((a, b) => a + b, 0) + gap * (widths.length - 1);
       let x = Math.round(s.x1 * this.w - 8 * u - total);
-      const y = Math.round(s.y1 * this.h - 19 * u);
+      const y = Math.round(s.y1 * this.h - 6 * u - h);
       this.dock.forEach((b, i) => {
         button(b, i, x, y, widths[i]);
         x += widths[i] + gap;
       });
       return;
     }
-    // just under the nav, on the side the level says has nothing in it
     const w = widths[0];
-    const x = this.engine.level?.dockSide === 'left' ? Math.round(s.x0 * this.w + 6 * u) : Math.round(s.x1 * this.w - 6 * u - w);
-    button(this.dock[0], 0, x, Math.round(s.y0 * this.h + 6 * u), w);
+    const x = this.engine.level?.dockSide === 'left' ? Math.round(s.x0 * this.w + 2 * u) : Math.round(s.x1 * this.w - 2 * u - w);
+    button(this.dock[0], 0, x, Math.round(s.y1 * this.h - this.css(14) - h), w);
   }
 
   /** On foot: a dot to aim with, what the thing in front of you does, and
@@ -381,37 +408,156 @@ export class Hud {
     if (ex.hint > 0 && !this.menu) {
       const a = Math.ceil(Math.min(1, ex.hint / 0.8) * 4) / 4;
       const lines = e.touch
-        ? ['Left thumb: move', 'Right thumb: look', 'Tap: use']
+        ? ex.vehicle
+          ? ['Stick: drive and steer (pull back to brake)', 'Drag: look round', 'Button: handbrake']
+          : ['Stick: walk (push it far to run)', 'Drag: look', 'Tap: use']
         : ex.vehicle
-          ? ['W S drive    A D steer    Space brake', 'E get out    V view    F full screen    Esc back']
+          ? ['W drive    S brake, then back up    A D steer    Space handbrake', 'H horn    E get out    V view    F full screen    Esc back']
           : ['W A S D move    Shift run    Space jump    E use', 'F full screen    Space twice: fly    Esc back'];
       const bw = Math.max(...lines.map((l) => this.measure(l))) + 16 * u;
       const bh = (lines.length * 10 + 7) * u;
       const x = Math.round(cx - bw / 2);
-      const y = Math.round(this.h - bh - 12 * u);
+      // (thumbs have the foot of the screen: there the lines go up under the buttons at the top)
+      const y = e.touch ? Math.round(this.safe.y0 * this.h + this.css(64)) : Math.round(this.safe.y1 * this.h - bh - 12 * u);
       this.panel(x, y, bw, bh, a);
       lines.forEach((l, i) => this.text(l, Math.round(cx - this.measure(l) / 2), y + (4 + i * 10) * u, [INK[0], INK[1], INK[2], a], 1, false));
     }
-    if (e.touch) {
-      // buttons for what the thumbs cannot do
-      const ink: RGBA = [INK[0], INK[1], INK[2], 0.55];
-      const back = { x: 6 * u, y: 6 * u, w: this.measure('Back') + 16 * u, h: 15 * u };
-      this.touchRects = { back, jump: { x: this.w - this.measure('Jump') - 22 * u, y: this.h - 60 * u, w: this.measure('Jump') + 16 * u, h: 15 * u } };
-      if (this.canFull) this.touchRects.full = { x: back.x + back.w + 5 * u, y: 6 * u, w: this.measure(TOUCH.full) + 16 * u, h: 15 * u };
-      for (const [name, r] of Object.entries(this.touchRects)) {
-        this.panel(r.x, r.y, r.w, r.h, 0.7);
-        this.text(TOUCH[name] ?? name, r.x + 8 * u, r.y + 4 * u, ink, 1, false);
-      }
+    if (ex.vehicle?.o.kind === 'car' && !this.menu) this.drawDash(ex.vehicle);
+    if (e.touch) this.drawThumbs();
+    else this.spots = {};
+  }
+
+  /** For whoever is driving: the gear, the speed and a row of lamps for the revs. As little as will do. */
+  private drawDash(v: { gear: number; rpm: number; vx: number; vz: number }) {
+    const u = this.unit;
+    const s = this.safe;
+    const kmh = Math.round(Math.hypot(v.vx, v.vz) * 3.6);
+    const gear = v.gear < 0 ? 'R' : `${v.gear}`;
+    const speed = `${kmh}`;
+    const LAMPS = 8;
+    const bw = 44 * u;
+    const bh = 19 * u;
+    // bottom left of the clear part; with thumbs on the screen, between the stick and the button
+    const x = this.engine.touch ? Math.round(this.w / 2 - bw / 2) : Math.round(s.x0 * this.w + 8 * u);
+    const y = Math.round(s.y1 * this.h - bh - (this.engine.touch ? this.css(18) : 8 * u));
+    this.panel(x, y, bw, bh, 0.8);
+    this.text(gear, x + 5 * u, y + 4 * u, EMBER, 1, false);
+    this.text(speed, x + bw - 19 * u - this.measure(speed), y + 4 * u, INK, 1, false);
+    this.text('KM', x + bw - 16 * u, y + 4 * u, [MUTED[0], MUTED[1], MUTED[2], 0.9], 1, false);
+    const lit = Math.round(Math.max(0, Math.min(1, v.rpm)) * LAMPS);
+    for (let i = 0; i < LAMPS; i++) {
+      const on = i < lit;
+      const hot = i >= LAMPS - 2;
+      const c: RGBA = on ? (hot ? [0.95, 0.3, 0.2, 1] : [EMBER[0], EMBER[1], EMBER[2], 1]) : [EDGE[0], EDGE[1], EDGE[2], 0.22];
+      this.rect(x + 5 * u + i * 4 * u, y + 13 * u, 3 * u, 2 * u, c);
     }
   }
 
-  /** Which touch button, if any, is at this spot of the frame. */
-  touchButton(x: number, y: number): string | null {
-    for (const [name, r] of Object.entries(this.touchRects)) if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return name;
+  /* ---- for thumbs ---- */
+
+  private spots: Partial<Record<TouchSpot, Rect>> = {};
+  /** where the stick rests, and how far its top travels (frame pixels) */
+  private home = { x: 0, y: 0, r: 1 };
+  private jumpAt = { x: 0, y: 0, r: 1 };
+
+  /** A filled circle, as a stack of bars. */
+  private disc(cx: number, cy: number, r: number, c: RGBA) {
+    const rows = Math.max(5, Math.min(16, Math.round(r / this.unit)));
+    const step = (2 * r) / rows;
+    for (let i = 0; i < rows; i++) {
+      const y = -r + (i + 0.5) * step;
+      const half = Math.sqrt(Math.max(0, r * r - y * y));
+      this.rect(cx - half, cy - r + i * step, half * 2, Math.ceil(step), c);
+    }
+  }
+
+  /** What a walker's thumbs need: a stick to move with, a button to jump (or
+   *  brake), and along the top the things keys would do. All of it is sized
+   *  in real millimetres of screen, not in the frame's pixels. */
+  private drawThumbs() {
+    const u = this.unit;
+    const e = this.engine;
+    const s = this.safe;
+    const driving = !!e.explore.vehicle;
+    const k = this.thumb;
+    const top = Math.round(s.y0 * this.h + 2 * u);
+    // (the words along the top stay small; it is the boxes that are made big enough for a finger)
+    const bh = Math.max(15 * u, this.css(34));
+    const spots: Partial<Record<TouchSpot, Rect>> = {};
+    const label = (name: TouchSpot, x: number, right = false) => {
+      const w = Math.max(this.measure(TOUCH[name]) + 16 * u, this.css(52));
+      const r = { x: right ? x - w : x, y: top, w, h: bh };
+      spots[name] = r;
+      this.panel(r.x, r.y, r.w, r.h, 0.78);
+      this.text(TOUCH[name], Math.round(r.x + (w - this.measure(TOUCH[name])) / 2), Math.round(r.y + (bh - 7 * u) / 2), [INK[0], INK[1], INK[2], 0.9], 1, false);
+      return w;
+    };
+    const left = Math.round(s.x0 * this.w + 2 * u);
+    const bw = label('back', left);
+    if (this.canFull) label('full', left + bw + 5 * u);
+    if (driving) {
+      const right = Math.round(s.x1 * this.w - 2 * u);
+      const ow = label('out', right, true);
+      const vw = label('view', right - ow - 5 * u, true);
+      // (a narrow phone has no room for a third box beside the two on the left: the horn goes under them)
+      const hx = right - ow - vw - 10 * u;
+      if (hx - this.css(52) > left + bw + (this.canFull ? this.css(110) : 0)) label('horn', hx, true);
+      else {
+        const w = Math.max(this.measure(TOUCH.horn) + 16 * u, this.css(52));
+        const r = { x: right - w, y: top + bh + 5 * u, w, h: bh };
+        spots.horn = r;
+        this.panel(r.x, r.y, r.w, r.h, 0.78);
+        this.text(TOUCH.horn, Math.round(r.x + (w - this.measure(TOUCH.horn)) / 2), Math.round(r.y + (bh - 7 * u) / 2), [INK[0], INK[1], INK[2], 0.9], 1, false);
+      }
+    }
+
+    // the stick: a dish with a knob in it, bottom left
+    const foot = s.y1 * this.h;
+    const R = this.css(54);
+    this.home = { x: Math.round(s.x0 * this.w + this.css(26) + R), y: Math.round(foot - this.css(34) - R), r: R };
+    const st = this.stick;
+    const bx = st.at?.x ?? this.home.x;
+    const by = st.at?.y ?? this.home.y;
+    spots.stick = { x: this.home.x - R * 1.35, y: this.home.y - R * 1.35, w: R * 2.7, h: R * 2.7 };
+    this.disc(bx, by, R + u, [EDGE[0], EDGE[1], EDGE[2], st.held ? 0.5 : 0.3]);
+    this.disc(bx, by, R - u, [PANEL[0], PANEL[1], PANEL[2], 0.62]);
+    const kr = Math.round(R * 0.44);
+    const kx = bx + st.dx * (R - kr * 0.5);
+    const ky = by + st.dy * (R - kr * 0.5);
+    this.disc(kx, ky, kr + u, [0, 0, 0, 0.45]);
+    this.disc(kx, ky, kr, st.held ? [EMBER[0], EMBER[1], EMBER[2], 0.95] : [INK[0], INK[1], INK[2], 0.55]);
+
+    // the button: bottom right
+    const word = driving ? 'Brake' : e.player.flying ? 'Up' : 'Jump';
+    const r = Math.max(this.css(38), Math.round(this.measure(word, k) / 2 + 6 * u));
+    const j = { x: Math.round(s.x1 * this.w - this.css(26) - r), y: Math.round(foot - this.css(48) - r), r };
+    this.jumpAt = j;
+    spots.jump = { x: j.x - r, y: j.y - r, w: r * 2, h: r * 2 };
+    this.disc(j.x, j.y, r + u, [EDGE[0], EDGE[1], EDGE[2], 0.42]);
+    this.disc(j.x, j.y, r - u, this.jumpHeld ? [EMBER[0], EMBER[1], EMBER[2], 0.95] : [PANEL[0], PANEL[1], PANEL[2], 0.7]);
+    const ink: RGBA = this.jumpHeld ? [0.06, 0.05, 0.05, 1] : [INK[0], INK[1], INK[2], 0.9];
+    this.text(word, Math.round(j.x - this.measure(word, k) / 2), Math.round(j.y - 3.5 * k * u), ink, k, false);
+    this.spots = spots;
+  }
+
+  /** Which of the thumb controls, if any, is at this spot of the frame. */
+  touchSpot(x: number, y: number): TouchSpot | null {
+    const g = this.css(10);
+    for (const name of ['back', 'full', 'out', 'view', 'horn'] as const) {
+      const r = this.spots[name];
+      if (r && x >= r.x - g && x < r.x + r.w + g && y >= r.y - g && y < r.y + r.h + g) return name;
+    }
+    const j = this.jumpAt;
+    if (this.spots.jump && Math.hypot(x - j.x, y - j.y) < j.r + g) return 'jump';
+    const st = this.spots.stick;
+    if (st && x >= st.x && x < st.x + st.w && y >= st.y && y < st.y + st.h) return 'stick';
     return null;
   }
 
-  private touchRects: Record<string, { x: number; y: number; w: number; h: number }> = {};
+  /** Where the stick rests and how far it travels, in frame pixels. */
+  get stickHome() {
+    return this.home;
+  }
 
   private drawPrompt(dt: number) {
     const u = this.unit;
@@ -459,10 +605,11 @@ export class Hud {
     const s = this.safe;
     const right = s.x1 * this.w - 8 * u;
     const x = this.centred ? Math.round(((s.x0 + s.x1) / 2) * this.w - full / 2) : Math.round(right - full);
-    // on an upright phone the card goes at the top of the clear band, under the nav; otherwise bottom right
-    // (a row of buttons may be there already: the Explore button, or the touch buttons of somebody on foot)
-    const under = this.dockRects.length || (this.engine.exploring && this.engine.touch) ? 26 : 12;
-    const y = this.centred ? Math.round(s.y0 * this.h + under * u) : Math.round(s.y1 * this.h - (big * 7 + 26 + (this.dockRects.length ? 20 : 0)) * u);
+    // The card goes at the foot of the clear part, above the buttons there. (Somebody on foot with their
+    // thumbs on the screen has the foot of it in use: then it goes up under the buttons at the top.)
+    const thumbs = this.engine.exploring && this.engine.touch;
+    const row = this.dockRects.length ? (this.dockRects[0].h + (this.centred ? this.css(14) + 6 * u : 12 * u)) / u : 0;
+    const y = thumbs ? Math.round(s.y0 * this.h + this.css(64)) : Math.round(s.y1 * this.h - (big * 7 + 22 + row) * u);
     this.text(title, x, y, [INK[0], INK[1], INK[2], a], big);
     const ruleT = Math.max(0, Math.min(1, (c.t - c.title.length / 20) / 0.5));
     if (ruleT > 0) this.rect(x, y + (big * 7 + 4) * u, Math.round(full * ruleT), u, [EMBER[0], EMBER[1], EMBER[2], a]);
@@ -478,10 +625,9 @@ export class Hud {
     const u = this.unit;
     const s = this.safe;
     const cx = ((s.x0 + s.x1) / 2) * this.w;
-    // (on a phone: below the place-name card, the button under the nav, or the touch buttons, whichever is there)
-    const row = this.dockRects.length || (this.engine.exploring && this.engine.touch) ? 14 : 0;
-    let y = Math.round(s.y0 * this.h + (this.centred ? (this.card ? 44 + row : row ? 23 : 6) : 6) * u);
-    if (this.engine.exploring && this.engine.touch) y = Math.max(y, 26 * u);
+    // (somebody on foot with thumbs on the screen has buttons along the top: below those)
+    let y = Math.round(s.y0 * this.h + 6 * u);
+    if (this.engine.exploring && this.engine.touch) y += this.css(44) + (this.card ? 30 * u : 0);
     this.toasts = this.toasts.filter((t) => (t.t += dt) < t.life);
     for (const t of this.toasts) {
       const a = Math.ceil(Math.min(1, t.t / 0.12, (t.life - t.t) / 0.6) * 4) / 4;
@@ -497,7 +643,8 @@ export class Hud {
   private drawMenu(dt: number, menu: Menu) {
     const u = this.unit;
     this.menuT += dt;
-    const rowH = 12 * u;
+    const rowH = this.engine.touch ? Math.max(12 * u, this.css(34)) : 12 * u;
+    const rowPad = Math.round((rowH - 12 * u) / 2);
     const pad = 8 * u;
     let inner = this.measure(menu.title);
     for (const it of menu.items) inner = Math.max(inner, this.measure(it.label) + 10 * u + (it.hint ? this.measure(it.hint) + 12 * u : 0));
@@ -522,11 +669,11 @@ export class Hud {
       this.rows.push({ x: x + 2 * u, y: ry - 2 * u, w: bw - 4 * u, h: rowH });
       if (on) {
         this.rect(x + 3 * u, ry - 2 * u, bw - 6 * u, rowH - u, [EMBER[0], EMBER[1], EMBER[2], 0.92]);
-        this.text(G.arrow, x + pad - 2 * u, ry + u, [0.06, 0.05, 0.05, 1], 1, false);
+        this.text(G.arrow, x + pad - 2 * u, ry + u + rowPad, [0.06, 0.05, 0.05, 1], 1, false);
       }
       const ink: RGBA = on ? [0.06, 0.05, 0.05, 1] : it.disabled ? [MUTED[0], MUTED[1], MUTED[2], 0.7] : INK;
-      this.text(it.label, x + pad + 8 * u, ry + u, ink, 1, false);
-      if (it.hint) this.text(it.hint, x + bw - pad - this.measure(it.hint), ry + u, on ? ink : MUTED, 1, false);
+      this.text(it.label, x + pad + 8 * u, ry + u + rowPad, ink, 1, false);
+      if (it.hint) this.text(it.hint, x + bw - pad - this.measure(it.hint), ry + u + rowPad, on ? ink : MUTED, 1, false);
       ry += rowH;
     });
     if (menu.footer) this.text(menu.footer, x + pad, ry + 4 * u, MUTED, 1, false);

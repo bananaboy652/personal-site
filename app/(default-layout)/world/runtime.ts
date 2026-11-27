@@ -4,9 +4,10 @@
 // stepping into the world to walk about (pointer lock, full screen, thumbs).
 // It knows nothing about React; World.tsx is a thin shell round it (and so is
 // the little test page the levels are built with).
-import { DEFAULTS, Engine, type IntroKind, type Level, type Settings } from './engine/engine';
+import { DEFAULTS, Engine, type IntroKind, type Level, type Settings, stageShare } from './engine/engine';
 import { clamp } from './engine/math';
 import { store } from './engine/store';
+import type { TouchSpot } from './engine/hud';
 import { WORLDS, worldForPath, worldOf } from './engine/worlds';
 
 // Anything the page itself owns. The scene only reacts to the gaps between.
@@ -81,7 +82,11 @@ export class Runtime {
   private lastJump = 0;
   /** the next arrival in a world is to be the short one */
   private brisk = false;
-  private touches = new Map<number, { role: 'move' | 'look' | 'full'; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
+  private touches = new Map<number, { role: 'move' | 'look' | 'jump' | 'button'; spot: TouchSpot | null; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
+  /** how far down the window the frame's own buttons can sit without being under the page (CSS pixels) */
+  private foot = 0;
+  /** reads the phone's notch and home-bar margins (see insets()) */
+  private probe: HTMLElement | null = null;
   private timers: number[] = [];
   private undo: (() => void)[] = [];
 
@@ -110,6 +115,8 @@ export class Runtime {
     e.hud.dock = [{ label: 'Explore', pick: () => this.enterExplore() }];
     if (document.fullscreenEnabled) e.hud.dock.push({ label: 'Full screen', pick: () => this.enterExplore(true) });
     e.hud.canFull = document.fullscreenEnabled;
+    // a phone is a finger from the start, before anything has been touched: its buttons are drawn to suit
+    e.touch = window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches;
     this.listen();
   }
 
@@ -218,6 +225,7 @@ export class Runtime {
 
   /** The page changed: bring up that page's world, or its view of this one. */
   setRoute(pathname: string) {
+    this.foot = 0;
     const e = this.engine;
     const def = worldForPath(pathname);
     e.shotName = SHOTS[pathname] ?? 'home';
@@ -246,6 +254,8 @@ export class Runtime {
     this.selectable(false);
     if (!e.touch) this.lock();
     if (fullscreen) this.fullscreen(true);
+    // (the frame's own interface now has the whole of it, not just what the page left clear)
+    this.frame();
   }
 
   /** Whether dragging over the page selects its text. */
@@ -262,6 +272,8 @@ export class Runtime {
     e.exitExplore();
     this.locked = false;
     this.touches.clear();
+    Object.assign(e.hud.stick, { held: false, at: null, dx: 0, dy: 0 });
+    e.hud.jumpHeld = false;
     document.documentElement.style.overflow = '';
     document.documentElement.style.touchAction = '';
     this.selectable(true);
@@ -315,7 +327,11 @@ export class Runtime {
       case 'e': case 'enter': if (down) e.use(); break;
       case 'f': if (down) this.fullscreen(); break;
       case 'v': if (down) e.explore.seat = !e.explore.seat; break;
-      case 'h': if (down) e.explore.hint = 10; break;
+      case 'h':
+        // the horn of whatever is being driven; on foot, the reminder of which keys do what
+        if (down && e.explore.vehicle) c.horn = true;
+        else if (down) e.explore.hint = 10;
+        break;
       case 'escape': if (down) this.exitExplore(); break;
       default: return false;
     }
@@ -331,13 +347,19 @@ export class Runtime {
   frame = () => {
     this.framing = 0;
     const e = this.engine;
-    const W = window.innerWidth;
-    const H = window.innerHeight;
+    // The page is measured in the window, but the frame it is drawn into can be taller than the window
+    // (a phone with its bars showing; see Engine.frameRect), so shares of the frame are worked out
+    // against the frame itself. `H` is how much of it can be seen.
+    const R = e.frameRect();
+    const W = R.width || window.innerWidth;
+    const FH = R.height || window.innerHeight;
+    const H = Math.min(window.innerHeight, window.visualViewport?.height ?? Infinity);
     const edge = 26;
     const nav = document.querySelector('nav')?.getBoundingClientRect();
     const safe = e.hud.safe;
     if (e.exploring) {
-      Object.assign(safe, { x0: 0.02, x1: 0.98, y0: 0.03, y1: 0.97 });
+      const m = this.insets();
+      Object.assign(safe, { x0: (8 + m.left) / W, x1: 1 - (8 + m.right) / W, y0: (8 + m.top) / FH, y1: (H - 8 - m.bottom) / FH });
       return;
     }
     if (e.portrait) {
@@ -346,6 +368,7 @@ export class Runtime {
       // first panel, which is off the foot of the screen until the page is scrolled.
       e.setFocus(this.level?.portraitFocus ?? 0.5);
       e.setLift(0);
+      e.setPanels([]);
       let head = (nav?.bottom ?? edge) + 6;
       let top = H;
       document.querySelectorAll('main [data-world-title], main h1, main [class*="glassFrame"], main img').forEach((el) => {
@@ -357,28 +380,60 @@ export class Runtime {
       });
       safe.x0 = edge / W;
       safe.x1 = 1 - edge / W;
-      safe.y0 = Math.min(0.5, head / H);
-      safe.y1 = clamp((top - 8) / H, safe.y0 + 0.2, 1 - edge / H);
+      safe.y0 = Math.min(0.5, head / FH);
+      safe.y1 = clamp((top - 8) / FH, safe.y0 + 0.2, (H - edge) / FH);
       const dim = clamp(window.scrollY / (H * 0.5));
       document.documentElement.style.setProperty('--world-dim', dim.toFixed(3));
       return;
     }
     document.documentElement.style.setProperty('--world-dim', '0');
     e.setLift(0);
+    // wider than the stage, the page keeps to the middle (see stageShare) and so does the interface
+    const inset = ((1 - stageShare(W / FH)) * W) / 2;
     let right = nav?.right ?? W / 2;
     // panels, and big headings that stand outside any panel
-    document.querySelectorAll('main [class*="glassFrame"], main h1').forEach((el) => {
+    const panels: { x0: number; x1: number; y0: number; y1: number }[] = [];
+    document.querySelectorAll('main [data-world-title], main [class*="glassFrame"], main h1').forEach((el) => {
       const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.bottom > 0 && r.top < H * 0.8) right = Math.max(right, r.right);
+      if (r.width <= 0 || r.height <= 0) return;
+      if (r.bottom > 0 && r.top < H * 0.8) right = Math.max(right, r.right);
+      // (where it stands on the first screen, whatever the scroll: what the camera keeps its subject clear of)
+      const top = r.top + window.scrollY;
+      if (top < H) panels.push({ x0: r.left / W, x1: r.right / W, y0: top / FH, y1: Math.min(top + r.height, H) / FH });
     });
+    e.setPanels(panels);
     const f = Math.min(right / W, 1);
     const crowded = f > 0.86;
     e.setFocus(crowded ? 0.6 : Math.min(0.8, Math.max(0.6, f + (1 - f) * 0.37)));
     safe.x0 = crowded ? 0.3 : f + 10 / W;
-    safe.x1 = 1 - edge / W;
-    safe.y0 = edge / H;
-    safe.y1 = 1 - edge / H;
+    safe.x1 = 1 - (edge + inset) / W;
+    safe.y0 = edge / FH;
+    // The buttons in the corner of the frame are drawn behind the page, so a card that reaches the
+    // corner would cover them. At the top of the page, find the lowest spot up the right-hand side that
+    // the page leaves alone (and keep to it while the page is scrolled: the view does not shuffle about).
+    if (window.scrollY < 4 || !this.foot) {
+      const x1 = W - edge - inset - 16;
+      let y = H - edge - 12;
+      for (let i = 0; i < 20; i++, y -= 24) {
+        if (![x1, x1 - 120, x1 - 240].some((x) => overUi(document.elementFromPoint(x, y)) || overUi(document.elementFromPoint(x, y - 22)))) break;
+      }
+      this.foot = y + 12;
+    }
+    safe.y1 = Math.min(H - edge, this.foot) / FH;
   };
+
+  /** The margins a phone keeps for its notch and home bar, in CSS pixels. */
+  private insets() {
+    if (!this.probe) {
+      const p = document.createElement('div');
+      p.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;top:0;left:0;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+      document.body.appendChild(p);
+      this.probe = p;
+    }
+    const c = getComputedStyle(this.probe);
+    const n = (v: string) => parseFloat(v) || 0;
+    return { top: n(c.paddingTop), right: n(c.paddingRight), bottom: n(c.paddingBottom), left: n(c.paddingLeft) };
+  }
 
   private onScroll = () => {
     const doc = document.documentElement;
@@ -398,25 +453,70 @@ export class Runtime {
     const wake = () => {
       if (store.sound && !e.audio.enabled) e.audio.enable();
     };
-    const frameXY = (ev: PointerEvent): [number, number] => [(ev.clientX / window.innerWidth) * e.stats.w, (ev.clientY / window.innerHeight) * e.stats.h];
+    /** The stick, pushed to a place on the frame: work out what it is asking for. */
+    const pushStick = (fx: number, fy: number) => {
+      const st = e.hud.stick;
+      const home = e.hud.stickHome;
+      const base = st.at ?? home;
+      let dx = (fx - base.x) / home.r;
+      let dy = (fy - base.y) / home.r;
+      const len = Math.hypot(dx, dy);
+      if (len > 1) {
+        // a dish that was put down under the thumb is dragged along by it, so it is never lost
+        if (st.at) {
+          st.at.x += (dx - dx / len) * home.r;
+          st.at.y += (dy - dy / len) * home.r;
+        }
+        dx /= len;
+        dy /= len;
+      }
+      st.dx = dx;
+      st.dy = dy;
+      // nothing in the middle, then a gentle start: a small movement of the thumb is a small movement
+      const m = Math.min(1, len);
+      const DEAD = 0.16;
+      const k = m <= DEAD ? 0 : Math.pow((m - DEAD) / (1 - DEAD), 1.25) / m;
+      let r = dx * k;
+      let f = -dy * k;
+      const c = e.controls;
+      if (e.explore.vehicle) {
+        // steering wants the whole sweep of the stick; the throttle mostly wants to know which way
+        c.r = Math.abs(r) < 0.12 ? 0 : r;
+        c.f = Math.abs(f) < 0.2 ? 0 : f;
+        c.run = false;
+        return;
+      }
+      // nearly straight ahead (or straight sideways) is exactly that: no creeping off line
+      if (Math.abs(r) < Math.abs(f) * 0.22) r = 0;
+      else if (Math.abs(f) < Math.abs(r) * 0.22) f = 0;
+      c.r = r;
+      c.f = f;
+      c.run = m > 0.9;
+    };
 
     on(window, 'pointerdown', (ev: PointerEvent) => {
       e.touch = ev.pointerType === 'touch';
       wake();
       if (e.exploring && e.touch) {
-        const [fx, fy] = frameXY(ev);
-        const button = e.hud.touchButton(fx, fy);
-        if (button === 'back') this.exitExplore();
-        else if (button === 'jump') {
-          e.controls.jump = true;
-          this.later(() => (e.controls.jump = false), 160);
-        } else if (button === 'full') {
-          // (a browser only lets the screen be filled as a finger lifts, so it waits for that)
-          this.touches.set(ev.pointerId, { role: 'full', x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, t0: performance.now(), far: 0 });
-        } else {
-          const role = ev.clientX < window.innerWidth / 2 && !Array.from(this.touches.values()).some((t) => t.role === 'move') ? 'move' : 'look';
-          this.touches.set(ev.pointerId, { role, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, t0: performance.now(), far: 0 });
+        const hud = e.hud;
+        const [fx, fy] = e.frameXY(ev.clientX, ev.clientY);
+        const spot = hud.menu ? null : hud.touchSpot(fx, fy);
+        const t = { role: 'look' as 'move' | 'look' | 'jump' | 'button', spot, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, t0: performance.now(), far: 0 };
+        const moving = Array.from(this.touches.values()).some((o) => o.role === 'move');
+        if (spot === 'jump') {
+          // (the same thumb can go on to look about; the button stays down until it lifts)
+          t.role = 'jump';
+          hud.jumpHeld = true;
+          this.walkKey(' ', true);
+        } else if (spot && spot !== 'stick') t.role = 'button';
+        else if (!hud.menu && !moving && (spot === 'stick' || (ev.clientX < window.innerWidth * 0.45 && fy > hud.safe.y0 * e.stats.h + hud.css(70)))) {
+          t.role = 'move';
+          hud.stick.held = true;
+          // on the dish, it stays where it is; anywhere else on the left, the dish comes to the thumb
+          hud.stick.at = spot === 'stick' ? null : { x: fx, y: fy };
+          pushStick(fx, fy);
         }
+        this.touches.set(ev.pointerId, t);
         return;
       }
       if ((e.free.on || e.exploring) && !overUi(ev.target)) this.drag = true;
@@ -426,13 +526,35 @@ export class Runtime {
       const t = this.touches.get(ev.pointerId);
       if (!t) return;
       this.touches.delete(ev.pointerId);
-      if (t.role === 'full') {
-        if (ev.type === 'pointerup') this.fullscreen();
+      const hud = e.hud;
+      if (t.role === 'move') {
+        Object.assign(e.controls, { f: 0, r: 0, run: false });
+        Object.assign(hud.stick, { held: false, at: null, dx: 0, dy: 0 });
         return;
       }
-      if (t.role === 'move') Object.assign(e.controls, { f: 0, r: 0, run: false });
-      // a touch that did not go anywhere is a tap: use what is in front
-      if (t.far < 10 && performance.now() - t.t0 < 300 && e.exploring) e.use();
+      if (t.role === 'jump') {
+        hud.jumpHeld = false;
+        this.walkKey(' ', false);
+        return;
+      }
+      if (!e.exploring) return;
+      if (t.role === 'button') {
+        // (a browser only lets the screen be filled as a finger lifts, so that is when all of these act)
+        if (ev.type !== 'pointerup' || t.far > 30) return;
+        e.audio.ui('pick');
+        if (t.spot === 'back') this.exitExplore();
+        else if (t.spot === 'full') this.fullscreen();
+        else if (t.spot === 'out') e.board(null);
+        else if (t.spot === 'view') e.explore.seat = !e.explore.seat;
+        else if (t.spot === 'horn') e.controls.horn = true;
+        return;
+      }
+      // a touch that did not go anywhere is a tap: choose from the menu, or use what is in front
+      if (t.far > 12 || performance.now() - t.t0 > 350) return;
+      if (hud.menu) {
+        const [fx, fy] = e.frameXY(ev.clientX, ev.clientY);
+        hud.click(fx, fy);
+      } else if (!e.explore.vehicle || e.hovered) e.use();
     };
     on(window, 'pointerup', up);
     on(window, 'pointercancel', up);
@@ -445,14 +567,9 @@ export class Runtime {
         t.x = ev.clientX;
         t.y = ev.clientY;
         t.far = Math.max(t.far, Math.hypot(t.x - t.x0, t.y - t.y0));
-        if (t.role === 'full') return;
-        if (t.role === 'move') {
-          const sx = (t.x - t.x0) / 46;
-          const sy = (t.y - t.y0) / 46;
-          e.controls.r = clamp(sx, -1, 1);
-          e.controls.f = clamp(-sy, -1, 1);
-          e.controls.run = Math.hypot(sx, sy) > 1.7;
-        } else e.lookBy(dx * 0.28, dy * 0.28);
+        if (t.role === 'button') return;
+        if (t.role === 'move') pushStick(...e.frameXY(t.x, t.y));
+        else e.lookBy(dx * 0.28, dy * 0.28);
         return;
       }
       if (e.exploring) {
@@ -495,6 +612,8 @@ export class Runtime {
       if (ev.persisted && !e.exploring && !e.inScope && window.scrollY < window.innerHeight * 0.5) this.replay();
     });
     on(window, 'resize', () => this.frame());
+    // (a phone's bars sliding away change how much of the frame shows without resizing the window)
+    if (window.visualViewport) on(window.visualViewport as unknown as Window, 'resize', () => this.frame());
     on(window, 'keydown', (ev: KeyboardEvent) => {
       if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement || ev.metaKey || ev.ctrlKey || ev.altKey) return;
       wake();

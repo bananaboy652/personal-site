@@ -24,11 +24,25 @@ import { clamp, lerp, rad, smooth } from './math';
 import { type Controls, Player, type Vehicle } from './player';
 import { createShared, postMaterial } from './shaders';
 import type { Solid } from './solid';
+import { Steps } from './steps';
 import type { SurfaceAt } from './surface';
 
 /** The widest shape of window a view is composed for: twice as wide as it is tall. On anything wider the
  *  page keeps to a stage of this shape in the middle, and the world shows more to either side of it. */
 export const STAGE = 2;
+/** A frame narrower than this (width over height) is an upright screen: a phone, or a tablet held
+ *  upright with the browser's bars taking some of its height. The page lays itself out as a title screen
+ *  at the same point (`max-aspect-ratio: 9/10` in its CSS): the two must agree. */
+export const UPRIGHT = 0.9;
+
+/** How much of a frame's width the stage takes up, for a frame `aspect` times as wide as it is tall. The
+ *  page does the same sum in CSS (--stage-inset in globals.css): everything up to 2.2:1 is all stage (a
+ *  16:9 display with the browser's bars round the page comes to about 2:1 and must not be touched), and
+ *  from 2.3:1 it is exactly the 2:1 stage. */
+export function stageShare(aspect: number) {
+  const inset = clamp((aspect - 2.2) * 1.5, 0, Math.max(0, (aspect - STAGE) / 2));
+  return 1 - (2 * inset) / aspect;
+}
 
 export interface Interactable {
   id: string;
@@ -110,7 +124,17 @@ export interface Level {
    *  frame up to twice as wide as it is tall; on anything wider the view is not turned further, and the
    *  extra width shows more of the world on both sides. `portraitX` is the same for an upright screen.
    *  When this is set, `focusAz` and `portraitFocus` are not used. */
-  anchor?: { at: [number, number, number]; x: number; portraitX?: number };
+  anchor?: {
+    at: [number, number, number];
+    x: number;
+    portraitX?: number;
+    /** What the picture is about (the tower). If one of the page's panels would stand in front of it, the
+     *  camera turns to bring it just clear of them, pushing the anchor toward the edge as it does, but
+     *  no further than `most` across the frame (default: `x` + 0.09, about where a tree's trunk leaves
+     *  the picture and its boughs still hang into it). */
+    keep?: [number, number, number];
+    most?: number;
+  };
   audio: AudioSpec;
   intro(kind: IntroKind): void;
   /** the visitor clicked or scrolled during the opening: get on with it */
@@ -122,7 +146,7 @@ export interface Level {
   finale?(): void;
   /** present if the world can be walked around in */
   walk?: Walk;
-  /** on an upright phone, which side of the frame the Explore button goes: the one with nothing in it (right if not said) */
+  /** on an upright screen, which bottom corner of the frame the Explore button goes in: the one with nothing in it (right if not said) */
   dockSide?: 'left' | 'right';
   /** somebody stepped into the world, or back out to the page. On the way
    *  out, put back anything that changes the framed view. */
@@ -200,6 +224,7 @@ export class Engine {
   onExplore: ((on: boolean) => void) | null = null;
   /** whoever is walking about */
   readonly player = new Player();
+  private steps = new Steps();
   /** what their keys or thumbs are asking for */
   readonly controls: Controls = { f: 0, r: 0, run: false, jump: false, up: 0 };
   /** walking-about state: `t` runs 0..1 as the camera goes from the framed view to the eye */
@@ -219,6 +244,10 @@ export class Engine {
   private pointer = { x: 0, y: 0, tx: 0, ty: 0, nx: 0, ny: 0, ui: true };
   private scroll = { t: 0, target: 0, page: 0, pageTarget: 0, told: -1 };
   private focus = { x: 0.63, target: 0.63, set: false };
+  /** the page's panels as they stand before any scrolling, in shares of the frame (see setPanels) */
+  private panels: { x0: number; x1: number; y0: number; y1: number }[] = [];
+  /** how far across the frame those panels reach at the height of whatever the level wants kept clear */
+  private clear = { x: 0, target: 0, set: false };
   private fromPose: Pose = { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, fov: 50 };
   private to: Shot = { pos: [0, 2, 0], yaw: 0, pitch: 0, fov: 50 };
   private toNamed = true;
@@ -327,7 +356,7 @@ export class Engine {
     this.camera.aspect = w / h;
     this.postMat.uniforms.uAspect.value = w / h;
     this.hud.resize(w, h, scale / dpr);
-    const portrait = w / h < 0.8;
+    const portrait = w / h < UPRIGHT;
     if (portrait !== this.portrait) {
       this.portrait = portrait;
       if (this.level && this.toNamed) this.to = this.named(this.shotName);
@@ -357,13 +386,26 @@ export class Engine {
    *  content, which always wins over the scene behind it. */
   setPointer(clientX: number, clientY: number, overUi: boolean) {
     const p = this.pointer;
-    const moved = Math.abs(clientX - (p.nx * 0.5 + 0.5) * window.innerWidth) + Math.abs(clientY - (0.5 - p.ny * 0.5) * window.innerHeight) > 2;
-    p.nx = (clientX / window.innerWidth) * 2 - 1;
-    p.ny = -((clientY / window.innerHeight) * 2 - 1);
+    const r = this.frameRect();
+    p.nx = ((clientX - r.left) / r.width) * 2 - 1;
+    p.ny = -(((clientY - r.top) / r.height) * 2 - 1);
     p.tx = p.nx;
     p.ty = p.ny;
     p.ui = overUi;
-    void moved;
+  }
+
+  /** Where the frame is on the page, in CSS pixels. It is NOT the window: on a phone the frame is as
+   *  tall as the screen gets with the browser's bars away, so it does not jump when they come and go,
+   *  and the foot of it may be under them. Anything that turns a touch into a place on the frame, or a
+   *  place on the page into a share of the frame, must measure against this. */
+  frameRect(): DOMRect {
+    return this.canvas.getBoundingClientRect();
+  }
+
+  /** A point of the page (CSS pixels) in the frame's own pixels. */
+  frameXY(clientX: number, clientY: number): [number, number] {
+    const r = this.frameRect();
+    return [((clientX - r.left) / r.width) * this.stats.w, ((clientY - r.top) / r.height) * this.stats.h];
   }
 
   clearPointer() {
@@ -390,6 +432,13 @@ export class Engine {
     this.scroll.target = clamp(t);
     this.scroll.pageTarget = clamp(page);
     if (this.scope.on && t > 0.04) this.exitScope();
+  }
+
+  /** Where the page's panels stand on its first screen (before any scrolling), in shares of the frame.
+   *  A level with an anchor uses them to keep its subject out from behind them (Level.anchor.keep). They
+   *  are the unscrolled positions on purpose: the view must not turn as the page scrolls. */
+  setPanels(rects: { x0: number; x1: number; y0: number; y1: number }[]) {
+    this.panels = rects;
   }
 
   /** Where across the window (0 left, 1 right) the level's subject should sit. */
@@ -661,9 +710,31 @@ export class Engine {
     if (an) {
       // hold the level's anchor at its place across the frame (see Level.anchor)
       const want = usingPortrait ? an.portraitX ?? an.x : an.x;
-      const x = 0.5 + (want - 0.5) * Math.min(1, STAGE / cam.aspect);
+      const share = stageShare(cam.aspect);
       const p = this.to.pos;
-      aim = deg(Math.atan2(an.at[0] - p[0], -(an.at[2] - p[2]))) - deg(Math.atan((x - 0.5) * 2 * tanHalf));
+      const az = deg(Math.atan2(an.at[0] - p[0], -(an.at[2] - p[2])));
+      const aimAt = (bearing: number, x: number) => bearing - deg(Math.atan((x - 0.5) * 2 * tanHalf));
+      aim = aimAt(az, 0.5 + (want - 0.5) * share);
+      const cl = this.clear;
+      if (an.keep && !usingPortrait) {
+        // ...unless that leaves what the picture is about behind one of the page's panels: then turn
+        // (left) until it stands just clear of them, or until the anchor is as far over as it may go
+        const kx = an.keep[0] - p[0];
+        const kz = an.keep[2] - p[2];
+        const el = deg(Math.atan2(an.keep[1] - p[1], Math.hypot(kx, kz))) - this.to.pitch;
+        const y = 0.5 - Math.tan(rad(el)) / (2 * Math.tan(rad(fovGuess) / 2));
+        let edge = 0;
+        for (const r of this.panels) if (y > r.y0 - 0.05 && y < r.y1 + 0.05) edge = Math.max(edge, r.x1);
+        cl.target = edge;
+        if (!cl.set) cl.x = edge;
+        cl.set = true;
+        cl.x += (cl.target - cl.x) * (m ? 1 - Math.exp(-dt * 4) : 1);
+        if (cl.x > 0) {
+          const clearAt = Math.min(cl.x + 0.04, 0.72);
+          const most = 0.5 + ((an.most ?? want + 0.09) - 0.5) * share;
+          aim = Math.max(aimAt(az, most), Math.min(aim, aimAt(deg(Math.atan2(kx, -kz)), clearAt)));
+        }
+      }
     }
     const b = this.resolve(this.to, aim);
     let s = b;
@@ -695,8 +766,11 @@ export class Engine {
       if (dy > 180) dy -= 360;
       if (dy < -180) dy += 360;
       cam.position.set(lerp(cam.position.x, e.x, k), lerp(cam.position.y, e.y, k), lerp(cam.position.z, e.z, k));
-      cam.rotation.set(rad(lerp(pitch, e.pitch, k)), -rad(yaw + dy * k), 0);
-      cam.fov = lerp(cam.fov, e.fov, k);
+      // (on foot the view rolls a touch into a sideways step and the lens opens a touch at a run)
+      const foot = ex.vehicle ? 0 : k;
+      cam.rotation.order = 'YXZ';
+      cam.rotation.set(rad(lerp(pitch, e.pitch, k)), -rad(yaw + dy * k), -rad(this.player.lean) * foot);
+      cam.fov = lerp(cam.fov, e.fov, k) + this.player.kick * foot;
     }
     // On a phone the page's first panel may stand taller than the view was composed for.
     // The picture is slid up the frame to clear it (the lens is shifted; nothing turns).
@@ -744,6 +818,7 @@ export class Engine {
     Object.assign(this.controls, { f: 0, r: 0, run: false, jump: false, up: 0 });
     this.hovered = null;
     level.explore?.(true);
+    this.audio.setInside(true);
     this.onExplore?.(true);
     return true;
   }
@@ -758,6 +833,7 @@ export class Engine {
     this.hud.menu = null;
     for (const v of this.level?.walk?.vehicles ?? []) v.reset();
     this.level?.explore?.(false);
+    this.audio.setInside(false);
     this.setFade(1);
     void this.fadeTo(0, 0.6);
     this.onExplore?.(false);
@@ -821,8 +897,8 @@ export class Engine {
     const water = w.water ?? null;
     ex.hint = Math.max(0, ex.hint - dt);
     for (const v of w.vehicles ?? []) {
-      if (v === ex.vehicle) v.update(dt, c.r, c.f, c.jump, w.solid, water);
-      else if (Math.abs(v.speed) > 0.05 || v.moved) v.update(dt, 0, 0, false, w.solid, water);
+      if (v === ex.vehicle) v.update(dt, c.r, c.f, c.jump, w.solid, water, w.surface);
+      else if (Math.abs(v.speed) > 0.05 || v.moved) v.update(dt, 0, 0, false, w.solid, water, w.surface);
     }
     const v = ex.vehicle;
     if (v) {
@@ -835,6 +911,11 @@ export class Engine {
       if (ex.idle > 1.6 && Math.abs(v.speed) > 1.5) ex.orbit *= Math.exp(-dt * 2.2);
     } else pl.update(dt, c, w.solid, water);
     w.tick?.(dt, pl, v);
+    // the horn, if the level did not take it for something of its own
+    if (c.horn) {
+      c.horn = false;
+      v?.horn();
+    }
   }
 
   /** Where the walker's eye is: in the head, or behind what is being driven. */
@@ -844,16 +925,19 @@ export class Engine {
     const v = ex.vehicle;
     void dt;
     if (!v) return { x: pl.x, y: pl.y + pl.eye - pl.bob, z: pl.z, yaw: pl.yaw, pitch: pl.pitch, fov: 66 };
-    const yaw = v.heading + ex.orbit;
-    const yr = rad(yaw);
     if (ex.seat) {
       const p = this.tmp.set(v.o.seat[0], v.o.seat[1], v.o.seat[2]).applyMatrix4(v.o.object.matrixWorld);
-      return { x: p.x, y: p.y, z: p.z, yaw, pitch: pl.pitch, fov: 70 };
+      return { x: p.x, y: p.y, z: p.z, yaw: v.heading + ex.orbit, pitch: pl.pitch, fov: 70 };
     }
-    const [dist, height] = v.o.chase;
+    // The camera behind has some weight of its own (see Vehicle.follow): it comes round after the
+    // thing it follows, drops back and widens a little with speed, and takes a jolt when it lands.
+    const yaw = v.camYaw + ex.orbit;
+    const yr = rad(yaw);
+    const dist = v.o.chase[0] * v.camBack;
+    const height = v.o.chase[1];
     const x = v.x - Math.sin(yr) * dist;
     const z = v.z + Math.cos(yr) * dist;
-    let y = v.y + height;
+    let y = v.camY + height + v.jolt;
     // Keep out of a hillside rising behind it. The ground is followed out from
     // the vehicle a stride at a time, so that something far overhead (a bridge
     // deck, a tunnel's roof) is never taken for it.
@@ -867,7 +951,7 @@ export class Engine {
       }
       if (y < g + 0.5) y = g + 0.5;
     }
-    return { x, y, z, yaw, pitch: pl.pitch - 9, fov: 62 };
+    return { x, y, z, yaw, pitch: pl.pitch - 9, fov: 62 + v.camFov };
   }
 
   /* ---- the loop ---- */
@@ -893,6 +977,9 @@ export class Engine {
     this.time += dt;
     this.shared.uTime.value = this.time;
     this.walkAbout(real);
+    // (what their feet sound like; a vehicle has its own voice)
+    const w = this.level?.walk;
+    if (this.explore.on && w && !this.explore.vehicle) this.steps.update(real, this.player, w, this.audio);
     this.updateCamera(dt, real);
     // scrolling the page changes the scene (the level decides how), not the view
     const sc = this.scroll;

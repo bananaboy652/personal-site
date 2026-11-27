@@ -24,7 +24,7 @@ export const SURFACES: Record<Surface, SurfaceFeel> = {
   grass: { grip: 0.62, roll: 2.6, loose: false },
   sand: { grip: 0.55, roll: 4, loose: true },
   snow: { grip: 0.5, roll: 2.4, loose: true },
-  ice: { grip: 0.12, roll: 0.8, loose: false },
+  ice: { grip: 0.16, roll: 0.8, loose: false },
   water: { grip: 0.3, roll: 8, loose: false },
 };
 

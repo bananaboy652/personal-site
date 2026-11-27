@@ -4,8 +4,6 @@
 import { clamp, rad } from './math';
 import type { Solid } from './solid';
 
-export { Vehicle, type VehicleOptions } from './vehicle';
-
 /** What the keys, the stick or a finger are asking for this frame. */
 export interface Controls {
   /** forward (+1) or back (-1) */
@@ -16,9 +14,31 @@ export interface Controls {
   jump: boolean;
   /** when flying: up (+1) or down (-1) */
   up: number;
+  /** asked to sound the horn of whatever is being driven. Whoever sounds it clears this (a level
+   *  whose horn does more than make a noise takes it in its tick; otherwise the engine does). */
+  horn?: boolean;
 }
 
 const STEP = 0.6;
+const WALK = 4.6;
+const RUN = 9.5;
+const SWIM = 3.6;
+/** Getting up to speed takes a moment (there is a body to move); stopping and turning round do not
+ *  (nothing on foot should feel like ice). In the air there is only a little say over where you go. */
+const ACCEL = 40;
+const BRAKE = 70;
+const AIR = 14;
+/** A jump goes up briskly and comes down faster than it went up, and letting go of the button early
+ *  cuts it short: weight, not float. */
+const JUMP = 7.7;
+const GRAVITY_UP = 25;
+const GRAVITY_CUT = 52;
+const GRAVITY_DOWN = 34;
+/** how long after walking off an edge a jump still counts */
+const COYOTE = 0.11;
+/** the length of a stride, walking and running */
+const STRIDE = 0.78;
+const STRIDE_RUN = 1.18;
 
 export class Player {
   /** feet */
@@ -37,11 +57,23 @@ export class Player {
   /** eye height above the feet */
   eye = 1.62;
   readonly radius = 0.32;
-  /** how far the head has dipped with the last step, metres */
+  /** how far the head has dipped: with each step, and on landing. Metres. */
   bob = 0;
   /** set for one frame when you land in water */
   splashed = false;
+  /** set for one frame as a foot comes down (for the sound of it) */
+  footfall = false;
+  /** set for one frame on landing: how fast you were falling, metres a second */
+  landed = 0;
+  /** degrees the view rolls into a sideways step, and degrees the lens opens at a run */
+  lean = 0;
+  kick = 0;
   private stride = 0;
+  private coyote = 0;
+  private fell = 0;
+  private dip = 0;
+  private dipV = 0;
+  private sway = 0;
   private home = { x: 0, y: 0, z: 0, yaw: 0 };
 
   place(x: number, y: number, z: number, yaw: number) {
@@ -57,6 +89,8 @@ export class Player {
 
   update(dt: number, c: Controls, solid: Solid, water: number | null) {
     this.splashed = false;
+    this.footfall = false;
+    this.landed = 0;
     const yr = rad(this.yaw);
     const fx = Math.sin(yr), fz = -Math.cos(yr);
     const rx = Math.cos(yr), rz = Math.sin(yr);
@@ -81,19 +115,26 @@ export class Player {
       this.z += this.vz * dt;
       this.onGround = this.swimming = false;
       this.bob *= 0.8;
+      this.lean *= 0.8;
+      this.kick += ((c.run ? 6 : 0) - this.kick) * Math.min(1, dt * 4);
       const g = solid.floor(this.x, this.z, this.y + 2);
       if (this.y < g) this.y = g;
       return;
     }
 
-    const speed = this.swimming ? 3.6 : c.run ? 9.5 : 4.6;
-    const accel = (this.onGround || this.swimming ? 55 : 16) * dt;
-    const dvx = wx * speed - this.vx;
-    const dvz = wz * speed - this.vz;
+    const grounded = this.onGround || this.swimming;
+    const speed = this.swimming ? SWIM : c.run ? RUN : WALK;
+    const tx = wx * speed;
+    const tz = wz * speed;
+    const dvx = tx - this.vx;
+    const dvz = tz - this.vz;
     const dl = Math.hypot(dvx, dvz);
+    // (stopping, or being asked to go back the way you are coming, is braking)
+    const braking = Math.hypot(tx, tz) < 0.1 || this.vx * tx + this.vz * tz < 0;
+    const accel = (!grounded ? AIR : braking ? BRAKE : ACCEL) * dt;
     if (dl <= accel) {
-      this.vx = wx * speed;
-      this.vz = wz * speed;
+      this.vx = tx;
+      this.vz = tz;
     } else {
       this.vx += (dvx / dl) * accel;
       this.vz += (dvz / dl) * accel;
@@ -122,10 +163,12 @@ export class Player {
       }
       this.swimming = false;
       if (this.onGround) {
+        this.coyote = COYOTE;
         if (c.jump) {
           this.y = Math.max(this.y, g);
-          this.vy = 7.4;
+          this.vy = JUMP;
           this.onGround = false;
+          this.coyote = 0;
         } else if (g < this.y - 0.75) {
           this.onGround = false;                     // walked off an edge
         } else {
@@ -133,15 +176,27 @@ export class Player {
           this.y = Math.max(this.y + (g - this.y) * Math.min(1, h * 20), g - 0.2);
           this.vy = 0;
         }
+      } else if (this.coyote > 0 && c.jump && this.vy <= 0) {
+        // just off the edge: the jump still counts
+        this.vy = JUMP;
+        this.coyote = 0;
       }
       if (!this.onGround) {
-        this.vy -= 24 * h;
+        this.coyote -= h;
+        this.vy -= (this.vy > 0 ? (c.jump ? GRAVITY_UP : GRAVITY_CUT) : GRAVITY_DOWN) * h;
         this.y += this.vy * h;
+        this.fell = Math.min(this.fell, this.vy);
         // come down on it; or, still going up, the ground has risen to meet you
         if (this.y <= g && (this.vy <= 0 || this.y < g - 0.1)) {
           this.y = g;
           this.vy = 0;
           this.onGround = true;
+          if (this.fell < -2.5) {
+            this.landed = -this.fell;
+            // the knees take it: the view drops and comes back
+            this.dipV += Math.min(1.6, -this.fell * 0.085);
+          }
+          this.fell = 0;
         }
       }
     }
@@ -151,9 +206,26 @@ export class Player {
     }
     // fell out of the world: back to where you came in
     if (this.y < -2500) this.place(this.home.x, this.home.y + 2, this.home.z, this.home.yaw);
-    // the head dips a little with each stride
-    if (this.onGround && moved > 0) this.stride += moved;
-    const target = this.onGround && moved > 0.001 ? Math.abs(Math.sin(this.stride * 1.9)) * 0.045 : 0;
-    this.bob += (target - this.bob) * Math.min(1, dt * 12);
+    // Each stride: the head dips as a foot comes down and rises through the middle of the step.
+    const fast = Math.hypot(this.vx, this.vz) > 6;
+    if (this.onGround && moved > 0) {
+      const before = Math.floor(this.stride);
+      this.stride += moved / (fast ? STRIDE_RUN : STRIDE);
+      if (Math.floor(this.stride) !== before) this.footfall = true;
+    }
+    const walking = this.onGround && moved > 0.001;
+    const amp = fast ? 0.058 : 0.034;
+    const target = walking ? amp * (0.5 + 0.5 * Math.cos(this.stride * Math.PI * 2)) : 0;
+    this.sway += (target - this.sway) * Math.min(1, dt * 14);
+    // landing: a spring that is pushed down and comes back without bouncing
+    this.dipV += (-this.dip * 160 - this.dipV * 22) * dt;
+    this.dip = Math.max(0, this.dip + this.dipV * dt);
+    this.bob = this.sway + Math.min(0.34, this.dip);
+    // the view rolls a little into a sideways step, and the lens opens a little at a run
+    const side = this.vx * rx + this.vz * rz;
+    this.lean += (clamp(side / RUN, -1, 1) * 1.6 - this.lean) * Math.min(1, dt * 7);
+    this.kick += ((fast && this.onGround ? 4.5 : 0) - this.kick) * Math.min(1, dt * 4.5);
   }
 }
+
+export { Vehicle, type VehicleOptions } from './vehicle';

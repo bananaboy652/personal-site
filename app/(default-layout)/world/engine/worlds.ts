@@ -22,4 +22,4 @@ export const WORLDS: WorldDef[] = [
 
 export const worldOf = (id: string | null | undefined) => WORLDS.find((w) => w.id === id) ?? WORLDS[0];
 /** The world that belongs to a page, if that page has one. */
-export const worldForPath = (path: string) => WORLDS.find((w) => w.path === path);
+export const worldForPath = (path: string) => WORLDS.find((w) => w.path === path) ?? (path.startsWith('/projects') ? WORLDS[0] : undefined);

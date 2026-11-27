@@ -76,6 +76,13 @@ export type UiSound = 'hover' | 'pick' | 'open' | 'close' | 'on' | 'off' | 'foun
 
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
+/** How loud the effects sit against the music and the weather: from the page, and for somebody who has
+ *  stepped into the world (where what they do should be the loudest thing in it). */
+const SFX = 1.35;
+const SFX_INSIDE = 1.75;
+const MUSIC = 0.9;
+const MUSIC_INSIDE = 0.7;
+
 interface Voice {
   /** ambience goes to `out`, music to `mus`, both feed the room through `send` */
   out: GainNode;
@@ -118,6 +125,19 @@ export class AudioEngine {
   private irSeconds = 0;
   private lastUi = 0;
   private since = 0;
+
+  /** Somebody has stepped into the world (or back out): bring the effects forward and let the music
+   *  sit back, so that their own footsteps and whatever they touch are what they hear first. */
+  setInside(on: boolean) {
+    this.inside = on;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.sfx.gain.setTargetAtTime(on ? SFX_INSIDE : SFX, t, 0.4);
+    this.music.gain.setTargetAtTime(on ? MUSIC_INSIDE : MUSIC, t, 0.9);
+  }
+
+  private inside = false;
 
   /** Sound is on and there is something to play it through. */
   get running() {
@@ -214,6 +234,13 @@ export class AudioEngine {
     this.music.gain.setTargetAtTime(0.9 * this.swell, this.ctx.currentTime, 1.2);
   }
 
+  /** For voices that go on sounding (an engine, tyres on a road): the clock, where to plug in (the
+   *  effects bus and the way to the reverb), and the noise to make them from. Null while sound is off:
+   *  build nothing then, and let go of anything built. */
+  graph(): { ctx: Ctx; out: AudioNode; send: AudioNode; white: AudioBuffer; pink: AudioBuffer } | null {
+    return this.ctx && this.enabled ? { ctx: this.ctx, out: this.sfx, send: this.reverbIn, white: this.white, pink: this.pink } : null;
+  }
+
   /** Frequency of a note `semi` semitones above the world's root. */
   hz(semi: number, octave = 0) {
     return mtof((this.spec?.root ?? 50) + semi + octave * 12);
@@ -232,11 +259,11 @@ export class AudioEngine {
     comp.release.value = 0.35;
     this.master.connect(comp).connect(ctx.destination);
     this.music = ctx.createGain();
-    this.music.gain.value = 0.9;
+    this.music.gain.value = this.inside ? MUSIC_INSIDE : MUSIC;
     this.amb = ctx.createGain();
     this.amb.gain.value = 0.9;
     this.sfx = ctx.createGain();
-    this.sfx.gain.value = 0.9;
+    this.sfx.gain.value = this.inside ? SFX_INSIDE : SFX;
     for (const bus of [this.music, this.amb, this.sfx]) bus.connect(this.master);
     this.reverbIn = ctx.createGain();
     this.convolver = ctx.createConvolver();
@@ -940,16 +967,21 @@ export class AudioEngine {
   /* ---- for checking the sound without speakers ---- */
 
   /** Render `seconds` of a spec into a buffer (used by the test page only). */
-  static async render(spec: AudioSpec, seconds: number, sampleRate = 32000): Promise<AudioBuffer> {
+  static async render(spec: AudioSpec, seconds: number, sampleRate = 32000, o: { inside?: boolean; bed?: boolean; play?: (a: AudioEngine) => void } = {}): Promise<AudioBuffer> {
     const ctx = new OfflineAudioContext(2, Math.floor(seconds * sampleRate), sampleRate);
     const a = new AudioEngine();
     a.enabled = true;
+    a.inside = !!o.inside;
     a.ctx = ctx;
     a.build(ctx);
     a.master.gain.value = 0.85;
     a.spec = spec;
-    a.startVoice(0, 3);
-    a.scheduleUntil(seconds);
+    if (o.bed !== false) {
+      a.startVoice(0, 3);
+      a.scheduleUntil(seconds);
+    }
+    // effects to hear against it: give each an `at`, in seconds from the start
+    o.play?.(a);
     return ctx.startRendering();
   }
 }
