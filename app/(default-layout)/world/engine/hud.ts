@@ -362,7 +362,7 @@ export class Hud {
     if (ex.hint > 0 && !this.menu) {
       const a = Math.ceil(Math.min(1, ex.hint / 0.8) * 4) / 4;
       const lines = e.touch
-        ? ['Left thumb: move    Right thumb: look', 'Tap: use']
+        ? ['Left thumb: move', 'Right thumb: look', 'Tap: use']
         : ex.vehicle
           ? ['W S drive    A D steer    Space brake', 'E get out    V view    F full screen    Esc back']
           : ['W A S D move    Shift run    Space jump    E use', 'F full screen    Space twice: fly    Esc back'];
