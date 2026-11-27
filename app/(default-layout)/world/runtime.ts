@@ -79,6 +79,8 @@ export class Runtime {
   private locked = false;
   private wanted: string | null = null;
   private lastJump = 0;
+  /** the next arrival in a world is to be the short one */
+  private brisk = false;
   private touches = new Map<number, { role: 'move' | 'look' | 'full'; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
   private timers: number[] = [];
   private undo: (() => void)[] = [];
@@ -119,9 +121,11 @@ export class Runtime {
     e.shotName = SHOTS[pathname] ?? 'home';
     const o = this.options;
     const id = worldOf(o.world ?? worldForPath(pathname)?.id).id;
-    const kind: IntroKind = !e.settings.motion ? 'none' : o.intro ?? (o.mood || o.cam || o.walk ? 'none' : store.seen(id) ? 'quick' : 'full');
-    await this.load(id, kind);
-    if (o.mood) this.level?.setMood?.(o.mood, 0);
+    // The opening plays every time the page is opened. It is left out only with motion turned off, or when
+    // the address asks for a view of its own: a camera, to start on foot, or (see load) another time of day.
+    const kind: IntroKind = !e.settings.motion ? 'none' : o.intro ?? (o.cam || o.walk ? 'none' : 'full');
+    await this.load(id, kind, o.intro ? undefined : o.mood ?? undefined);
+    if (o.mood && this.level?.mood !== o.mood) this.level?.setMood?.(o.mood, 0);
     if (o.cam) {
       e.setFree(true);
       const [x, y, z, yaw, pitch, fov] = o.cam;
@@ -131,7 +135,9 @@ export class Runtime {
     e.start();
   }
 
-  private async load(id: string, kind: IntroKind) {
+  /** `mood` is one the address asked for: the opening ends in the mood the world rests in, so if another
+   *  of its moods was asked for, the opening is left out and the world simply shows that one. */
+  private async load(id: string, kind: IntroKind, mood?: string) {
     const def = worldOf(id);
     const mod = await def.load();
     if (this.disposed) return;
@@ -140,9 +146,9 @@ export class Runtime {
     this.world = def.id;
     this.engine.setLevel(level);
     this.frame();
+    if (mood && mood !== level.mood && level.moods?.some(([name]) => name === mood)) kind = 'none';
     level.intro(kind);
     if (kind === 'none') this.engine.setFade(0);
-    store.markSeen(def.id);
     this.onScroll();
     this.onChange?.();
   }
@@ -178,8 +184,9 @@ export class Runtime {
     e.hovered = null;
     old?.dispose();
     try {
-      // the first time a world is come to it plays its opening in full, unless you arrive on foot
-      const kind: IntroKind = !e.settings.motion ? 'none' : walking || store.seen(def.id) ? 'quick' : 'full';
+      // a world plays its opening every time it is come to, unless you arrive on foot (or the tower is about to answer)
+      const kind: IntroKind = !e.settings.motion ? 'none' : walking || this.brisk ? 'quick' : 'full';
+      this.brisk = false;
       await this.load(def.id, kind);
       e.audio.ui('arrive');
       if (walking) e.enterExplore();
@@ -195,8 +202,11 @@ export class Runtime {
   /** Every signal is answered: go to the first world, where the tower is, and let it respond. */
   async finale() {
     if (this.world !== WORLDS[0].id) {
+      // (straight there: the tower's answer is the thing to see, not the day running out first)
+      this.brisk = true;
       this.go(WORLDS[0].id);
       for (let i = 0; i < 80 && (this.world !== WORLDS[0].id || this.travelling); i++) await new Promise((r) => window.setTimeout(r, 100));
+      this.brisk = false;
     }
     this.level?.finale?.();
   }

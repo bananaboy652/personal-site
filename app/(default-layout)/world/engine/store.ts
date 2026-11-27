@@ -74,34 +74,18 @@ export const store = {
   forget() {
     write({ ...read(), signals: [], notes: {} });
   },
-  /** This world's opening has been shown in this tab already. */
-  seen(world: string) {
+  /** Something that is only worth saying once (a hint, say) has been said in this tab already. */
+  seen(what: string) {
     try {
-      return (window.sessionStorage.getItem('world.seen') ?? '').split(',').includes(world);
+      return (window.sessionStorage.getItem('world.seen') ?? '').split(',').includes(what);
     } catch {
       return false;
     }
   },
-  markSeen(world: string) {
+  markSeen(what: string) {
     try {
       const have = (window.sessionStorage.getItem('world.seen') ?? '').split(',').filter(Boolean);
-      if (!have.includes(world)) window.sessionStorage.setItem('world.seen', [...have, world].join(','));
-    } catch {
-      /* ignore */
-    }
-  },
-  /** The opening has been shown in this tab already. */
-  get introSeen() {
-    try {
-      return window.sessionStorage.getItem('world.intro') === '1';
-    } catch {
-      return false;
-    }
-  },
-  set introSeen(v: boolean) {
-    try {
-      if (v) window.sessionStorage.setItem('world.intro', '1');
-      else window.sessionStorage.removeItem('world.intro');
+      if (!have.includes(what)) window.sessionStorage.setItem('world.seen', [...have, what].join(','));
     } catch {
       /* ignore */
     }
