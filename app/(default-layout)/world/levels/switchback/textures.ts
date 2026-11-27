@@ -150,7 +150,25 @@ function rail() {
   });
 }
 
+/** Weatherboard with a window in every other bay. Alpha 0 marks the glass,
+ *  which the material lights from inside. */
+function house() {
+  const p = pal('#2b2a33', '#383641', '#46434f', '#55515d');
+  return makeTexture(32, 32, (x, y) => {
+    const fy = 31 - y;
+    const board = fy % 4 === 0 ? -0.35 : 0;
+    const n = hash2(x >> 1, fy >> 2, 77) * 0.5 + hash2(x, y, 5) * 0.2;
+    const bx = x % 16;
+    const frame = bx >= 4 && bx <= 11 && fy >= 9 && fy <= 21;
+    const glass = bx >= 5 && bx <= 10 && fy >= 10 && fy <= 20 && bx !== 8 && fy !== 15;
+    if (glass && x < 16) return [1, 1, 1, 0];
+    if (frame && x < 16) return [0.16, 0.15, 0.17, 1];
+    const c = ramp(p, 0.3 + n + board, x, y);
+    return [c[0], c[1], c[2], 1];
+  });
+}
+
 export function createLocalTextures() {
-  return { snow: snow(), snowNeedles: snowNeedles(), panel: panel(), vending: vending(), mirror: mirror(), chevron: chevron(), parcel: parcel(), concrete: concrete(), rail: rail() };
+  return { snow: snow(), snowNeedles: snowNeedles(), panel: panel(), vending: vending(), mirror: mirror(), chevron: chevron(), parcel: parcel(), concrete: concrete(), rail: rail(), house: house() };
 }
 export type LocalTextures = { [K in keyof ReturnType<typeof createLocalTextures>]: DataTexture };

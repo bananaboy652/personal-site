@@ -13,10 +13,17 @@
 // The signal here is darkness: "dip your lights for the mountain". Put out
 // every light at the bend (the truck's, the street lamps, and the machine's,
 // which goes dark when it sells out) and the tower sees you.
+//
+// Step into the scene and it goes on past the frame: the truck can be driven,
+// a loop bridge leads down from the far end of the lay-by to the road below,
+// and the lights in the valley are a real town with three doors waiting on a
+// parcel (see afield.ts). The fox comes along, and knows somewhere worth
+// seeing. Scrolling the page brings cloud up the valley and thickens the snow.
 import {
   BufferGeometry,
   Color,
   Float32BufferAttribute,
+  Group,
   InstancedMesh,
   LineSegments,
   Matrix4,
@@ -30,18 +37,23 @@ import { type Atmos, dirFrom, pointLight, spotLight } from '../../engine/atmos';
 import type { AudioSpec } from '../../engine/audio';
 import { BaseLevel } from '../../engine/base';
 import { type BakedLight, Builder } from '../../engine/builder';
-import type { Engine, IntroKind, Level, Shot } from '../../engine/engine';
+import type { Engine, IntroKind, Level, Shot, Walk } from '../../engine/engine';
 import { Particles, precipitation } from '../../engine/fx';
 import { type Hud, MUTED } from '../../engine/hud';
 import { FarTower, Gate, Radio, answerSignal } from '../../engine/kit';
-import { type RGB, clamp, hex, lerp, noise2, rad, rng, scaleRGB } from '../../engine/math';
+import { type RGB, clamp, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
+import type { Player, Vehicle } from '../../engine/player';
 import { cloudMaterial, customMaterial, psxMaterial } from '../../engine/shaders';
 import { Sky } from '../../engine/sky';
 import { store } from '../../engine/store';
 import { Timeline, easeOut } from '../../engine/timeline';
+import { Afield } from './afield';
+import { Drive } from './drive';
 import { EMBER, type Fox, type Truck, buildFox, buildPole, buildPortal, buildShelter, buildSnowman, buildTruck, buildVending } from './props';
+import { Ground, type P3, inGap } from './road';
 import { FLOOR, type RoadPoint, TRACK_N, at, buildTerrain, descent, heightAt, plantPines, polar, railLine, riverN } from './terrain';
 import { type LocalTextures, createLocalTextures } from './textures';
+import { type Spark, inCorridor } from './town';
 
 /** The sky and the light, plus what this world adds to them. */
 interface Hour extends Atmos {
@@ -109,6 +121,27 @@ const BLUE: Hour = {
   moonTint: k('#e9f1ff', 0.55),
 };
 
+/** What scrolling down the page leads to: cloud filling the valley from the
+ *  bottom up, until only the bend and the tower stand out of it, and the far
+ *  ranges are islands. (Snow thickens with it: see update.) */
+const CLOUD: Hour = {
+  ...NIGHT,
+  horWarm: k('#22364f'),
+  glowCore: k('#6f8cab'),
+  fogDensity: 0.001,
+  mistTop: -8,
+  mistRange: 46,
+  mist: 0.97,
+  ambient: k('#111a2c'),
+  sunCol: k('#8fb0e6', 0.42),
+  stars: 0.3,
+  clouds: 1.15,
+};
+
+/** Pines that stood where the loop bridge now leaves the lay-by and comes
+ *  down (none of them could be seen from the bend): which, of plantPines(). */
+const FELLED = [10, 12, 355, 406];
+
 const MOON: [number, number, number] = [25.5, 19, 2.4];
 const TOWER_AZ = 22;
 const TOWER_AT = polar(TOWER_AZ, 5990);
@@ -174,7 +207,10 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     ['Send a train', () => (this.train.t = -650)],
     ['Fox: off you go', () => this.shooFox()],
     ['Sound the horn', () => this.honk()],
+    ['Deliver the next parcel', () => this.afield?.deliver(this.afield.done.indexOf(false))],
   ];
+
+  walk!: Walk;
 
   private local: LocalTextures;
   private sky: Sky;
@@ -184,7 +220,30 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   private truck!: Truck;
   private foxModel!: Fox;
   private snow: ReturnType<typeof precipitation>;
+  /** a second, heavier fall that comes in as the page is scrolled */
+  private heavy: ReturnType<typeof precipitation>;
   private puffs: Particles;
+
+  // walking about
+  private ground = new Ground();
+  /** what is solid: handed to `ground` only when somebody first steps in (see buildWalk) */
+  private solids: (() => void)[] = [];
+  /** what the truck's model rides in: it is this that is driven (see Drive) */
+  private carrier = new Group();
+  private drive!: Drive;
+  private afield!: Afield;
+  /** everything that is only there for somebody who has stepped in: hidden otherwise */
+  private field = new Group();
+  /** the snowman: he goes wherever you go */
+  private me = new Group();
+  private deck!: Mesh;
+  private baked: BakedLight[] = [];
+  private sparks: Spark[] = [];
+  private yard: P3[] = [];
+  private mouth = { x: 0, y: 0, z: 0, fx: 0, fz: 1 };
+  private afoot = { stride: 0, safe: { x: 0, y: 0, z: 0, t: 0 }, told: false, hazK: 0 };
+  /** the fox, on foot: tagging along, leading the way up to the shrine, or settled there */
+  private tag = { mode: 'home' as 'home' | 'tag' | 'lead' | 'shrine', leg: 0, wait: 0, moving: false, x: 0, y: 0, z: 0 };
   private r = rng(88);
   private veil!: ShaderMaterial;
   private frontMat!: ShaderMaterial;
@@ -222,7 +281,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   // the valley
   private lamps: { id: number; order: number }[] = [];
   private lampsOn = 999;
-  private town: { id: number; color: RGB; order: number }[] = [];
+  private town: { id: number; color: RGB; order: number; hide: boolean }[] = [];
   private townOn = 1;
   private snowAmt = 1;
   private train = { t: 9999, wait: 7, ids: [] as number[], pos: new Vector3(), flash: 0 };
@@ -247,7 +306,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   private tmp2 = new Vector3();
 
   constructor(engine: Engine) {
-    super(engine, 300);
+    super(engine, 480);
     const shared = engine.shared;
     this.local = createLocalTextures();
     for (const t of Object.values(this.local)) this.own(t);
@@ -265,25 +324,106 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.tower = new FarTower(engine, this.root, this.glows, { x: TOWER_AT[0], z: TOWER_AT[1], base: -150, scale: 2.3, fogScale: 0.45, metal: this.tex.metal, white: this.tex.white });
 
     this.snow = precipitation(shared, 3600, { box: [44, 24, 44], velocity: [0.55, -1.25, 0.25], size: 0.07, drift: 0.35, color: [0.82, 0.88, 1] }, 41);
-    this.puffs = new Particles(shared, 36, 'alpha', 34, 1);
-    this.root.add(this.snow.object, this.puffs.points);
+    this.heavy = precipitation(shared, 4200, { box: [38, 22, 38], velocity: [2.6, -2.4, 0.9], size: 0.095, drift: 0.6, color: [0.8, 0.86, 1] }, 77);
+    this.heavy.object.visible = false;
+    this.puffs = new Particles(shared, 96, 'alpha', 34, 1);
+    this.root.add(this.snow.object, this.heavy.object, this.puffs.points);
+    this.buildWalk();
 
+    // (the truck's own switches are out of reach from the driver's seat: the horn is Space twice)
+    const atWheel = () => this.drive.vehicle.occupied;
     this.interactables.push(
-      { id: 'lights', label: () => (this.lights.truck ? 'Switch the lights off' : 'Switch the lights on'), center: this.lightsPos, radius: 0.85, hidden: () => !this.parked, onClick: () => this.toggleTruck() },
-      { id: 'horn', label: 'Sound the horn', center: this.hornPos, radius: 0.75, hidden: () => !this.parked, onClick: () => this.honk() },
-      { id: 'parcels', label: 'Deliver the drinks', center: this.parcelPos, radius: 0.5, hidden: () => !this.parked || this.stock > 0, onClick: () => this.restock() },
+      { id: 'lights', label: () => (this.lights.truck ? 'Switch the lights off' : 'Switch the lights on'), center: this.lightsPos, radius: 0.85, hidden: () => !this.parked || atWheel(), onClick: () => this.toggleTruck() },
+      { id: 'horn', label: 'Sound the horn', center: this.hornPos, radius: 0.75, hidden: () => !this.parked || atWheel(), onClick: () => this.honk() },
+      { id: 'parcels', label: 'Deliver the drinks', center: this.parcelPos, radius: 0.5, hidden: () => !this.parked || this.stock > 0 || atWheel(), onClick: () => this.restock() },
       { id: 'machine', label: () => (this.stock > 0 ? 'Buy a hot drink' : 'Sold out'), center: this.machinePos, radius: 0.95, onClick: () => this.vend() },
-      { id: 'lamp', label: () => (this.lights.lamp ? 'Put out the lamp' : 'Light the lamp'), center: this.lampPos, radius: 0.8, onClick: () => this.toggleLamp() },
+      { id: 'lamp', label: () => (this.lights.lamp ? 'Put out the lamp' : 'Light the lamp'), center: this.lampPos, radius: 0.8, reach: 9, onClick: () => this.toggleLamp() },
       { id: 'sign', label: '"Dip your lights for the mountain"', center: this.signPos, radius: 0.55, marker: false, onClick: () => this.readSign() },
-      { id: 'mirror', label: 'Look in the mirror', center: this.mirrorPos, radius: 0.5, onClick: () => this.look() },
+      { id: 'mirror', label: 'Look in the mirror', center: this.mirrorPos, radius: 0.5, reach: 60, onClick: () => this.look() },
       { id: 'fox', label: 'Say hello', center: this.fox.pos, radius: 0.42, marker: false, hidden: () => this.fox.state !== 'sit', onClick: () => this.shooFox() },
-      { id: 'train', label: 'Wave at the train', center: this.train.pos, radius: 40, hidden: () => this.train.t > 1500, onClick: () => this.whistle() },
+      { id: 'train', label: 'Wave at the train', center: this.train.pos, radius: 40, reach: 4000, hidden: () => this.train.t > 1500, onClick: () => this.whistle() },
       this.radio.interactable,
       this.gate.interactable,
-      { id: 'tower', label: 'Hail the tower', center: this.tower.mid, radius: 170, marker: false, onClick: () => this.hail() },
+      { id: 'tower', label: 'Hail the tower', center: this.tower.mid, radius: 170, reach: 1e5, marker: false, onClick: () => this.hail() },
+      this.drive.vehicle.interactable,
     );
     this.setAtmos(NIGHT);
     this.placeTruck();
+  }
+
+  /** Everything needed for stepping into the scene: what is solid, the truck
+   *  as something to drive, and all that lies beyond the frame. */
+  private buildWalk() {
+    const e = this.engine;
+    this.field.visible = false;
+    this.root.add(this.field);
+    this.placeTruck();
+    this.drive = new Drive(e, this.root, this.carrier, this.truck, this.local.snow, this.ground, () => this.honk());
+    this.drive.vehicle.interactable.hidden = () => !this.parked || !this.present;
+    this.walk = { solid: this.ground, eye: 1.86, vehicles: [this.drive.vehicle], tick: (dt, pl, v) => this.walkTick(dt, pl, v) };
+    // Working out what is solid, and building everything that lies beyond the
+    // frame, takes a moment that the page should not have to wait for: it is
+    // put off until the first time somebody steps in.
+    this.ground.defer(() => this.buildBeyond());
+  }
+
+  private buildBeyond() {
+    const e = this.engine;
+    for (const add of this.solids) add();
+    this.solids = [];
+    // the land as it is drawn (where it is too steep to stand on, as it is described)
+    const floor = (x: number, z: number) => {
+      const y = this.ground.floor(x, z);
+      return y > -1e8 ? y : heightAt(x, z);
+    };
+    this.afield = new Afield({
+      engine: e,
+      root: this.field,
+      tex: this.tex,
+      local: this.local,
+      glows: this.glows,
+      ground: this.ground,
+      floor,
+      puffs: this.puffs,
+      truck: this.truck,
+      drive: this.drive,
+      gate: this.gate,
+      mouth: this.mouth,
+      tower: this.tower,
+      sparks: this.sparks,
+      station: this.yard,
+      lamps: this.baked,
+      train: () => ({ t: this.train.t, on: this.train.t <= 1500 }),
+      whistle: () => this.whistle(),
+      // (dice of its own: nothing out there may change what happens at the bend)
+      rand: rng(907),
+    });
+    this.interactables.push(...this.afield.interactables);
+  }
+
+  /** Somebody stepped into the scene, or back out to the page. */
+  explore(on: boolean) {
+    this.ground.ensure();
+    this.afield.explore(on);
+    this.afoot.told = false;
+    if (on) {
+      const pl = this.engine.player;
+      this.afoot.safe = { x: pl.x, y: pl.y, z: pl.z, t: 0 };
+      if (this.fox.state === 'sit') this.tag.mode = 'tag';
+      return;
+    }
+    // back as it was framed: the tracks swept, the fox on its seat, the snowman where he always stands
+    this.drive.reset();
+    this.tag.mode = 'home';
+    this.tag.moving = false;
+    if (this.fox.state === 'sit') this.seatFox();
+    this.placeTruck();
+  }
+
+  /** Scrolling down the page: cloud comes up the valley and the snow sets in. */
+  scroll(t: number) {
+    this.drift = CLOUD;
+    this.driftK = smooth(0.03, 0.9, t);
   }
 
   subtitle = () => 'Last delivery';
@@ -448,6 +588,13 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   look() {
     const e = this.engine;
     const m = this.mirrorFrom;
+    if (e.exploring) {
+      // on foot it shows you wherever you have got to (or the truck, if you are in it)
+      const pl = e.player;
+      const d = Math.hypot(pl.x - m.x, pl.y + 1.3 - m.y, pl.z - m.z);
+      e.enterScope({ pos: [m.x, m.y, m.z], look: [pl.x, pl.y + 1.25, pl.z], yaw: 0, pitch: 0, fov: clamp((Math.atan(1.7 / Math.max(d, 1)) * 360) / Math.PI, 5, 44) });
+      return;
+    }
     const fov = 9.5;
     // Through a glass the pointer looks around, and it is resting on the mirror (off to one
     // side of the window) when this starts: lean the other way by as much, so that what
@@ -467,6 +614,14 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     const a = this.engine.audio;
     a.tone({ f: [880, 1320], dur: 0.07, gain: 0.07, pan: 0.1, send: 0.4 });
     a.tone({ f: [990, 1480], dur: 0.09, gain: 0.06, at: 0.12, pan: 0.1, send: 0.4 });
+    if (this.engine.exploring) {
+      // on foot it does not run off: it has somewhere to show you
+      if (this.tag.mode === 'shrine') return;
+      this.tag.mode = 'lead';
+      this.tag.leg = 0;
+      this.tag.wait = 0;
+      return;
+    }
     this.fox.state = 'leave';
     this.fox.s = 0;
   }
@@ -545,12 +700,20 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   }
 
   private placeTruck() {
-    const g = this.truck.group;
+    const g = this.carrier;
     g.visible = this.present;
-    this.truckAt(this.truckK, this.truckPos, this.truckFwd);
-    g.position.copy(this.truckPos);
-    g.rotation.y = Math.atan2(this.truckFwd.x, this.truckFwd.z);
-    g.updateMatrixWorld(true);
+    const v = this.drive?.vehicle;
+    if (v && this.engine.exploring && this.drive.away) {
+      // somebody has got in: it is wherever they have taken it
+      const hr = rad(v.heading);
+      this.truckPos.set(v.x, v.y, v.z);
+      this.truckFwd.set(Math.sin(hr), 0, -Math.cos(hr));
+    } else {
+      this.truckAt(this.truckK, this.truckPos, this.truckFwd);
+      g.position.copy(this.truckPos);
+      g.rotation.set(0, Math.atan2(this.truckFwd.x, this.truckFwd.z) + Math.PI, 0);
+      g.updateMatrixWorld(true);
+    }
     this.truckSide.set(this.truckFwd.z, 0, -this.truckFwd.x);          // its right-hand side
     this.lightsPos.copy(this.truckPos).addScaledVector(this.truckFwd, -0.95).setY(this.truckPos.y + 0.7);
     this.hornPos.copy(this.truckPos).addScaledVector(this.truckFwd, 1.0).setY(this.truckPos.y + 1.3);
@@ -574,7 +737,8 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
 
   private buildLand() {
     const shared = this.engine.shared;
-    this.add(buildTerrain(), psxMaterial(shared, { map: this.local.snow, vertexColors: true, texFade: [50, 220] }));
+    const land = this.add(buildTerrain(), psxMaterial(shared, { map: this.local.snow, vertexColors: true, texFade: [50, 220] }));
+    this.solids.push(() => this.ground.add(land));
 
     // pines, heavy with snow: one small model drawn several hundred times
     const trunk = new Builder().prism(0.032, 0.012, 0.62, 5, { color: [0.75, 0.75, 0.75], colorTop: [1, 1, 1], uRepeat: 2, vRepeat: 5 }).build();
@@ -585,7 +749,11 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       crownB.prism(rr, 0, h, 7, { color: [1, 1, 1], colorTop: [0.72, 0.76, 0.86], uRepeat: 7, vRepeat: 1 });
       crownB.pop();
     });
-    const trees = plantPines();
+    const trees = plantPines().filter((_, i) => !FELLED.includes(i));
+    // (a trunk is something to walk into; the boughs are not)
+    this.solids.push(() => {
+      for (const t of trees) this.ground.circle(t.x, t.z, Math.max(0.3, t.h * t.w * 0.034), t.y - 1, t.y + t.h * 0.5);
+    });
     const bark = new InstancedMesh(trunk, psxMaterial(shared, { map: this.tex.bark, vertexColors: true, wind: [0.14, 0.9, 1] }), trees.length);
     const crown = new InstancedMesh(
       crownB.build(),
@@ -636,7 +804,9 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       deck.quad([a.x - nx, a.y, a.z - nz], [a.x + nx, a.y, a.z + nz], [b.x + nx, b.y, b.z + nz], [b.x - nx, b.y, b.z - nz], [0, 0, 1, len / 7], road);
     }
     deck.bake(baked);
-    this.add(deck, psxMaterial(shared, { map: this.local.snow, vertexColors: true, baked: true, texFade: [80, 300] }));
+    // (for somebody driving it there is a better-fitting one: see afield.ts)
+    this.deck = this.add(deck, psxMaterial(shared, { map: this.local.snow, vertexColors: true, baked: true, texFade: [80, 300] }));
+    this.baked = baked;
 
     // the tunnel mouth: this world's gate
     const [px, pz] = at(9, 170);
@@ -650,10 +820,14 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       { pos: [px + face.x * 4, py + 9, pz + face.z * 4], color: [1.3, 0.75, 0.34], range: 20 },
       { pos: [px + face.x * 2, py + 3, pz + face.z * 2], color: [0.25, 0.7, 0.85], range: 13 },
     ]);
-    this.add(conc, psxMaterial(shared, { map: this.local.concrete, vertexColors: true, baked: true, texFade: [200, 600], fogScale: 0.8 }));
+    const mouth = this.add(conc, psxMaterial(shared, { map: this.local.concrete, vertexColors: true, baked: true, texFade: [200, 600], fogScale: 0.8 }));
+    this.solids.push(() => this.ground.add(mouth));
     this.add(bore, psxMaterial(shared, { map: this.tex.white, lit: false, tint: [0.012, 0.014, 0.02] }));
     this.ids.portal = this.glows.add(px + face.x * 1.5, py + 9.2, pz + face.z * 1.5, 2.6, [0, 0, 0]);
     this.gate = new Gate(this.engine, this.root, this.glows, { x: px - face.x * 1.2, y: py, z: pz - face.z * 1.2, width: 9, height: 7.3, yaw, noise: this.tex.fogNoise });
+    // on foot it can be hailed from the bend like the tower, or walked (or driven) into
+    this.gate.interactable.reach = 260;
+    Object.assign(this.mouth, { x: px - face.x * 1.2, y: py, z: pz - face.z * 1.2, fx: face.x, fz: face.z });
     this.glows.add(px - face.x * 0.5, py + 3.2, pz - face.z * 0.5, 5.5, [0.07, 0.3, 0.36]);
 
     // the river, frozen: a pale band along the valley floor
@@ -665,7 +839,8 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       const [dx, dz] = at(t + 70, riverN(t + 70) - 26);
       ice.quad([ax, FLOOR + 1.6, az], [dx, FLOOR + 1.6, dz], [cx, FLOOR + 1.6, cz], [bx, FLOOR + 1.6, bz]);
     }
-    this.add(ice, psxMaterial(shared, { map: this.tex.white, lit: false, tint: [0.13, 0.19, 0.31] }));
+    const river = this.add(ice, psxMaterial(shared, { map: this.tex.white, lit: false, tint: [0.13, 0.19, 0.31] }));
+    this.solids.push(() => this.ground.add(river, { wall: false }));
 
     // the town: windows along the near bank, a few cold street lamps, the station
     const r = rng(1905);
@@ -677,11 +852,17 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       const [x, z] = at(tt, nn);
       const warm = r();
       const color: RGB = street ? [0.55, 0.8, 1.0] : warm > 0.25 ? [1.2, 0.74 + r() * 0.12, 0.36] : [1.0, 0.9, 0.7];
-      this.town.push({ id: this.glows.add(x, FLOOR + 4 + r() * 7, z, street ? 3.4 : 2.4 + r() * 1.8, [0, 0, 0]), color, order: r() });
+      const y = FLOOR + 4 + r() * 7;
+      const size = street ? 3.4 : 2.4 + r() * 1.8;
+      // (each of these turns out to be somebody's window, or a lamp on a post: the ones where
+      // the main street is built by hand go out while somebody is down there)
+      this.sparks.push({ x, y, z, street });
+      this.town.push({ id: this.glows.add(x, y, z, size, [0, 0, 0]), color, order: r(), hide: inCorridor(x, z) });
     }
     for (let i = 0; i < 6; i++) {
       const [x, z] = at(330 + i * 16, TRACK_N - 14);
-      this.town.push({ id: this.glows.add(x, FLOOR + 6, z, 2.6, [0, 0, 0]), color: [0.95, 0.95, 0.85], order: 0.2 + i * 0.1 });
+      this.yard.push({ x, y: FLOOR + 6, z });
+      this.town.push({ id: this.glows.add(x, FLOOR + 6, z, 2.6, [0, 0, 0]), color: [0.95, 0.95, 0.85], order: 0.2 + i * 0.1, hide: false });
     }
     // the train: a row of lit windows
     for (let i = 0; i < 8; i++) this.train.ids.push(this.glows.add(0, FLOOR - 50, 0, i === 0 ? 4.5 : 2.6, [0, 0, 0]));
@@ -704,16 +885,25 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     const post: RGB = [0.72, 0.76, 0.86];
     line.forEach(([x, z], i) => {
       const y = ground(x, z) - 0.25;
-      body.reset().translate(x, y, z).box(0.1, 1.06, 0.1, post);
-      if (i % 3 === 0) body.reset().translate(x, y + 0.86, z).box(0.12, 0.08, 0.12, EMBER);
+      // (a few posts at the far end of the rim, out of the picture, are left out: the loop bridge goes through there)
+      const open = inGap(x, z);
+      if (!open) {
+        body.reset().translate(x, y, z).box(0.1, 1.06, 0.1, post);
+        if (i % 3 === 0) body.reset().translate(x, y + 0.86, z).box(0.12, 0.08, 0.12, EMBER);
+      }
       const nx = line[i + 1];
-      if (!nx) return;
+      if (!nx || open || inGap(nx[0], nx[1])) return;
       const y2 = ground(nx[0], nx[1]) - 0.25;
       const len = Math.hypot(nx[0] - x, nx[1] - z);
       railB.quad([x, y + 0.5, z], [nx[0], y2 + 0.5, nx[1]], [nx[0], y2 + 0.79, nx[1]], [x, y + 0.79, z], [0, 0, 1, 1]);
       const ox = (-(nx[1] - z) / len) * 0.07;
       const oz = ((nx[0] - x) / len) * 0.07;
       snow.reset().quad([x - ox, y + 0.79, z - oz], [x + ox, y + 0.79, z + oz], [nx[0] + ox, y2 + 0.79, nx[1] + oz], [nx[0] - ox, y2 + 0.79, nx[1] - oz], [0, 0, 0.2, len / 3], [1.05, 1.1, 1.2]);
+      // what stops a truck (the beam as drawn is too slight to count): on foot it can be vaulted
+      this.solids.push(() => {
+        this.ground.triangle(x, y, z, nx[0], y2, nx[1], nx[0], y2 + 1.2, nx[1], false);
+        this.ground.triangle(x, y, z, nx[0], y2 + 1.2, nx[1], x, y + 1.2, z, false);
+      });
     });
 
     // the pole behind the truck: wires, a street lamp, and a sign
@@ -793,16 +983,21 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     // And you. He is only drawn when the camera is well outside him (in the mirror, or
     // flying about): from inside there is nothing to see, but when the view leans to one
     // side his nose would poke into the edge of the picture.
+    // (He is built where the framed view stands, on a group of his own: step into the
+    // scene and he goes wherever you go, so the mirror shows him wherever you are.)
     const sSnow = new Builder();
     const sBits = new Builder();
     buildSnowman(sSnow, sBits, Math.PI - rad(20));
+    this.root.add(this.me);
     this.snowman = [
-      this.add(sSnow, psxMaterial(shared, { map: this.local.snow, vertexColors: true })),
-      this.add(sBits, psxMaterial(shared, { map: this.local.panel, vertexColors: true })),
+      this.add(sSnow, psxMaterial(shared, { map: this.local.snow, vertexColors: true }), 0, this.me),
+      this.add(sBits, psxMaterial(shared, { map: this.local.panel, vertexColors: true }), 0, this.me),
     ];
 
-    this.add(body, psxMaterial(shared, { map: this.local.panel, vertexColors: true }));
-    this.add(wood, psxMaterial(shared, { map: this.tex.wood, vertexColors: true }));
+    // the posts, the machine, the shelter, the poles and the crate are all things to walk into
+    const bodyMesh = this.add(body, psxMaterial(shared, { map: this.local.panel, vertexColors: true }));
+    const woodMesh = this.add(wood, psxMaterial(shared, { map: this.tex.wood, vertexColors: true }));
+    this.solids.push(() => this.ground.add(bodyMesh).add(woodMesh));
     this.add(snow, psxMaterial(shared, { map: this.local.snow, vertexColors: true }));
     this.add(railB, psxMaterial(shared, { map: this.local.rail, twoSided: true }));
 
@@ -874,7 +1069,11 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   private buildTruck() {
     this.truck = buildTruck(this.engine.shared, { panel: this.local.panel, parcel: this.local.parcel, white: this.tex.white });
     for (const t of this.truck.textures) this.own(t);
-    this.root.add(this.truck.group);
+    // The model's nose points down its own +z; things that are driven point down -z.
+    // So it rides, turned about, in a carrier, and it is the carrier that is moved.
+    this.truck.group.rotation.y = Math.PI;
+    this.carrier.add(this.truck.group);
+    this.root.add(this.carrier);
     this.ids.head = [this.glows.add(0, 0, 0, 0.55, [0, 0, 0]), this.glows.add(0, 0, 0, 0.55, [0, 0, 0])];
     this.ids.tail = [this.glows.add(0, 0, 0, 0.3, [0, 0, 0]), this.glows.add(0, 0, 0, 0.3, [0, 0, 0])];
     this.ids.blink = [0, 1, 2, 3].map(() => this.glows.add(0, 0, 0, 0.42, [0, 0, 0]));
@@ -907,8 +1106,28 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     const still = !this.engine.settings.motion;
     const ease = (v: number, to: number, rate: number) => (still ? to : v + (to - v) * (1 - Math.exp(-dt * rate)));
 
+    const e = this.engine;
+    const walking = e.exploring;
+    const atWheel = walking && this.drive.vehicle.occupied;
+    // what lies beyond the frame is only drawn for somebody out in it (or flying about to look)
+    const beyond = walking || e.free.on;
+    if (beyond) this.ground.ensure();
+    this.field.visible = beyond;
+    this.deck.visible = !beyond;
+
     this.placeTruck();
-    const outOfHead = this.tmp.set(0, 1.86, 0).distanceTo(this.engine.camera.position) > 0.75;
+    // the snowman stands where you stand; at the wheel he is in the cab, out of sight
+    const me = this.me;
+    if (walking) {
+      const pl = e.player;
+      me.position.set(pl.x, pl.y, pl.z);
+      me.rotation.y = rad(20 - pl.yaw);
+    } else {
+      me.position.set(0, 0, 0);
+      me.rotation.y = 0;
+    }
+    me.visible = !atWheel;
+    const outOfHead = this.tmp.set(me.position.x, me.position.y + 1.86, me.position.z).distanceTo(e.camera.position) > 0.75;
     for (const m of this.snowman) m.visible = outOfHead;
     this.tracks.geometry.setDrawRange(0, Number.isFinite(this.trackCount) ? this.trackCount : Infinity);
     if (!this.parked) this.trackCount = Math.floor(this.truckK * 44) * 24;
@@ -923,12 +1142,13 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.beams = Math.max(0, this.beams - dt * 1.6);
     const high = this.beams > 0 ? (Math.sin(this.beams * 21) > -0.2 ? 1.5 : 0) : 0;
 
-    // hazard lamps: on, off, on, off, with the relay ticking
+    // hazard lamps: on, off, on, off, with the relay ticking (not while it is being driven)
     let haz = 0;
-    if (truckOn && this.parked) {
+    if (truckOn && this.parked && !atWheel) {
       this.hazT += dt;
       const on = this.hazT % 0.86 < 0.43;
-      if (on !== this.hazOn && dt > 0) this.click(on ? 2600 : 1900, 0.035);
+      // (the relay is a small sound: it does not carry to somebody who has walked off)
+      if (on !== this.hazOn && dt > 0 && this.truckPos.distanceTo(e.camera.position) < 30) this.click(on ? 2600 : 1900, 0.035);
       this.hazOn = on;
       haz = on ? 1 : 0;
     }
@@ -966,9 +1186,10 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     // the hazards light the snow beside it
     const flank = this.tmp.copy(this.truckPos).addScaledVector(this.truckSide, 1.5).setY(this.truckPos.y + 0.7);
     pointLight(u, 2, flank.x, flank.y, flank.z, 9, 1.5 * haz, 0.68 * haz, 0.14 * haz);
-    if (this.present && dt > 0 && this.r() < dt * 2.4) {
-      const e = this.tmp.copy(T.exhaust).applyMatrix4(g.matrixWorld);
-      this.puffs.spawn({ x: e.x, y: e.y, z: e.z, vx: -this.truckFwd.x * 0.5 + 0.1, vy: 0.35 + this.r() * 0.2, vz: -this.truckFwd.z * 0.5, life: 2.2 + this.r() * 1.4, size: 0.2, grow: 4, color: [0.5, 0.52, 0.6], fade: [0.25, 0.28, 0.36], alpha: 0.2, drag: 0.5, wander: 0.2 });
+    // (it smokes more when it is being made to work)
+    if (this.present && dt > 0 && this.r() < dt * (2.4 + (atWheel ? Math.abs(this.drive.vehicle.throttle) * 9 : 0))) {
+      const x = this.tmp.copy(T.exhaust).applyMatrix4(g.matrixWorld);
+      this.puffs.spawn({ x: x.x, y: x.y, z: x.z, vx: -this.truckFwd.x * 0.5 + 0.1, vy: 0.35 + this.r() * 0.2, vz: -this.truckFwd.z * 0.5, life: 2.2 + this.r() * 1.4, size: 0.2, grow: 4, color: [0.5, 0.52, 0.6], fade: [0.25, 0.28, 0.36], alpha: 0.2, drag: 0.5, wander: 0.2 });
     }
 
     // the street lamps: the one on the pole and the one behind your shoulder
@@ -987,7 +1208,9 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.updateCans(dt);
 
     // every light at the bend out: the dark the tower is waiting for
-    const allOut = this.parked && !this.lights.truck && !this.lights.lamp && !this.lights.machine;
+    // (a truck that has been driven off down the road is not a light at the bend, whatever its lamps are doing)
+    const gone = this.truckPos.distanceToSquared(this.tmp.set(PARK[0], 0, PARK[1])) > 60 * 60;
+    const allOut = this.parked && (!this.lights.truck || gone) && !this.lights.lamp && !this.lights.machine;
     this.dark = allOut ? this.dark + dt : 0;
     this.darkK = ease(this.darkK, allOut ? 1 : 0, 0.7);
     if (this.dark > 4 && this.relight < 0 && allOut) {
@@ -1013,15 +1236,22 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       this.glows.setColor(l.id, 1.2 * on, 0.58 * on, 0.19 * on);
     }
     for (const w of this.town) {
-      const on = clamp((this.townOn - w.order * 0.8) * 5) * (0.9 + 0.1 * noise2(time * 0.7, w.order * 91, 3));
+      const on = w.hide && beyond ? 0 : clamp((this.townOn - w.order * 0.8) * 5) * (0.9 + 0.1 * noise2(time * 0.7, w.order * 91, 3));
       this.glows.setColor(w.id, w.color[0] * on, w.color[1] * on, w.color[2] * on);
     }
     const pk = this.lampsOn > 3 ? 1 : 0;
     this.glows.setColor(this.ids.portal, 1.1 * pk, 0.55 * pk, 0.2 * pk);
     this.updateTrain(dt);
-    this.updateCar(dt);
-    this.updateFox(dt, time);
+    this.updateCar(dt, time);
+    if (walking && this.tag.mode === 'home' && this.fox.state === 'sit') this.tag.mode = 'tag';
+    if (walking && this.tag.mode !== 'home') this.updateFoxAfoot(dt, time);
+    else this.updateFox(dt, time);
+    this.afield?.update(dt, time, beyond);
 
+    // the page scrolled down: the snow sets in with the cloud
+    const storm = this.timeline ? 0 : this.driftK;
+    this.heavy.object.visible = storm > 0.02;
+    this.heavy.material.uniforms.uAmount.value = storm * this.snowAmt;
     this.snow.material.uniforms.uAmount.value = this.snowAmt;
     this.gate.energy = this.tower.awake > 0.6 ? 0.25 : 0;
     this.gate.update(dt, time);
@@ -1076,10 +1306,26 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   }
 
   /** A pair of headlamps working its way down the zigzag, and back up again. */
-  private updateCar(dt: number) {
+  private updateCar(dt: number, time: number) {
     const c = this.car;
     const pts = this.road;
     const total = pts[pts.length - 1].s;
+    const e = this.engine;
+    if (e.exploring || e.free.on) {
+      // Met on the road it is a thing with a shape (the plough: see afield.ts),
+      // which keeps to the road as it is driven and waits for anybody in its way.
+      const v = e.explore.vehicle;
+      const who = e.exploring ? (v ? v : e.player) : null;
+      const p = this.afield.ploughAt(c.s, c.dir, time, who);
+      if (!p.wait) c.s += dt * (e.exploring ? 15 : 21) * c.dir;
+      if (c.s > total - 40) c.dir = -1;
+      if (c.s < 60) c.dir = 1;
+      this.glows.setPos(c.ids[0], p.head.x, p.head.y, p.head.z);
+      this.glows.setColor(c.ids[0], 1.25, 1.2, 1.0);
+      this.glows.setPos(c.ids[1], p.tail.x, p.tail.y, p.tail.z);
+      this.glows.setColor(c.ids[1], 0.95, 0.1, 0.07);
+      return;
+    }
     c.s += dt * 21 * c.dir;
     if (c.s > total - 40) c.dir = -1;
     if (c.s < 60) c.dir = 1;
@@ -1190,7 +1436,163 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     if (dt > 0 && this.r() < dt * 7) this.engine.audio.noise({ dur: 0.02, gain: 0.02, type: 'lowpass', f: 700, pan: 0.2 });
   }
 
+  /* ---- out in the scene ---- */
+
+  /** Every frame while somebody is out in the scene, on foot or at the wheel. */
+  private walkTick(dt: number, pl: Player, v: Vehicle | null) {
+    const e = this.engine;
+    const t = this.drive.vehicle;
+    const driving = v === t;
+    this.drive.tick(dt, driving);
+    this.afield.tick(dt, pl, v);
+    if (driving) {
+      if (!this.afoot.told) {
+        // first time at the wheel: what the job is, and where the way down starts
+        this.afoot.told = true;
+        this.lights.truck = true;
+        e.hud.toast('Three parcels for the town below', 7);
+        e.hud.toast('The way down is past the shelter', 7);
+        e.hud.toast('Space twice: the horn', 7);
+        this.afield.showManifest(10);
+      }
+      return;
+    }
+    // the truck is in the way like anything else
+    const hr = rad(t.heading);
+    const dx = pl.x - t.x;
+    const dz = pl.z - t.z;
+    const along = dx * Math.sin(hr) - dz * Math.cos(hr);
+    const side = dx * Math.cos(hr) + dz * Math.sin(hr);
+    const [hw, hl] = [t.o.half[0] + 0.3, t.o.half[1] + 0.3];
+    if (this.present && Math.abs(along) < hl && Math.abs(side) < hw && pl.y < t.y + 1.7 && pl.y > t.y - 1.6) {
+      if (hw - Math.abs(side) < hl - Math.abs(along)) {
+        const k = (hw - Math.abs(side)) * (side < 0 ? -1 : 1);
+        pl.x += Math.cos(hr) * k;
+        pl.z += Math.sin(hr) * k;
+      } else {
+        const k = (hl - Math.abs(along)) * (along < 0 ? -1 : 1);
+        pl.x += Math.sin(hr) * k;
+        pl.z -= Math.cos(hr) * k;
+      }
+    }
+    // snow underfoot
+    const moved = Math.hypot(pl.vx, pl.vz) * dt;
+    if (pl.onGround && moved > 0) {
+      this.afoot.stride += moved;
+      if (this.afoot.stride > (e.controls.run ? 1.55 : 0.95)) {
+        this.afoot.stride = 0;
+        e.audio.noise({ dur: 0.075, gain: 0.03, type: 'bandpass', f: 1000 + Math.random() * 700, q: 0.8 });
+        e.audio.noise({ dur: 0.05, gain: 0.022, type: 'lowpass', f: 320, at: 0.012 });
+      }
+    }
+    // (falling out of the world is not the end of anything: back to the last place stood on)
+    const s = this.afoot.safe;
+    if (pl.onGround && pl.y > FLOOR - 6) {
+      s.t += dt;
+      if (s.t > 0.8) Object.assign(s, { x: pl.x, y: pl.y, z: pl.z, t: 0 });
+    }
+    if (pl.y < FLOOR - 40) pl.place(s.x, s.y + 0.5, s.z, pl.yaw);
+  }
+
+  /** The fox when somebody is on foot. It tags along at a few paces, sits when
+   *  they stop, and watches them. Spoken to, it sets off for the shrine up the
+   *  mountain, waiting at each turn of the way for whoever it is leading. */
+  private updateFoxAfoot(dt: number, time: number) {
+    const f = this.fox;
+    const m = this.foxModel;
+    if (f.state !== 'sit') {
+      // (it had already gone off on business of its own)
+      this.updateFox(dt, time);
+      return;
+    }
+    const tg = this.tag;
+    const e = this.engine;
+    const pl = e.player;
+    const g = m.group.position;
+    const riding = !!e.explore.vehicle;
+    const toYou = Math.hypot(pl.x - g.x, pl.z - g.z);
+    let tx = g.x;
+    let tz = g.z;
+    let stop = 0.3;
+    let speed = 5.4;
+    if (tg.mode === 'tag') {
+      if (!riding && toYou < 70 && Math.abs(pl.y - g.y) < 14) {
+        if (toYou > 4.6) [tx, tz, stop, speed] = [pl.x, pl.z, 2.7, toYou > 11 ? 8.6 : 5.4];
+      } else {
+        // left behind (nothing on four legs keeps up with a truck): back to its seat
+        [tx, tz] = FOX_HOME;
+        if (Math.hypot(tx - g.x, tz - g.z) < 0.4) {
+          if (tg.moving || Math.abs(g.x - FOX_HOME[0]) > 0.01) this.seatFox();
+          tg.moving = false;
+          this.watch(dt, time);
+          return;
+        }
+      }
+    } else if (tg.mode === 'lead') {
+      const way = this.afield.shrine.way;
+      const p = way[tg.leg];
+      [tx, tz, speed] = [p.x, p.z, 6.4];
+      if (Math.hypot(p.x - g.x, p.z - g.z) < 0.5) {
+        if (tg.leg === way.length - 1) {
+          tg.mode = 'shrine';
+          m.group.rotation.set(0, this.afield.shrine.seatYaw, 0);
+        } else if (toYou < 9) {
+          tg.leg++;
+          tg.wait = 0;
+        } else if ((tg.wait += dt) > 45) tg.mode = 'tag';               // nobody is coming
+      }
+    }
+    const dx = tx - g.x;
+    const dz = tz - g.z;
+    const d = Math.hypot(dx, dz);
+    let moving = false;
+    if (d > stop) {
+      const step = Math.min(speed * dt, d - stop * 0.8);
+      const p = { x: g.x + (dx / d) * step, z: g.z + (dz / d) * step };
+      // (tree trunks are in its way; rails and fences it slips under)
+      this.ground.push(p, g.y, 0.2, []);
+      // (it will not jump off anything)
+      const y = this.ground.floor(p.x, p.z, g.y + 1.3);
+      if (y > g.y - 2.4) {
+        g.set(p.x, y, p.z);
+        m.group.rotation.set(0, Math.atan2(dx, dz), 0);
+        moving = true;
+      }
+    }
+    if (moving !== tg.moving) {
+      tg.moving = moving;
+      m.sit.visible = !moving;
+      m.run.visible = moving;
+      m.head.position.set(0, moving ? 0.38 : 0.49, moving ? 0.27 : 0.1);
+      m.head.rotation.set(0, 0, 0);
+    }
+    if (moving) {
+      const swing = Math.sin(time * 14) * 0.75;
+      m.legsA.children.forEach((c) => (c.rotation.x = swing));
+      m.legsB.children.forEach((c) => (c.rotation.x = -swing));
+      m.tail.rotation.x = Math.sin(time * 7) * 0.15;
+      if (dt > 0 && toYou < 25 && Math.random() < dt * 7) e.audio.noise({ dur: 0.02, gain: 0.02, type: 'lowpass', f: 700 });
+    } else this.watch(dt, time);
+    f.pos.set(g.x, g.y + 0.3, g.z);
+  }
+
+  /** Sitting, the fox keeps its eyes on whoever is about. */
+  private watch(dt: number, time: number) {
+    const f = this.fox;
+    const m = this.foxModel;
+    const cam = this.engine.camera.position;
+    const g = m.group;
+    const want = wrap(Math.atan2(cam.x - g.position.x, cam.z - g.position.z) - g.rotation.y);
+    // it turns its head as far as a head goes, and after that shuffles round
+    if (Math.abs(want) > 1.9 && this.tag.mode !== 'shrine') g.rotation.y += Math.sign(want) * dt * 2.5;
+    f.yaw += (clamp(want, -2.1, 2.1) - f.yaw) * (1 - Math.exp(-dt * 10));
+    f.pitch = clamp((g.position.y + 0.5 - cam.y) * 0.22, -0.45, 0.3);
+    m.head.rotation.set(f.pitch, f.yaw, Math.sin(time * 0.6) * 0.04);
+    f.pos.set(g.position.x, g.position.y + 0.3, g.position.z);
+  }
+
   hud(hud: Hud) {
+    this.afield?.hud(hud);
     this.radio.hud(hud);
     if (this.engine.inScope) {
       const msg = this.engine.touch ? 'Tap to step back' : 'Click to step back';

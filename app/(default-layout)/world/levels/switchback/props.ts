@@ -35,6 +35,10 @@ export interface Truck {
   blink: ShaderMaterial;
   cab: ShaderMaterial;
   cones: ShaderMaterial;
+  /** the load, top one first: each is hidden as it is delivered */
+  parcels: Mesh[];
+  /** dashboard, wheel and passenger: shown only from the driver's seat */
+  cabin: Mesh[];
   /** places on the truck, in its own space (+z is forward) */
   lampsFront: Vector3[];
   lampsRear: Vector3[];
@@ -94,10 +98,30 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
   // parcels still to deliver, by the tailgate
   const p = new Builder();
   const card: RGB = [1, 0.96, 0.9];
-  p.reset().translate(-0.3, 0.67, -1.26).box(0.5, 0.36, 0.46, card, card, 2);
-  p.reset().translate(0.3, 0.67, -1.3).rotateY(0.2).box(0.42, 0.3, 0.4, card, card, 2.4);
-  p.reset().translate(-0.27, 1.03, -1.27).rotateY(-0.35).box(0.36, 0.26, 0.34, card, card, 2.8);
-  const parcels = new Mesh(p.build(), psxMaterial(shared, { map: tex.parcel, vertexColors: true }));
+  // (three meshes, so that each can leave the truck when it is delivered)
+  const parcelMat = psxMaterial(shared, { map: tex.parcel, vertexColors: true });
+  const parcels = [
+    new Mesh(p.reset().translate(-0.27, 1.03, -1.27).rotateY(-0.35).box(0.36, 0.26, 0.34, card, card, 2.8).build(), parcelMat),
+    new Mesh(new Builder().translate(0.3, 0.67, -1.3).rotateY(0.2).box(0.42, 0.3, 0.4, card, card, 2.4).build(), parcelMat),
+    new Mesh(new Builder().translate(-0.3, 0.67, -1.26).box(0.5, 0.36, 0.46, card, card, 2).build(), parcelMat),
+  ];
+  // Inside the cab (never seen from outside: the windows are painted): a dash,
+  // a wheel on the right, and on the left the driver, who has shuffled over.
+  const inside = new Builder();
+  inside.reset().translate(0, 1.02, 1.5).box(1.36, 0.16, 0.26, dark);
+  inside.reset().translate(-0.33, 1.2, 1.36).rotateX(-0.5).prism(0.17, 0.17, 0.03, 8, { color: [0.07, 0.07, 0.08], capTop: true, capBottom: true });
+  // the screen pillars, the roof lining and the doors up to the sill, to look out past
+  const trim: RGB = [0.2, 0.21, 0.25];
+  inside.reset();
+  for (const s of [-1, 1]) {
+    inside.quad([s * 0.75, 1.14, 1.66], [s * 0.66, 1.14, 1.6], [s * 0.6, 1.78, 1.31], [s * 0.69, 1.78, 1.37], [0, 0, 1, 1], trim);
+    inside.quad([s * 0.74, 0.42, 0.36], [s * 0.74, 0.42, 1.63], [s * 0.74, 1.16, 1.63], [s * 0.74, 1.16, 0.36], [0, 0, 1, 1], dark, dark, trim, trim);
+  }
+  inside.quad([-0.69, 1.78, 0.4], [0.69, 1.78, 0.4], [0.69, 1.78, 1.37], [-0.69, 1.78, 1.37], [0, 0, 1, 1], trim);
+  inside.quad([-0.7, 1.7, 1.39], [0.7, 1.7, 1.39], [0.69, 1.78, 1.35], [-0.69, 1.78, 1.35], [0, 0, 1, 1], dark);
+  const mate = new Builder();
+  buildSnowman(mate, inside, Math.PI + 0.6, 0.36, 0.42, 1.05, 0.5, [0.2, 0.62, 0.6]);
+  const cabin = [new Mesh(inside.build(), psxMaterial(shared, { map: tex.panel, vertexColors: true, twoSided: true })), new Mesh(mate.build(), psxMaterial(shared, { map: tex.white, vertexColors: true, tint: [0.9, 0.94, 1.02] }))];
 
   const quad = (bd: Builder, a: [number, number, number], c: [number, number, number]) => {
     // an axis-aligned rectangle between two opposite corners (one axis is flat)
@@ -145,11 +169,13 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
   coneMesh.renderOrder = 13;
 
   const group = new Group();
-  for (const m of [body, parcels, new Mesh(h.build(), head), new Mesh(t.build(), tail), new Mesh(k.build(), blink), new Mesh(w.build(), cab), coneMesh]) {
+  for (const m of [body, ...parcels, ...cabin, new Mesh(h.build(), head), new Mesh(t.build(), tail), new Mesh(k.build(), blink), new Mesh(w.build(), cab), coneMesh]) {
     m.frustumCulled = false;
     group.add(m);
   }
-  return { group, head, tail, blink, cab, cones, lampsFront, lampsRear, blinkers, exhaust: new Vector3(-0.45, 0.26, -1.74), textures: [win] };
+  // the cab's fittings are only worth drawing for somebody sitting in it
+  for (const m of cabin) m.visible = false;
+  return { group, head, tail, blink, cab, cones, parcels, cabin, lampsFront, lampsRear, blinkers, exhaust: new Vector3(-0.45, 0.26, -1.74), textures: [win] };
 }
 
 /* ---- the fox ---------------------------------------------------------------- */
@@ -237,20 +263,21 @@ export function buildFox(shared: Uniforms, map: Texture): Fox {
 
 /** Who is standing where you stand. From inside his head there is nothing to
  *  see of him; the traffic mirror gives him away. */
-export function buildSnowman(snow: Builder, bits: Builder, facing: number) {
+export function buildSnowman(snow: Builder, bits: Builder, facing: number, x = 0, y = 0, z = 0, size = 1, scarf: RGB = EMBER) {
   const s: RGB = [1.0, 1.05, 1.15];
   const sTop: RGB = [1.12, 1.16, 1.26];
-  snow.reset().translate(0, 0.5, 0).blob(0.56, { seed: 21, jitter: 0.06, detail: 1, squash: [1, 0.92, 1], color: s, colorTop: sTop, uvScale: 1.5 });
-  snow.reset().translate(0, 1.26, 0).blob(0.41, { seed: 22, jitter: 0.06, detail: 1, squash: [1, 0.92, 1], color: s, colorTop: sTop, uvScale: 1.5 });
-  snow.reset().translate(0, 1.86, 0).blob(0.29, { seed: 23, jitter: 0.05, detail: 1, color: s, colorTop: sTop, uvScale: 1.5 });
-  const at = () => bits.reset().rotateY(facing);
+  const base = (b: Builder) => b.reset().translate(x, y, z).scale(size);
+  base(snow).translate(0, 0.5, 0).blob(0.56, { seed: 21, jitter: 0.06, detail: 1, squash: [1, 0.92, 1], color: s, colorTop: sTop, uvScale: 1.5 });
+  base(snow).translate(0, 1.26, 0).blob(0.41, { seed: 22, jitter: 0.06, detail: 1, squash: [1, 0.92, 1], color: s, colorTop: sTop, uvScale: 1.5 });
+  base(snow).translate(0, 1.86, 0).blob(0.29, { seed: 23, jitter: 0.05, detail: 1, color: s, colorTop: sTop, uvScale: 1.5 });
+  const at = () => base(bits).rotateY(facing);
   // coal for eyes and a smile, a scarf in the company colour, twigs for arms, a bucket for a hat
   const coal: RGB = [0.05, 0.05, 0.06];
   for (const sx of [-0.1, 0.1]) at().translate(sx, 1.93, 0.255).box(0.05, 0.05, 0.04, coal);
   for (let i = -2; i <= 2; i++) at().translate(i * 0.05, 1.78 - Math.abs(i) * -0.012, 0.265 - Math.abs(i) * 0.012).box(0.03, 0.03, 0.03, coal);
   at().translate(0, 1.85, 0.28).box(0.045, 0.045, 0.05, EMBER);
-  at().translate(0, 1.6, 0).prism(0.3, 0.27, 0.11, 8, { color: EMBER, colorTop: EMBER });
-  at().translate(0.2, 1.3, 0.22).rotateZ(-0.15).box(0.1, 0.34, 0.04, EMBER);
+  at().translate(0, 1.6, 0).prism(0.3, 0.27, 0.11, 8, { color: scarf, colorTop: scarf });
+  at().translate(0.2, 1.3, 0.22).rotateZ(-0.15).box(0.1, 0.34, 0.04, scarf);
   for (const sx of [-1, 1]) at().translate(sx * 0.36, 1.32, 0).rotateZ(-sx * 1.1).prism(0.02, 0.008, 0.62, 4, { color: [0.3, 0.22, 0.18] });
   at().translate(0, 2.08, 0).rotateZ(0.12).prism(0.2, 0.16, 0.24, 8, { color: [0.38, 0.42, 0.5], colorTop: [0.6, 0.64, 0.72], capTop: true });
 }

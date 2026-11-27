@@ -1,20 +1,26 @@
-// What the world remembers between visits: whether you wanted sound, and
-// which worlds' signals you have answered. Kept in the browser; if storage is
-// blocked it simply forgets.
+// What the world remembers between visits: whether you wanted sound, which
+// worlds' signals you have answered, and any small things a world wants to
+// keep for itself. Kept in the browser; if storage is blocked it simply forgets.
 const KEY = 'world.v1';
 
 interface Saved {
   sound: boolean;
   signals: string[];
+  /** by world: things it has asked to be remembered */
+  notes: Record<string, string[]>;
 }
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
 
 function read(): Saved {
   try {
     const raw = window.localStorage.getItem(KEY);
     const v = raw ? (JSON.parse(raw) as Partial<Saved>) : {};
-    return { sound: v.sound === true, signals: Array.isArray(v.signals) ? v.signals.filter((s) => typeof s === 'string') : [] };
+    const notes: Record<string, string[]> = {};
+    if (v.notes && typeof v.notes === 'object') for (const [world, list] of Object.entries(v.notes)) notes[world] = strings(list);
+    return { sound: v.sound === true, signals: strings(v.signals), notes };
   } catch {
-    return { sound: false, signals: [] };
+    return { sound: false, signals: [], notes: {} };
   }
 }
 
@@ -52,8 +58,21 @@ export const store = {
     const have = read().signals;
     return worlds.every((w) => have.includes(w));
   },
+  /** The small things a world has asked to have remembered (a round finished, something found). */
+  notes(world: string): string[] {
+    return read().notes[world] ?? [];
+  },
+  /** Remember something for a world. It is that world's business what the words mean. */
+  note(world: string, what: string) {
+    const v = read();
+    const have = v.notes[world] ?? [];
+    if (have.includes(what)) return;
+    v.notes[world] = [...have, what];
+    write(v);
+  },
+  /** Forget every signal answered and everything the worlds have kept. */
   forget() {
-    write({ ...read(), signals: [] });
+    write({ ...read(), signals: [], notes: {} });
   },
   /** This world's opening has been shown in this tab already. */
   seen(world: string) {
