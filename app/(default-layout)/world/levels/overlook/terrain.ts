@@ -16,9 +16,21 @@ export const PATH: [number, number][] = [
   [-14, -36], [-21, -58], [-17, -86], [-7, -112], [3, -138], [9, -164], [12, -188], [13, -203],
 ];
 
-/** z of the cliff edge for a given x. */
+/** z of the cliff edge for a given x. (The west flank of the spur was carried out
+ *  the best part of a metre, to give the camp's fire some ledge to stand on.) */
 export function brinkZ(x: number) {
-  const spur = smooth(1.2, 5.5, x) * (1 - smooth(26, 44, x));
+  return brink(x, 0.3, 4.75);
+}
+
+/** The cliff edge as the land was first laid out. Everything that was scattered
+ *  along the edge by rule (rocks, grass, pines) still goes by this line, so that
+ *  moving the edge has moved none of it. */
+export function brinkZ0(x: number) {
+  return brink(x, 1.2, 5.5);
+}
+
+function brink(x: number, from: number, to: number) {
+  const spur = smooth(from, to, x) * (1 - smooth(26, 44, x));
   const shoulder = smooth(-2.5, -8, x);
   return -3.4 - 14 * spur - 7.5 * shoulder + (noise2(x * 0.21, 3.7, 11) - 0.5) * 1.6;
 }
@@ -33,7 +45,16 @@ function topHeight(x: number, z: number) {
 }
 
 export function heightAt(x: number, z: number) {
-  const bz = brinkZ(x);
+  return heightWith(x, z, brinkZ);
+}
+
+/** The land as it was first laid out (see brinkZ0). */
+export function heightAt0(x: number, z: number) {
+  return heightWith(x, z, brinkZ0);
+}
+
+function heightWith(x: number, z: number, edge: (x: number) => number) {
+  const bz = edge(x);
   const e = bz - z;
   const detail = fbm(x * 0.045, z * 0.045, 5, 4) - 0.5;
   let y: number;
@@ -77,6 +98,22 @@ function distToPath(x: number, z: number) {
     best = Math.min(best, Math.hypot(x - ax - dx * t, z - az - dz * t));
   }
   return best;
+}
+
+/** What the land is made of at a spot, for whoever is walking or driving over it. (The same rules as
+ *  the colours it is painted with, below.) `fire` is where the camp's fire is. */
+export function groundAt(x: number, z: number, fire: [number, number]): 'sand' | 'rock' | 'dirt' | 'grass' | 'water' {
+  const y = heightAt(x, z);
+  if (y < SEA - 0.25) return 'water';
+  if (y < SEA + 1.8) return 'sand';
+  const d = 0.7;
+  const sx = (heightAt(x + d, z) - heightAt(x - d, z)) / (2 * d);
+  const sz = (heightAt(x, z + d) - heightAt(x, z - d)) / (2 * d);
+  if (1 - 1 / Math.sqrt(1 + sx * sx + sz * sz) > 0.3) return 'rock';
+  const r = Math.hypot(x, z);
+  if (Math.hypot(x - fire[0], z - fire[1]) < 2.6) return 'dirt';
+  if (r > 20 && r < 260 && distToPath(x, z) < 1.7) return 'dirt';
+  return 'grass';
 }
 
 const C = {
@@ -223,6 +260,8 @@ export function buildSea(): BufferGeometry {
   return g;
 }
 
+const heightNow = heightAt;
+
 export interface Tree {
   x: number;
   y: number;
@@ -238,9 +277,12 @@ export interface Tree {
 export function plantPines(): Tree[] {
   const r = rng(2024);
   const out: Tree[] = [];
+  // (where they stand is decided on the land as it was first laid out, so the forest is the one it always was)
+  const heightAt = heightAt0;
+  const brinkZ = brinkZ0;
   const add = (x: number, z: number, h: number) => {
     const k = 0.78 + r() * 0.3;
-    out.push({ x, z, y: heightAt(x, z) - 0.25, h, w: 0.85 + r() * 0.35, rot: r() * TAU, tint: [k * (0.95 + r() * 0.1), k, k * (0.95 + r() * 0.12)] });
+    out.push({ x, z, y: heightNow(x, z) - 0.25, h, w: 0.85 + r() * 0.35, rot: r() * TAU, tint: [k * (0.95 + r() * 0.1), k, k * (0.95 + r() * 0.12)] });
   };
   // the left shoulder and the back of the spur: the frame around the view
   const framing: [number, number, number][] = [

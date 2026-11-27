@@ -13,7 +13,7 @@
 // again when they step back (see explore()).
 import { type BufferAttribute, type Group, Mesh, type ShaderMaterial, Vector3 } from 'three';
 import { pointLight } from '../../engine/atmos';
-import { Builder } from '../../engine/builder';
+import { Builder, type V3 } from '../../engine/builder';
 import type { Engine, Interactable } from '../../engine/engine';
 import { G, runeRows } from '../../engine/font';
 import type { FlameBatch, GlowBatch, Particles } from '../../engine/fx';
@@ -29,20 +29,49 @@ import { WORLDS } from '../../engine/worlds';
 import { SEA, brinkZ, heightAt } from './terrain';
 
 /** The cabin by the shore. Its shell is built with the valley's other
- *  woodwork (same outside as ever); its inside is built here. */
-export const CABIN = { x: -5, z: -183, yaw: 0.25, w: 7, h: 3.4, d: 5.5, wall: 0.25, floor: 0.8, door: [-0.3, 1.0] as [number, number] };
+ *  woodwork (from the camp it is the dark hut with a light on that it always
+ *  was); its inside is built here. Lengths are in its own frame: x along it,
+ *  z toward the camp, y up from its footing. */
+export const CABIN = {
+  x: -5, z: -183, yaw: 0.25, w: 7, h: 3.4, d: 5.5, wall: 0.25, floor: 0.8,
+  /** the doorway in the east wall: from z to z */
+  door: [-0.3, 1.0] as [number, number],
+  /** the window in the south wall: from x to x, and from y to y */
+  win: { x: [-0.25, 0.95] as [number, number], y: [1.55, 2.5] as [number, number] },
+  /** half the width of the roof at its eaves, and how high it rises */
+  eave: 5.6 * Math.SQRT1_2, rise: 2.6,
+};
 export const cabinY = () => heightAt(CABIN.x, CABIN.z) - 0.3;
+/** A point given in the cabin's own frame, in the world. */
+export function cabinPoint(lx: number, ly: number, lz: number) {
+  const cs = Math.cos(CABIN.yaw);
+  const sn = Math.sin(CABIN.yaw);
+  return new Vector3(CABIN.x + lx * cs + lz * sn, cabinY() + ly, CABIN.z - lx * sn + lz * cs);
+}
 
-/** The cabin's four walls, with a doorway in the east one (the side turned
- *  away from the camp, toward the trail). */
+/** The cabin from outside: four walls with a doorway in the east one (the side
+ *  turned away from the camp, toward the trail) and a window in the south one,
+ *  corner posts, and the eaves, soffit and stovepipe of its roof. */
 export function cabinShell(wood: Builder) {
-  const { x, z, yaw, w, h, d, wall: T, floor, door } = CABIN;
+  const { x, z, yaw, w, h, d, wall: T, floor, door, win, eave: E, rise } = CABIN;
   const a: RGB = [0.55, 0.5, 0.48];
   const b: RGB = [0.8, 0.75, 0.7];
+  const mix = (t: number): RGB => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+  const trim: RGB = [0.42, 0.38, 0.37];
+  const trimHi: RGB = [0.6, 0.55, 0.52];
   const at = () => wood.reset().translate(x, cabinY(), z).rotateY(yaw);
-  at().translate(0, 0, d / 2 - T / 2).box(w, h, T, a, b, 0.3);
+  // north and west walls
   at().translate(0, 0, -d / 2 + T / 2).box(w, h, T, a, b, 0.3);
   at().translate(-w / 2 + T / 2, 0, 0).box(T, h, d - 2 * T, a, b, 0.3);
+  // the south wall, round its window
+  const sz = d / 2 - T / 2;
+  const [wx0, wx1] = win.x;
+  const [wy0, wy1] = win.y;
+  at().translate((-w / 2 + wx0) / 2, 0, sz).box(wx0 + w / 2, h, T, a, b, 0.3);
+  at().translate((wx1 + w / 2) / 2, 0, sz).box(w / 2 - wx1, h, T, a, b, 0.3);
+  at().translate((wx0 + wx1) / 2, 0, sz).box(wx1 - wx0, wy0, T, a, mix(wy0 / h), 0.3);
+  at().translate((wx0 + wx1) / 2, wy1, sz).box(wx1 - wx0, h - wy1, T, mix(wy1 / h), b, 0.3);
+  // the east wall, round its doorway
   const ex = w / 2 - T / 2;
   const z0 = -d / 2 + T;
   const z1 = d / 2 - T;
@@ -50,6 +79,91 @@ export function cabinShell(wood: Builder) {
   at().translate(ex, 0, (door[1] + z1) / 2).box(T, h, z1 - door[1], a, b, 0.3);
   at().translate(ex, floor + 2.25, (door[0] + door[1]) / 2).box(T, h - floor - 2.25, door[1] - door[0], b, b, 0.3);
   at().translate(ex, 0, (door[0] + door[1]) / 2).box(T, floor, door[1] - door[0], a, a, 0.3);
+  // posts at the corners, standing a little proud of the walls
+  for (const cx of [-1, 1]) for (const cz of [-1, 1]) at().translate(cx * (w / 2 - 0.1), 0, cz * (d / 2 - 0.1)).box(0.32, h, 0.32, trim, trimHi, 0.5);
+  // the window: a frame, a sill, bars across it and a pair of shutters folded back
+  const wm = (wx0 + wx1) / 2;
+  const ww = wx1 - wx0;
+  const wh = wy1 - wy0;
+  const out = d / 2;
+  at().translate(wm, wy0 - 0.09, out + 0.01).box(ww + 0.3, 0.09, 0.16, trim, trimHi, 1);
+  at().translate(wm, wy1, out).box(ww + 0.2, 0.09, 0.06, trim, trimHi, 1);
+  for (const side of [-1, 1]) at().translate(wm + side * (ww / 2 + 0.045), wy0, out).box(0.09, wh, 0.06, trim, trimHi, 1);
+  at().translate(wm, wy0, out - T / 2).box(0.04, wh, 0.04, trim, trimHi, 1);
+  at().translate(wm, wy0 + wh / 2 - 0.02, out - T / 2).box(ww, 0.04, 0.04, trim, trimHi, 1);
+  for (const side of [-1, 1]) at().translate(wm + side * (ww / 2 + 0.42), wy0 - 0.02, out + 0.02).box(0.56, wh + 0.06, 0.035, [0.4, 0.44, 0.46], [0.56, 0.62, 0.64], 0.9);
+  // boards round the doorway
+  const dm = (door[0] + door[1]) / 2;
+  for (const dz of door) at().translate(w / 2 + 0.01, floor, dz + (dz < dm ? -0.05 : 0.05)).box(0.05, 2.3, 0.1, trim, trimHi, 1);
+  at().translate(w / 2 + 0.01, floor + 2.25, dm).box(0.05, 0.1, door[1] - door[0] + 0.2, trim, trimHi, 1);
+  // under the eaves: a soffit all the way round and a board along the edge, so the roof is a roof from below too
+  const so: RGB = [0.46, 0.42, 0.4];
+  for (const side of [-1, 1]) {
+    at().translate(0, h - 0.05, side * (d / 2 + E) / 2).box(2 * E, 0.05, E - d / 2, so, so, 0.5);
+    at().translate(side * (w / 2 + E) / 2, h - 0.05, 0).box(E - w / 2, 0.05, d, so, so, 0.5);
+    at().translate(0, h - 0.15, side * E).box(2 * E + 0.08, 0.2, 0.07, trim, trimHi, 0.5);
+    at().translate(side * E, h - 0.15, 0).box(0.07, 0.2, 2 * E + 0.08, trim, trimHi, 0.5);
+  }
+  // the stovepipe comes out through the roof, with a hat on it
+  const iron: RGB = [0.32, 0.32, 0.36];
+  const px = -2.55;
+  const pz = -1.85;
+  const through = h + rise * (1 - Math.max(Math.abs(px), Math.abs(pz)) / E);
+  at().translate(px, through - 0.25, pz).prism(0.11, 0.11, 1.3, 6, { color: iron, colorTop: [0.22, 0.22, 0.26] });
+  at().translate(px, through + 1.1, pz).prism(0.22, 0.03, 0.16, 6, { color: iron, colorTop: iron, capBottom: true });
+}
+
+/** The timber ramp that carries the pickup's track from the cliff top down to the valley floor: where it
+ *  leaves the top, where it lands, and how wide its deck is. It is only there while somebody is in the world. */
+export const TRESTLE = { top: [43.9, -3.3] as [number, number], foot: [-45.9, -133.3] as [number, number], width: 5, level: 8, ease: 0.16 };
+/** Pines that would stand in the ramp's way (by their place in plantPines()), to be taken away while it is
+ *  there. As it runs now it clears the tops of all of them, so there are none. */
+export const FELLED: number[] = [];
+/** How far below its head the ramp's deck is, as a share of its whole fall, a given share of the way
+ *  along its slope: it leaves the cliff level, tips over gently, and then runs straight down. */
+const rampFall = (u: number) => (u <= TRESTLE.ease ? (u * u) / (TRESTLE.ease * (2 - TRESTLE.ease)) : (2 * u - TRESTLE.ease) / (2 - TRESTLE.ease));
+/** The pickup's track across the cliff top, from where it is parked round to the head of the ramp. */
+export const TRACK_TOP: [number, number][] = [[17.6, -3.6], [22, 2.6], [29.5, 10.2], [36.5, 15.6], [43, 17.5], [47, 16.4], [49.9, 13.5], [51, 9.5], [49.6, 4.9], [46.6, 0.6]];
+/** ...and along the valley floor, from the foot of the ramp to the trail and down it to the pier. */
+export const TRACK_VALLEY: [number, number][] = [[-45.9, -133.3], [-47.2, -139.2], [-43.8, -144.4], [-39.3, -145.8], [-30, -146], [-20, -145], [-10, -143.2], [-2, -142.6], [3.5, -144.5], [7, -152], [8.8, -162], [10.5, -176], [10.4, -190], [12.2, -199]];
+
+/** A brass-bound telescope on a wooden tripod, standing at (x, y, z) with y the
+ *  ground there. `aim` is the compass bearing it points along, in radians;
+ *  `tilt` how far above level. Legs go into `wood`, the instrument into `metal`. */
+export function buildTelescope(wood: Builder, metal: Builder, x: number, y: number, z: number, aim: number, tilt: number) {
+  const LEG: RGB = [0.75, 0.7, 0.65];
+  const BRASS: RGB = [1.9, 1.42, 0.66];
+  const BRASS_HI: RGB = [2.5, 1.95, 0.98];
+  const TUBE: RGB = [0.9, 0.9, 1];
+  const TUBE_HI: RGB = [1.2, 1.2, 1.3];
+  const DARK_IRON: RGB = [0.55, 0.55, 0.62];
+  // the tripod: three legs meeting under a hub, a spreader a third of the way up, and feet
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * TAU + 0.3;
+    wood.reset().translate(x, y, z).rotateY(a).translate(0.42, 0, 0).rotateZ(0.3).box(0.05, 1.42, 0.05, LEG);
+    wood.reset().translate(x, y + 0.52, z).rotateY(a + Math.PI / 3).translate(0.13, 0, 0).box(0.028, 0.028, 0.46, LEG);
+    metal.reset().translate(x, y - 0.02, z).rotateY(a).translate(0.43, 0, 0).box(0.09, 0.06, 0.09, DARK_IRON);
+  }
+  metal.reset().translate(x, y + 1.27, z).prism(0.075, 0.06, 0.1, 6, { color: DARK_IRON, colorTop: [0.8, 0.8, 0.9], capTop: true, capBottom: true });
+  // the instrument, built along its own length: +Y is the way it points, +Z is its top
+  const at = () => metal.reset().translate(x, y + 1.38, z).rotateY(-aim).rotateX(-(Math.PI / 2 - tilt));
+  // a saddle under it, on the hub
+  at().translate(0, -0.05, -0.15).box(0.1, 0.1, 0.09, BRASS, BRASS_HI);
+  // the tube
+  at().translate(0, -0.38, 0).prism(0.074, 0.094, 1.0, 8, { color: TUBE, colorTop: TUBE_HI, uRepeat: 1, vRepeat: 1, capBottom: true });
+  // the dew shield at the far end, with the glass set a little way in
+  at().translate(0, 0.56, 0).prism(0.108, 0.108, 0.18, 8, { color: [0.74, 0.74, 0.84], colorTop: [0.95, 0.95, 1.05] });
+  at().translate(0, 0.725, 0).prism(0.1, 0.1, 0.004, 8, { color: [0.5, 0.9, 1.5], colorTop: [0.5, 0.9, 1.5], capTop: true });
+  // brass rings round it
+  for (const [ry, rr] of [[0.545, 0.118], [0.12, 0.098], [-0.39, 0.086]] as const) at().translate(0, ry, 0).prism(rr, rr, 0.034, 8, { color: BRASS, colorTop: BRASS_HI, capTop: true, capBottom: true });
+  // the draw tube and the eyepiece
+  at().translate(0, -0.55, 0).prism(0.046, 0.046, 0.17, 6, { color: BRASS, colorTop: BRASS_HI });
+  at().translate(0, -0.63, 0).prism(0.05, 0.058, 0.08, 6, { color: [0.45, 0.45, 0.52], colorTop: DARK_IRON, capBottom: true, capTop: true });
+  // a knob to focus it with
+  at().translate(0.07, -0.3, 0).rotateZ(-Math.PI / 2).prism(0.022, 0.022, 0.07, 5, { color: BRASS, colorTop: BRASS_HI, capTop: true });
+  // a finder on top, on two small stalks
+  at().translate(0, 0.04, 0.135).prism(0.02, 0.024, 0.4, 5, { color: TUBE, colorTop: TUBE_HI, capTop: true, capBottom: true });
+  for (const fy of [0.11, 0.37]) at().translate(0, fy, 0.105).box(0.02, 0.03, 0.05, BRASS, BRASS_HI);
 }
 
 export interface Ctx {
@@ -123,7 +237,6 @@ export class Explore {
   }, false);
   private tmp = new Vector3();
   private last = new Vector3();
-  private walked = 0;
   private stroke = 0;
   private wake = 0;
   private lap = 0;
@@ -144,6 +257,10 @@ export class Explore {
   private swingA = 0;
   private swingV = 0;
   private seated = false;
+  private swingDir = 0;
+  private creak = 2;
+  private lapping = 3;
+  private flap = 4;
   // fishing
   private cast: { t: number; bite: number; x: number; z: number; done: boolean } | null = null;
   private float = 0;
@@ -154,6 +271,15 @@ export class Explore {
   private haul: { t: number; from: Vector3; to: Vector3 } | null = null;
   /** the middle of the head and foot of each flight of the stair, top to bottom (handy for checking it can be walked) */
   readonly stairPath: Vector3[] = [];
+  /** Things made of boards, as boxes lying flat: [middle x, middle z, turn about Y, half width, half length, lowest y, highest y].
+   *  Whoever stands inside one is standing on wood. */
+  private boards: number[][] = [];
+  /** the same, for things made of metal */
+  private plates: number[][] = [];
+  /** the ramp and the pickup's tracks: built the first time somebody steps in, and shown only while they are in */
+  private drive: Mesh[] | null = null;
+  private ramp = { x: 0, z: 0, dx: 0, dz: 1, len: 1, y0: 0, y1: 0 };
+  private rampSign = new Vector3();
 
   constructor(private c: Ctx) {
     const wood = new Builder();
@@ -173,6 +299,19 @@ export class Explore {
     this.buildShore(wood, stone, metal, runes, ground);
     this.buildHeadland(wood, stone, metal, ground);
     this.buildTowerFoot(wood, walk, metal, cloth, runes);
+    // (the sign at the head of the pickup's ramp: the ramp itself is built the first time somebody steps in)
+    {
+      const [tx, tz] = TRESTLE.top;
+      const [fx, fz] = TRESTLE.foot;
+      const len = Math.hypot(fx - tx, fz - tz);
+      const head = Math.atan2((fx - tx) / len, (fz - tz) / len);
+      const sx = tx - ((fx - tx) / len) * 5 + Math.cos(head) * 3.3;
+      const sz = tz - ((fz - tz) / len) * 5 - Math.sin(head) * 3.3;
+      this.rampSign.set(sx, heightAt(sx, sz), sz);
+      this.thing('ramp-sign', 'Read the sign', new Vector3(sx, this.rampSign.y + 1.3, sz), 0.6, () =>
+        this.read('ramp-sign', [['THE OLD LOG RAMP.', 'ONE TRUCK AT A TIME.', 'LOW GEAR. MIND THE EDGE.']], this.rampSign),
+      );
+    }
 
     const shared = c.engine.shared;
     const add = (b: Builder, mat: ShaderMaterial, solid = false) => {
@@ -225,6 +364,7 @@ export class Explore {
     const slab = (x: number, y: number, z: number, w: number, d: number, h = 0.09) => {
       wood.reset().translate(x, y - h, z).box(w, h, d, WOOD_A, WOOD_B, 0.7);
       walk.reset().translate(x, y - h, z).box(w, h, d);
+      this.boards.push([x, z, 0, w / 2 + 0.1, d / 2 + 0.1, y - 0.5, y + 0.6]);
     };
     const post = (x: number, y: number, z: number) => {
       const g = heightAt(x, z) - 0.3;
@@ -314,6 +454,7 @@ export class Explore {
     const ty = heightAt(tx, tz);
     const face = Math.atan2(this.c.fire.x - tx, this.c.fire.z - tz);
     const at = () => b.reset().translate(tx, ty, tz).rotateY(face);
+    at().translate(0, 0.004, -1.46).box(2.2, 0.012, 2.8, [0.3, 0.3, 0.34], [0.38, 0.38, 0.42], 1.2);          // a groundsheet
     at().translate(0.38, 0.01, -1.55).box(0.72, 0.1, 1.9, [0.4, 0.37, 0.42], [0.52, 0.48, 0.52], 1.2);
     at().translate(0.38, 0.11, -2.3).box(0.5, 0.09, 0.32, [0.6, 0.57, 0.55], [0.7, 0.66, 0.62], 1.2);
     at().translate(-0.5, 0.01, -1.9).rotateY(0.3).box(0.24, 0.04, 0.32, [0.5, 0.36, 0.3], [0.62, 0.44, 0.36], 3);
@@ -334,17 +475,44 @@ export class Explore {
   /** The cabin: a floor, a ceiling, a stove, a bunk, a table with a map and
    *  the log, and a step up to the door. */
   private buildCabin(wood: Builder, walk: Builder, inside: Builder, cloth: Builder, ground: (x: number, z: number) => number) {
-    const { x, z, yaw, w, h, d, wall: T, floor, door } = CABIN;
+    const { x, z, yaw, w, h, d, wall: T, floor, door, win } = CABIN;
     const hy = cabinY();
-    const cs = Math.cos(yaw);
-    const sn = Math.sin(yaw);
-    const cab = (lx: number, ly: number, lz: number) => new Vector3(x + lx * cs + lz * sn, hy + ly, z - lx * sn + lz * cs);
+    const cab = cabinPoint;
     const at = (b: Builder) => b.reset().translate(x, hy, z).rotateY(yaw);
     const plank: RGB = [0.5, 0.44, 0.4];
     const plankB: RGB = [0.66, 0.58, 0.52];
-    // floor and ceiling
+    // floor and ceiling, and three beams across under the ceiling
     at(inside).translate(0, floor - 0.12, 0).box(w - 2 * T, 0.12, d - 2 * T, plank, plankB, 0.6);
-    at(inside).translate(0, h - 0.14, 0).box(w - 2 * T, 0.1, d - 2 * T, DARK, DARK, 0.6);
+    at(inside).translate(0, h - 0.14, 0).box(w - 2 * T, 0.1, d - 2 * T, [0.5, 0.45, 0.42], [0.5, 0.45, 0.42], 0.6);
+    for (const bx of [-2.1, 0, 2.1]) at(inside).translate(bx, h - 0.34, 0).box(0.16, 0.2, d - 2 * T, DARK, [0.5, 0.45, 0.42], 0.8);
+    // The walls from inside. The shell's own inner faces are there, but these take the lamplight that is worked
+    // into the room, so that the place is warm to walk into and glows through its window and its door.
+    const X = w / 2 - T - 0.012;
+    const Z = d / 2 - T - 0.012;
+    const lo: RGB = [0.56, 0.5, 0.46];
+    const hi: RGB = [0.76, 0.69, 0.63];
+    const tone = (ly: number): RGB => [lerp(lo[0], hi[0], (ly - floor) / (h - floor)), lerp(lo[1], hi[1], (ly - floor) / (h - floor)), lerp(lo[2], hi[2], (ly - floor) / (h - floor))];
+    // one piece of wall seen from inside: from its bottom-left corner to its bottom-right, between two heights
+    const lining = (ax: number, az: number, bx: number, bz: number, y0 = floor, y1 = h - 0.14) => {
+      const len = Math.hypot(bx - ax, bz - az);
+      const u0 = (Math.abs(ax) + Math.abs(az)) * 0.5;
+      at(inside).quad([ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az], [u0, y0 * 0.5, u0 + len * 0.5, y1 * 0.5], tone(y0), tone(y0), tone(y1), tone(y1));
+    };
+    lining(-X, -Z, X, -Z);                                   // north
+    lining(-X, Z, -X, -Z);                                   // west
+    lining(X, Z, win.x[1], Z);                               // south, either side of the window, under it and over it
+    lining(win.x[0], Z, -X, Z);
+    lining(win.x[1], Z, win.x[0], Z, floor, win.y[0]);
+    lining(win.x[1], Z, win.x[0], Z, win.y[1]);
+    lining(X, -Z, X, door[0]);                               // east, either side of the door and over it
+    lining(X, door[1], X, Z);
+    lining(X, door[0], X, door[1], floor + 2.25);
+    // a lantern hung from the middle beam
+    const iron0: RGB = [0.34, 0.34, 0.38];
+    at(inside).translate(0, h - 0.74, -0.2).box(0.02, 0.4, 0.02, iron0);
+    at(inside).translate(0, h - 0.96, -0.2).prism(0.07, 0.09, 0.22, 5, { color: [1.6, 1.1, 0.5], colorTop: [1.9, 1.4, 0.7], capTop: true, capBottom: true });
+    at(inside).translate(0, h - 0.76, -0.2).prism(0.11, 0.02, 0.06, 5, { color: iron0, capBottom: true });
+    const hung = cab(0, h - 0.85, -0.2);
     // the stove in the far corner, with its pipe
     const iron: RGB = [0.3, 0.3, 0.34];
     at(inside).translate(-2.55, floor, -1.75).box(0.85, 0.85, 0.7, iron, [0.42, 0.42, 0.47], 2);
@@ -362,14 +530,29 @@ export class Explore {
     // on the table: a map pinned flat, and the log
     at(cloth).translate(0.85, floor + 0.795, -1.7).rotateY(0.12).box(0.74, 0.012, 0.56, [0.86, 0.8, 0.66], [0.95, 0.9, 0.76], 2.5);
     at(inside).translate(1.62, floor + 0.79, -1.62).rotateY(-0.25).box(0.26, 0.05, 0.34, [0.5, 0.22, 0.18], [0.66, 0.3, 0.24], 3);
-    // a shelf with jars, and a rug
-    at(inside).translate(0.6, floor + 1.6, 2.32).box(1.8, 0.05, 0.3, plankB, WOOD_B, 1.2);
-    for (const lx of [0.0, 0.4, 0.95, 1.3]) at(inside).translate(lx, floor + 1.65, 2.32).prism(0.07, 0.06, 0.2, 5, { color: [0.5, 0.56, 0.6], colorTop: [0.8, 0.86, 0.9], capTop: true });
+    // a shelf over the table with jars and a few books, and a rug
+    at(inside).translate(1.15, floor + 1.55, -2.34).box(1.7, 0.05, 0.28, plankB, WOOD_B, 1.2);
+    for (const lx of [0.45, 0.72, 1.0]) at(inside).translate(lx, floor + 1.6, -2.34).prism(0.07, 0.06, 0.2, 5, { color: [0.5, 0.56, 0.6], colorTop: [0.8, 0.86, 0.9], capTop: true });
+    [[1.3, 0.3, [0.6, 0.26, 0.22]], [1.38, 0.26, [0.3, 0.42, 0.5]], [1.46, 0.32, [0.62, 0.52, 0.3]], [1.56, 0.28, [0.36, 0.5, 0.36]], [1.72, 0.22, [0.5, 0.3, 0.44]]].forEach(([lx, bh, col]) =>
+      at(inside).translate(lx as number, floor + 1.6, -2.34).box(0.07, bh as number, 0.2, col as RGB, col as RGB, 2));
     at(cloth).translate(0.2, floor + 0.005, 0.35).rotateY(0.1).box(2.1, 0.012, 1.3, [0.42, 0.3, 0.32], [0.55, 0.38, 0.38], 1.6);
-    // the stove's glow on everything in the room
+    // on the stove a kettle, by it a stack of split wood, and by the door a coat on a peg and a pair of boots
+    at(inside).translate(-2.45, floor + 0.85, -1.62).prism(0.13, 0.1, 0.16, 6, { color: [0.5, 0.5, 0.58], colorTop: [0.8, 0.8, 0.9], capTop: true });
+    at(inside).translate(-2.33, floor + 0.93, -1.62).rotateZ(-0.9).prism(0.022, 0.015, 0.16, 4, { color: [0.5, 0.5, 0.58] });
+    for (let i = 0; i < 6; i++) {
+      at(inside).translate(-1.65 - (i % 3) * 0.2, floor + 0.09 + Math.floor(i / 3) * 0.17, -2.38).rotateX(Math.PI / 2).rotateY(i * 1.3).prism(0.09, 0.085, 0.42, 5, { color: [0.6, 0.5, 0.42], colorTop: [0.9, 0.78, 0.62], capTop: true, capBottom: true });
+    }
+    at(inside).translate(X - 0.05, floor + 1.72, -1.2).box(0.1, 0.04, 0.04, iron0);
+    at(cloth).translate(X - 0.08, floor + 0.78, -1.2).box(0.12, 0.96, 0.46, [0.3, 0.36, 0.42], [0.42, 0.5, 0.56], 1.4);
+    for (const bz of [-1.75, -1.55]) at(inside).translate(X - 0.2, floor, bz).box(0.26, 0.2, 0.11, [0.26, 0.2, 0.18], [0.36, 0.28, 0.24], 2);
+    // a chart pinned to the wall by the bunk, and a candle end on the window sill
+    at(cloth).translate(-X + 0.02, floor + 1.25, 0.2).rotateY(Math.PI / 2).box(0.9, 0.62, 0.012, [0.8, 0.74, 0.6], [0.92, 0.86, 0.72], 2.2);
+    at(inside).translate((win.x[0] + win.x[1]) / 2 + 0.3, win.y[0], Z + 0.1).prism(0.03, 0.03, 0.09, 5, { color: [1.5, 1.4, 1.1], colorTop: [1.9, 1.7, 1.2], capTop: true });
+    // the stove's glow and the lantern's light on everything in the room
     const fireAt = cab(-2.55, floor + 0.7, -1.2);
-    inside.bake([{ pos: [fireAt.x, fireAt.y, fireAt.z], color: [1.5, 0.74, 0.3], range: 7.5 }]);
+    inside.bake([{ pos: [fireAt.x, fireAt.y, fireAt.z], color: [1.5, 0.74, 0.3], range: 7.5 }, { pos: [hung.x, hung.y - 0.2, hung.z], color: [1.0, 0.7, 0.4], range: 6.5 }]);
     this.lamp(fireAt, [1.25, 0.62, 0.26], 0.8, 40, 7.5, () => 0.75 + this.stoveHeat * 0.6, 1.9);
+    this.lamp(hung, [1.3, 0.85, 0.42], 0.5, 60, 6.5, () => 1, 1.3);
 
     // the door stands ajar, and there are steps up to it
     const mid = (door[0] + door[1]) / 2;
@@ -383,6 +566,9 @@ export class Explore {
       at(wood).translate(w / 2 + 0.3 + i * 0.5, base, mid).box(0.55, top - base, 1.5, DARK, WOOD_A, 0.9);
       at(walk).translate(w / 2 + 0.3 + i * 0.5, base, mid).box(0.55, top - base, 1.5);
     }
+    this.boards.push([x, z, yaw, w / 2, d / 2, hy + floor - 0.3, hy + floor + 1]);
+    const stepsAt = cab(w / 2 + 0.65, 0, mid);
+    this.boards.push([stepsAt.x, stepsAt.z, yaw, 0.7, 0.85, hy - 0.2, hy + floor + 0.4]);
     const table = cab(1.15, floor + 0.85, -1.7);
     this.thing('map', 'Look at the map', cab(0.85, floor + 0.85, -1.7), 0.32, () => this.read('map', [[]], table, true), 3.2);
     this.thing('log', 'Read the log', cab(1.62, floor + 0.86, -1.62), 0.24, () =>
@@ -397,8 +583,9 @@ export class Explore {
     this.thing('stove', 'Warm your hands', cab(-2.55, floor + 0.5, -1.4), 0.45, () => {
       this.stoveHeat = 1;
       const a = this.c.engine.audio;
-      a.noise({ dur: 0.5, gain: 0.08, type: 'lowpass', f: [700, 240], attack: 0.05, send: 0.2 });
-      for (let i = 0; i < 4; i++) a.noise({ dur: 0.02, gain: 0.12, f: 1600 + Math.random() * 2600, q: 3, at: 0.08 + Math.random() * 0.4 });
+      a.noise({ dur: 0.5, gain: 0.13, type: 'lowpass', f: [700, 240], attack: 0.05, send: 0.2 });
+      a.tone({ f: [210, 150], dur: 0.09, type: 'triangle', gain: 0.09, lp: 700 });
+      for (let i = 0; i < 5; i++) a.noise({ dur: 0.02, gain: 0.17, f: 1600 + Math.random() * 2600, q: 3, at: 0.08 + Math.random() * 0.4 });
     }, 3.2);
   }
 
@@ -437,6 +624,15 @@ export class Explore {
   private buildShore(wood: Builder, stone: Builder, metal: Builder, runes: Builder, ground: (x: number, z: number) => number) {
     const c = this.c;
     const pe = c.pierEnd;
+    // two bollards at the end of the pier, and a ladder down to the water on the side the boat lies
+    const across = { x: pe.dz, z: -pe.dx };
+    for (const side of [-1.35, 1.35]) wood.reset().translate(pe.x - pe.dx * 0.9 + across.x * side, SEA + 1.5, pe.z - pe.dz * 0.9 + across.z * side).prism(0.13, 0.17, 0.5, 6, { color: DARK, colorTop: WOOD_A, capTop: true });
+    const lad = { x: pe.x - pe.dx * 4 - across.x * 1.86, z: pe.z - pe.dz * 4 - across.z * 1.86 };
+    const ladYaw = Math.atan2(pe.dx, pe.dz);
+    for (const side of [-0.22, 0.22]) wood.reset().translate(lad.x, SEA - 0.9, lad.z).rotateY(ladYaw).translate(0, 0, side).box(0.07, 2.6, 0.07, DARK, WOOD_A, 0.7);
+    for (let i = 0; i < 7; i++) wood.reset().translate(lad.x, SEA - 0.6 + i * 0.34, lad.z).rotateY(ladYaw).box(0.05, 0.05, 0.5, WOOD_A, WOOD_B, 0.7);
+    // (the pier itself is forty metres of boards)
+    this.boards.push([pe.x - pe.dx * 20, pe.z - pe.dz * 20, Math.atan2(pe.dx, pe.dz), 2, 20.4, SEA + 0.8, SEA + 3]);
     // a fishing rod propped against the last post
     const rx = pe.x - pe.dx * 0.5 - pe.dz * 1.4;
     const rz = pe.z - pe.dz * 0.5 + pe.dx * 1.4;
@@ -523,8 +719,7 @@ export class Explore {
     const sz = hz + toCamp.z * 3.4 + toCamp.x * 1.2;
     const sy = ground(sx, sz);
     const aim = Math.atan2(c.fire.x - sx, -(c.fire.z - sz));
-    for (let i = 0; i < 3; i++) wood.reset().translate(sx, sy - 0.1, sz).rotateY((i / 3) * TAU + 0.3).translate(0.42, 0, 0).rotateZ(0.3).box(0.05, 1.5, 0.05, [0.75, 0.7, 0.65]);
-    metal.reset().translate(sx, sy + 1.36, sz).rotateY(-aim).rotateX(-(Math.PI / 2 + 0.02)).translate(0, -0.45, 0).prism(0.07, 0.1, 1.15, 6, { color: [0.9, 0.9, 1], colorTop: [1.2, 1.2, 1.3], capTop: true, capBottom: true });
+    buildTelescope(wood, metal, sx, sy - 0.04, sz, aim, -0.02);
     this.thing('scope2', 'Look through the telescope', new Vector3(sx, sy + 1.2, sz), 0.8, () => {
       this.note = null;
       const shot = { pos: [sx + toCamp.x * 1.6, sy + 1.8, sz + toCamp.z * 1.6] as [number, number, number], look: [c.fire.x, c.fire.y + 1.2, c.fire.z] as [number, number, number], yaw: 0, pitch: 0, fov: 2.4 };
@@ -548,8 +743,8 @@ export class Explore {
     const rock = (x: number, z: number) => c.solid.floor(x, z, SEA + 45);
     const gy = rock(tx + nx * 24, tz + nz * 24);
     const frame: RGB = [0.8, 0.82, 0.9];
-    metal.reset().translate(dx, gy - 2, dz).rotateY(yaw).box(8.4, 14, 1.6, frame, [1.15, 1.15, 1.25], 0.05);
-    metal.reset().translate(dx, gy - 2, dz).rotateY(yaw).translate(0, 0, 0.5).box(5.4, 11.6, 1, [0.36, 0.38, 0.46], [0.5, 0.52, 0.62], 0.05);
+    metal.reset().translate(dx, gy - 2, dz).rotateY(yaw).box(8.4, 14, 1.6, frame, [1.15, 1.15, 1.25], 0.22);
+    metal.reset().translate(dx, gy - 2, dz).rotateY(yaw).translate(0, 0, 0.5).box(5.4, 11.6, 1, [0.36, 0.38, 0.46], [0.5, 0.52, 0.62], 0.22);
     metal.reset().translate(dx, gy - 2, dz).rotateY(yaw).translate(0, 0, 0.95).box(0.16, 11.4, 0.2, [0.2, 0.2, 0.26]);
     this.doorPos.set(dx + nx * 1.4, gy + 3, dz + nz * 1.4);
     WORLDS.slice(0, 3).forEach((w, i) => {
@@ -579,6 +774,9 @@ export class Explore {
     const jz = tz + nz * (r + 6);
     wood.reset().translate(jx, SEA + 0.9, jz).rotateY(yaw).box(2.4, 0.25, 16, WOOD_A, WOOD_B, 0.4);
     walk.reset().translate(jx, SEA + 0.9, jz).rotateY(yaw).box(2.4, 0.25, 16);
+    this.boards.push([jx, jz, yaw, 1.3, 8.1, SEA + 0.6, SEA + 2.5]);
+    // (and the tower itself, its door, its fins and its collars, are plate)
+    this.plates.push([tx, tz, 0, 40, 40, SEA + 12, SEA + 900]);
     for (const along of [-7, -2, 3, 7.5]) for (const side of [-1.05, 1.05]) wood.reset().translate(jx, SEA - 2.5, jz).rotateY(yaw).translate(side, 0, along).box(0.3, 3.7, 0.3, DARK, WOOD_A, 0.5);
     // a post with a lamp at its end, and a skiff that is not yours
     const ex = jx + nx * 7.6;
@@ -593,6 +791,166 @@ export class Explore {
     this.thing('skiff', "Somebody's boat", new Vector3(kx, SEA + 0.6, kz), 1.5, () =>
       this.read('skiff', [['NOT YOUR BOAT.', 'THE ROPE IS STILL WET.']], new Vector3(kx, SEA, kz)),
     );
+  }
+
+  /** The pickup's way down: a level track across the top, a long timber ramp on trestles from the lip of
+   *  the cliff to the valley floor, and a track on from its foot to the trail and the pier. */
+  private buildDrive() {
+    const c = this.c;
+    const wood = new Builder();
+    const walk = new Builder();
+    const ruts = new Builder();
+    // (the land itself where nothing can be stood on: a cliff face is not a floor)
+    const ground = (x: number, z: number) => {
+      const g = c.solid.floor(x, z, 1e9);
+      return g > -1e8 ? g : heightAt(x, z);
+    };
+    const [tx, tz] = TRESTLE.top;
+    const [fx, fz] = TRESTLE.foot;
+    const len = Math.hypot(fx - tx, fz - tz);
+    const dx = (fx - tx) / len;
+    const dz = (fz - tz) / len;
+    // (its head stands just proud of the turf all the way back along the boards that lead onto it)
+    const y0 = Math.max(heightAt(tx, tz), heightAt(tx - dx * 2.7, tz - dz * 2.7), heightAt(tx - dx * 5.4, tz - dz * 5.4)) + 0.12;
+    const y1 = heightAt(fx, fz) + 0.06;
+    const yaw = Math.atan2(dx, dz);
+    const W = TRESTLE.width;
+    this.ramp = { x: tx, z: tz, dx, dz, len, y0, y1 };
+    const SPANS = 22;
+    const span = len / SPANS;
+    const deckY = (s: number) => this.deckY(s);
+    const at = (b: Builder, s: number, lift = 0) => b.reset().translate(tx + dx * s, deckY(s) + lift, tz + dz * s).rotateY(yaw);
+    const plank: RGB = [0.66, 0.6, 0.54];
+    const plankHi: RGB = [0.95, 0.88, 0.8];
+    for (let i = 0; i < SPANS; i++) {
+      const [s0, s1] = [i * span, (i + 1) * span];
+      const [ya, yb] = [deckY(s0), deckY(s1)];
+      const tilt = Math.atan2(ya - yb, span);            // how steeply this length of it falls
+      const slope = Math.hypot(span, ya - yb);           // and how long it is, measured along the deck
+      // (each length is laid from the middle of its own chord)
+      const mid = (b: Builder, lift: number) => b.reset().translate(tx + dx * (s0 + s1) / 2, (ya + yb) / 2 + lift, tz + dz * (s0 + s1) / 2).rotateY(yaw).rotateX(tilt);
+      // the deck, and two heavy beams under it
+      mid(wood, -0.3).box(W, 0.3, slope + 0.06, plank, plankHi, 0.3);
+      mid(walk, -0.3).box(W, 0.3, slope + 0.06);
+      for (const side of [-1.5, 1.5]) mid(wood, -0.62).translate(side, 0, 0).box(0.28, 0.34, slope + 0.06, DARK, WOOD_A, 0.5);
+      // a rail either side: two bars on posts (and something solid, taller than it looks, to keep a truck on)
+      for (const side of [-1, 1]) {
+        const rx = side * (W / 2 - 0.12);
+        for (const h of [0.5, 0.98]) mid(wood, h).translate(rx, 0, 0).box(0.09, 0.1, slope + 0.06, WOOD_A, WOOD_B, 0.6);
+        at(wood, s0, -0.05).translate(rx, 0, 0).box(0.14, 1.17, 0.14, DARK, WOOD_A, 0.6);
+        mid(walk, 0.1).translate(rx, 0, 0).box(0.1, 1.3, slope + 0.06);
+      }
+    }
+    // the trestles that carry it: a pair of legs under each joint, a beam across their heads, and braces
+    for (let i = 1; i < SPANS; i++) {
+      const s = i * span;
+      const px = tx + dx * s;
+      const pz = tz + dz * s;
+      const top = deckY(s) - 0.62;
+      const feet = [-1, 1].map((side) => heightAt(px + Math.cos(yaw) * side * 2.15, pz - Math.sin(yaw) * side * 2.15) - 0.8);
+      const low = Math.min(feet[0], feet[1]);
+      const tall = top - low;
+      if (tall < 0.7) continue;
+      [-1, 1].forEach((side, k) => {
+        at(wood, s, 0).translate(side * 2.15, feet[k] - deckY(s), 0).box(0.3, top - feet[k], 0.3, DARK, WOOD_A, 0.5);
+        c.solid.circle(px + Math.cos(yaw) * side * 2.15, pz - Math.sin(yaw) * side * 2.15, 0.24, feet[k], top);
+      });
+      at(wood, s, -0.92).box(W + 0.3, 0.3, 0.34, DARK, WOOD_A, 0.5);
+      if (tall > 3.4) {
+        // cross braces, in pairs up the height of it
+        const tiers = Math.min(6, Math.max(1, Math.round(tall / 6.5)));
+        const each = (tall - 0.9) / tiers;
+        for (let t = 0; t < tiers; t++) {
+          const mid = top - 0.6 - (t + 0.5) * each - deckY(s);
+          const run = Math.hypot(4.3, each);
+          for (const side of [-1, 1]) at(wood, s, mid).translate(0, 0, side * 0.2).rotateZ(side * Math.atan2(4.3, each)).translate(0, -run / 2, 0).box(0.13, run, 0.1, WOOD_A, WOOD_B, 0.5);
+          if (t > 0) at(wood, s, mid + each / 2).translate(0, -0.1, 0).box(4.6, 0.2, 0.16, DARK, WOOD_A, 0.5);
+        }
+      }
+    }
+    // boards laid on the turf at its head, and a sign
+    const head = Math.atan2(dx, dz);
+    wood.reset().translate(tx - dx * 2.6, y0 - 0.07, tz - dz * 2.6).rotateY(head).box(W, 0.1, 5.4, plank, plankHi, 0.3);
+    walk.reset().translate(tx - dx * 2.6, y0 - 0.07, tz - dz * 2.6).rotateY(head).box(W, 0.1, 5.4);
+    this.boards.push([tx - dx * 2.6, tz - dz * 2.6, head, W / 2, 2.8, y0 - 0.6, y0 + 0.8]);
+    const sign = this.rampSign;
+    wood.reset().translate(sign.x, sign.y - 0.2, sign.z).box(0.12, 1.9, 0.12, DARK, WOOD_A, 0.7);
+    wood.reset().translate(sign.x, sign.y + 1.1, sign.z).rotateY(head + 0.2).box(1.3, 0.5, 0.05, WOOD_A, WOOD_B, 1.2);
+
+    // wheel tracks, worn into the grass: two ruts along a line, laid on whatever the ground is there
+    const rut: RGB = [0.5, 0.42, 0.34];
+    const lay = (line: [number, number][]) => {
+      // (walk the line in short steps, so the ruts follow the ground)
+      const pts: [number, number][] = [];
+      for (let i = 0; i < line.length - 1; i++) {
+        const [ax, az] = line[i];
+        const [bx, bz] = line[i + 1];
+        const n = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az) / 0.9));
+        for (let k = i ? 1 : 0; k <= n; k++) pts.push([ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n]);
+      }
+      for (const off of [-0.8, 0.8]) {
+        let prev: [V3, V3] | null = null;
+        pts.forEach(([x, z], i) => {
+          const [nx, nz] = pts[Math.min(i + 1, pts.length - 1)];
+          const [qx, qz] = pts[Math.max(i - 1, 0)];
+          const l = Math.hypot(nx - qx, nz - qz) || 1;
+          const rx = (nz - qz) / l;
+          const rz = -(nx - qx) / l;
+          const edge = (o: number): V3 => {
+            const ex = x + rx * o;
+            const ez = z + rz * o;
+            return [ex, ground(ex, ez) + 0.05, ez];
+          };
+          const cur: [V3, V3] = [edge(off - 0.24), edge(off + 0.24)];
+          if (prev) ruts.quad(prev[1], prev[0], cur[0], cur[1], [0, i * 0.4, 0.3, i * 0.4 + 0.4], rut);
+          prev = cur;
+        });
+      }
+    };
+    lay(TRACK_TOP);
+    lay(TRACK_VALLEY);
+
+    const shared = c.engine.shared;
+    const meshes = [new Mesh(wood.build(), psxMaterial(shared, { map: c.tex.wood, vertexColors: true, texFade: [140, 420] })), new Mesh(ruts.build(), psxMaterial(shared, { map: c.tex.ground, vertexColors: true, twoSided: true, texFade: [60, 200] }))];
+    for (const m of meshes) {
+      m.frustumCulled = false;
+      c.root.add(m);
+      this.meshes.push(m);
+    }
+    const ghost = new Mesh(walk.build());
+    c.solid.add(ghost);
+    ghost.geometry.dispose();
+    this.drive = meshes;
+  }
+
+  /** How high the ramp's deck is, `s` metres along it from its head. */
+  private deckY(s: number) {
+    const r = this.ramp;
+    if (s <= TRESTLE.level) return r.y0;
+    return r.y0 - (r.y0 - r.y1) * rampFall((s - TRESTLE.level) / (r.len - TRESTLE.level));
+  }
+
+  /** What somebody at (x, z) with their feet at y is standing on, if it is something built: boards or
+   *  plating. Null on the land itself (the level answers for that). */
+  built(x: number, z: number, y: number): 'wood' | 'metal' | null {
+    // (the ramp: under it is the valley, so it is only boards for whoever is at the height of its deck)
+    const r = this.ramp;
+    if (this.drive) {
+      const s = (x - r.x) * r.dx + (z - r.z) * r.dz;
+      const off = Math.abs((x - r.x) * r.dz - (z - r.z) * r.dx);
+      if (s > -0.5 && s < r.len + 0.5 && off < TRESTLE.width / 2 + 0.2 && Math.abs(y - this.deckY(clamp(s, 0, r.len))) < 1.3) return 'wood';
+    }
+    const inside = (b: number[]) => {
+      if (y < b[5] || y > b[6]) return false;
+      const dx = x - b[0];
+      const dz = z - b[1];
+      const cs = Math.cos(b[2]);
+      const sn = Math.sin(b[2]);
+      return Math.abs(dx * cs - dz * sn) <= b[3] && Math.abs(dx * sn + dz * cs) <= b[4];
+    };
+    for (const b of this.boards) if (inside(b)) return 'wood';
+    for (const b of this.plates) if (inside(b)) return 'metal';
+    return null;
   }
 
   /* ---- helpers ---- */
@@ -612,13 +970,14 @@ export class Explore {
     const a = this.c.engine.audio;
     if (this.note?.id === id) {
       if (++this.note.page >= this.note.pages.length) this.note = null;
-      a.noise({ dur: 0.07, gain: 0.05, f: [2600, 1200], q: 1.2 });
+      a.noise({ dur: 0.07, gain: 0.11, f: [2600, 1200], q: 1.2 });
       return;
     }
     const p = this.c.engine.player;
     const from = Math.hypot(at.x - p.x, at.y - (p.y + 1.5), at.z - p.z);
     this.note = { id, pages, page: 0, at: at.clone(), leash: Math.max(4.2, from + 1.5), map };
-    a.noise({ dur: 0.09, gain: 0.06, f: [1400, 3000], q: 1.2 });
+    a.noise({ dur: 0.09, gain: 0.12, f: [1400, 3000], q: 1.2 });
+    a.tone({ f: [520, 660], dur: 0.05, type: 'triangle', gain: 0.05, at: 0.02 });
   }
 
   /** The carved signs take their colour from which signals have been answered. */
@@ -637,7 +996,8 @@ export class Explore {
     if (this.seated) return;
     this.seated = true;
     this.swingV = 0.9;
-    e.audio.tone({ f: [300, 240], dur: 0.12, type: 'triangle', gain: 0.06, lp: 900 });
+    e.audio.tone({ f: [300, 240], dur: 0.12, type: 'triangle', gain: 0.11, lp: 900 });
+    e.audio.tone({ f: [360, 300], dur: 0.3, type: 'sawtooth', gain: 0.05, lp: 1300, vib: [8, 26], at: 0.08 });
     e.hud.toast(e.touch ? 'Forward to swing. Jump to get off' : 'W to swing higher. Space to get off', 4.5);
   }
 
@@ -653,8 +1013,9 @@ export class Explore {
     if (!this.cast) {
       const pe = c.pierEnd;
       this.cast = { t: 0, bite: 4 + c.rand() * 8, x: pe.x + pe.dx * 7 + (c.rand() - 0.5) * 4, z: pe.z + pe.dz * 7 + (c.rand() - 0.5) * 4, done: false };
-      a.noise({ dur: 0.35, gain: 0.06, f: [800, 3200], q: 1.5, attack: 0.1 });
-      a.tone({ f: [900, 500], dur: 0.08, type: 'sine', gain: 0.08, at: 0.55 });
+      a.noise({ dur: 0.35, gain: 0.12, f: [800, 3200], q: 1.5, attack: 0.1 });
+      a.tone({ f: [900, 500], dur: 0.08, type: 'sine', gain: 0.14, at: 0.55 });
+      a.noise({ dur: 0.12, gain: 0.09, type: 'bandpass', f: [1800, 700], q: 0.9, at: 0.56 });
       this.later = 0.55;
       return;
     }
@@ -706,7 +1067,8 @@ export class Explore {
       const bite = this.biting();
       if (bite && !f.done) {
         f.done = true;
-        c.engine.audio.tone({ f: [1300, 700], dur: 0.07, type: 'sine', gain: 0.12, send: 0.3 });
+        c.engine.audio.tone({ f: [1300, 700], dur: 0.07, type: 'sine', gain: 0.18, send: 0.3 });
+        c.engine.audio.noise({ dur: 0.14, gain: 0.1, type: 'bandpass', f: [2200, 800], q: 0.8 });
         c.ripple(f.x, f.z, 1);
       }
       if (f.t > f.bite + 1.5 && f.t < f.bite + 1.6) c.ripple(f.x, f.z, 0.5);
@@ -789,7 +1151,11 @@ export class Explore {
       p.vx = p.vy = p.vz = 0;
       p.onGround = true;
       p.bob = 0;
-      if (Math.abs(this.swingV) > 1.1 && Math.abs(this.swingA) < 0.06 && dt > 0) a.noise({ dur: 0.25, gain: 0.025, f: [500, 1100], q: 0.7, attack: 0.1 });
+      if (Math.abs(this.swingV) > 1.1 && Math.abs(this.swingA) < 0.06 && dt > 0) a.noise({ dur: 0.25, gain: 0.06, f: [500, 1100], q: 0.7, attack: 0.1 });
+      // the ropes creak at the top of each swing
+      const dirNow = Math.sign(this.swingV);
+      if (dirNow !== this.swingDir && Math.abs(this.swingA) > 0.14 && dt > 0) a.tone({ f: dirNow > 0 ? [310, 390] : [400, 330], dur: 0.2, type: 'sawtooth', gain: 0.03 + Math.abs(this.swingA) * 0.05, lp: 1500, vib: [9, 30], send: 0.2 });
+      this.swingDir = dirNow;
       if (e.controls.jump || vehicle) {
         this.seated = false;
         p.place(this.swingAt.x - 1.2 * sy, this.swingAt.y - 3.1, this.swingAt.z - 1.2 * cy, p.yaw);
@@ -850,9 +1216,8 @@ export class Explore {
       }
       if (sp > 1 && (this.lap -= dt) < 0) {
         this.lap = 0.55 + r() * 0.5;
-        a.noise({ dur: 0.3, gain: 0.02 + sp * 0.004, f: [500 + r() * 300, 1500], q: 0.8, attack: 0.08, pan: r() - 0.5 });
+        a.noise({ dur: 0.3, gain: 0.05 + sp * 0.007, f: [500 + r() * 300, 1500], q: 0.8, attack: 0.08, pan: r() - 0.5 });
       }
-      if (vehicle.bumped && sp > 0.5) a.tone({ f: [130, 80], dur: 0.12, type: 'sine', gain: 0.1 });
       // out on deep water, the thing in the bay comes to see who it is
       if (c.solid.floor(p.x, p.z, SEA) < SEA - 5 && !c.surfaced() && (this.deep -= dt) < 0) {
         this.deep = 55 + r() * 45;
@@ -863,26 +1228,33 @@ export class Explore {
         c.surface(vehicle.x + Math.sin(hr) * ahead + Math.cos(hr) * side * 40, vehicle.z - Math.cos(hr) * ahead + Math.sin(hr) * side * 40, Math.PI - hr);
       }
     } else if (p.swimming) {
+      // (what swimming and walking sound like is the engine's business: see steps.ts. What they do to the water is ours.)
       if (p.splashed) {
-        a.noise({ dur: 0.5, gain: 0.14, f: [1800, 400], q: 0.7, attack: 0.02, send: 0.2 });
         for (let i = 0; i < 18; i++) this.spray(p.x, p.z, 3.5);
         c.ripple(p.x, p.z, 1.5);
       }
       if (moved > 0.001 && (this.stroke -= dt) < 0) {
         this.stroke = 0.95;
-        a.noise({ dur: 0.32, gain: 0.04, f: [500, 1300], q: 0.8, attack: 0.1 });
         this.spray(p.x, p.z, 1.2);
         c.ripple(p.x, p.z, 0.5);
       }
-    } else if (p.onGround && moved > 0) {
-      this.walked += moved;
-      if (this.walked > (e.controls.run ? 1.55 : 0.9)) {
-        this.walked = 0;
-        // boards sound different from ground
-        if (Math.abs(p.y - heightAt(p.x, p.z)) > 0.3) {
-          a.noise({ dur: 0.04, gain: 0.05, f: 480 + r() * 240, q: 3 });
-          a.tone({ f: 150 + r() * 30, dur: 0.05, type: 'sine', gain: 0.03 });
-        } else a.noise({ dur: 0.06, gain: 0.028, type: 'lowpass', f: 600 + r() * 300 });
+    }
+
+    if (!vehicle && dt > 0) {
+      // boards creak under somebody walking on them
+      if (p.onGround && moved > 0.001 && this.built(p.x, p.z, p.y) === 'wood' && (this.creak -= moved) < 0) {
+        this.creak = 3.5 + r() * 7;
+        a.tone({ f: [150 + r() * 90, 105 + r() * 40], dur: 0.2 + r() * 0.12, type: 'sawtooth', gain: 0.055, lp: 760, attack: 0.03, pan: r() - 0.5, send: 0.2 });
+      }
+      // water laps at the posts of the pier and the jetty, and along the shore
+      if (p.y < SEA + 3.2 && !p.swimming && (this.lapping -= dt) < 0) {
+        this.lapping = 1.6 + r() * 2.6;
+        a.noise({ dur: 0.55, gain: 0.07, type: 'bandpass', f: [420 + r() * 200, 950], q: 0.9, attack: 0.16, pan: r() * 1.4 - 0.7, send: 0.25 });
+      }
+      // the tent's canvas moves in the wind
+      if (Math.hypot(p.x - 6.9, p.z + 11.7) < 4.5 && p.y > -3 && (this.flap -= dt) < 0) {
+        this.flap = 3 + r() * 6;
+        for (const at of [0, 0.13 + r() * 0.1]) a.noise({ dur: 0.14, gain: 0.085, type: 'lowpass', f: [520, 200], attack: 0.015, at, pan: 0.2 });
       }
     }
 
@@ -914,7 +1286,10 @@ export class Explore {
       if (c.solid.floor(fx, fz, SEA) < SEA - 0.5) {
         for (let i = 0; i < 9; i++) this.spray(fx, fz, 2.2);
         c.ripple(fx, fz, 0.9);
-        a.tone({ f: [700 + r() * 500, 380], dur: 0.06, type: 'sine', gain: 0.05, pan: clamp((fx - p.x) / 30, -1, 1), send: 0.3 });
+        const near = clamp(1.4 - Math.hypot(fx - p.x, fz - p.z) / 60, 0.25, 1);
+        const pan = clamp((fx - p.x) / 30, -1, 1);
+        a.tone({ f: [700 + r() * 500, 380], dur: 0.06, type: 'sine', gain: 0.13 * near, pan, send: 0.3 });
+        a.noise({ dur: 0.16, gain: 0.1 * near, type: 'bandpass', f: [2000, 600], q: 0.8, at: 0.03, pan, send: 0.3 });
       }
     }
   }
@@ -977,6 +1352,8 @@ export class Explore {
     const p = c.engine.player;
     this.last.set(p.x, p.y, p.z);
     this.tentMesh.visible = on;
+    if (on && !this.drive) this.buildDrive();
+    for (const m of this.drive ?? []) m.visible = on;
     if (on) return;
     this.lantern = 1;
     this.swingA = this.swingV = 0;

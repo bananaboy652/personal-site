@@ -36,19 +36,28 @@ import { Vehicle } from '../../engine/player';
 import { type RGB, TAU, clamp, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
 import { psxMaterial, ripple, waterMaterial } from '../../engine/shaders';
 import { Solid } from '../../engine/solid';
+import type { Surface } from '../../engine/surface';
 import { store } from '../../engine/store';
 import { Sky } from '../../engine/sky';
 import { type Textures, createTextures } from '../../engine/textures';
 import { Timeline, easeOut } from '../../engine/timeline';
 import { WORLDS } from '../../engine/worlds';
-import { Explore, cabinShell } from './explore';
+import { Afield } from './afield';
+import { CABIN, Explore, FELLED, buildTelescope, cabinPoint, cabinShell } from './explore';
 import { MOODS, MOOD_ORDER, type Mood } from './moods';
-import { PATH, SEA, brinkZ, buildSea, buildTerrain, heightAt, plantPines } from './terrain';
+import { Pickup } from './pickup';
+import { TIERS, boughTexture, buildPine } from './pines';
+import { PATH, SEA, type Tree, brinkZ, brinkZ0, buildSea, buildTerrain, groundAt, heightAt, plantPines } from './terrain';
 
-const FIRE: [number, number] = [3.9, -8.9];
+// The fire stands a good two metres back from the edge of the cliff (it used to sit right on the lip).
+const FIRE: [number, number] = [4.25, -8.95];
 const LANTERN: [number, number] = [-6.3, -8.5];
 // on the log by the fire
-const RADIO: [number, number] = [FIRE[0] + 1.5, FIRE[1] - 0.9];
+const RADIO: [number, number] = [FIRE[0] + 1.3, FIRE[1] - 1.15];
+// Where the fire and the log were when the rocks and the grass were scattered. They are still scattered
+// by these, so that moving the fire has not shuffled every stone and tuft on the cliff top.
+const FIRE0: [number, number] = [3.9, -8.9];
+const RADIO0: [number, number] = [FIRE0[0] + 1.5, FIRE0[1] - 0.9];
 const SCOPE: [number, number] = [5.3, -14.7];
 const SNAG: [number, number] = [8.1, -15.4];
 const ARCH: [number, number] = [70, -600];
@@ -57,6 +66,14 @@ const TOWER_BASE = SEA + 8;
 const TOWER_H = 420;
 const EMBER: RGB = hex('#e8793f');
 const collarR = (t: number) => lerp(22, 8.5, t) * 1.9;
+/** where the pickup is parked, and the way it faces (degrees, like a walker's yaw): backed in under the
+ *  pines with its nose to the track out, so that setting off forwards is setting off along the track
+ *  (the other way round, the first press of the pedal went through the camp and off the cliff) */
+const PICKUP: [number, number, number] = [15.5, -7.0, 148];
+/** how many pines were placed by hand to frame the view (the first ones plantPines() returns) */
+const FRAMING = 15;
+const PINE_CELL = 32;
+const pineCell = (x: number, z: number) => (Math.floor(x / PINE_CELL) + 512) * 1024 + Math.floor(z / PINE_CELL) + 512;
 
 export default class Overlook implements Level {
   readonly id = 'overlook';
@@ -79,7 +96,7 @@ export default class Overlook implements Level {
   portraitFocus = 0.42;
   // the pine at the right of the camp holds the right edge of the picture, whatever the shape of the
   // window: the fire, the tent, the pier, the bay and the tower all fall to the left of it
-  anchor = { at: [13.6, 8, -13.2] as [number, number, number], x: 0.95, portraitX: 1.1 };
+  anchor = { at: [13.6, 8, -13.2] as [number, number, number], x: 0.95, portraitX: 1.1, keep: [TOWER[0], TOWER_BASE + 170, TOWER[1]] as [number, number, number], most: 1.07 };
   audio: AudioSpec = {
     root: 50,
     // D minor with the ninth on top, then down through B flat and F to C
@@ -203,6 +220,25 @@ export default class Overlook implements Level {
   private extra!: Explore;
   private pierEnd = { x: 0, z: 0, dx: 0, dz: 1 };
   private owlHoot = 0;
+  private boughTex = boughTexture();
+  private popIn = 3;
+  private owlIdle = 22;
+  private windIn = 5;
+  private pickup!: Pickup;
+  private afield!: Afield;
+  private pines!: {
+    trees: Tree[];
+    /** where each tree stands, as a matrix */
+    at: Matrix4[];
+    none: Matrix4;
+    far: InstancedMesh[];
+    near: InstancedMesh[];
+    /** which tree each place in the close-up meshes is drawing (-1: nothing) */
+    slots: number[];
+    slotOf: Map<number, number>;
+    cells: Map<number, number[]>;
+    t: number;
+  };
 
   constructor(private engine: Engine) {
     const shared = engine.shared;
@@ -284,17 +320,53 @@ export default class Overlook implements Level {
       onClick: () => {
         this.extra.lantern = this.extra.lantern ? 0 : 1;
         const audio = this.engine.audio;
-        if (this.extra.lantern) audio.noise({ dur: 0.25, gain: 0.07, type: 'lowpass', f: [1200, 300], attack: 0.03 });
-        else audio.tone({ f: [500, 260], dur: 0.1, type: 'triangle', gain: 0.06, lp: 900 });
+        if (this.extra.lantern) {
+          audio.noise({ dur: 0.03, gain: 0.16, f: 3200, q: 2 });
+          audio.noise({ dur: 0.3, gain: 0.13, type: 'lowpass', f: [1400, 300], attack: 0.03, at: 0.03 });
+        } else audio.tone({ f: [500, 260], dur: 0.1, type: 'triangle', gain: 0.12, lp: 900 });
       },
     });
-    this.walk = { solid: this.solid, water: SEA, vehicles: [this.boatV], tick: (dt, player, vehicle) => this.extra.tick(dt, player, vehicle) };
+    // an old pickup under the pines at the back of the camp, off to the right of anything the page's view takes in
+    this.pickup = new Pickup(engine, this.root, this.tex, this.glows, PICKUP[0], heightAt(PICKUP[0], PICKUP[1]), PICKUP[1], PICKUP[2]);
+    this.interactables.push(this.pickup.vehicle.interactable);
+    // what the far places look like from close to: built when somebody comes near, and not before
+    this.afield = new Afield({ engine, root: this.root, tex: this.tex, solid: this.solid, fire: FIRE, arch: ARCH, tower: TOWER, pierEnd: this.pierEnd, clear: [[PICKUP[0], PICKUP[1], 3.4], [6.9, -11.7, 3.2]] });
+    this.walk = {
+      solid: this.solid,
+      water: SEA,
+      surface: (x, z, y) => this.surfaceAt(x, z, y),
+      vehicles: [this.boatV, this.pickup.vehicle],
+      tick: (dt, player, vehicle) => {
+        this.extra.tick(dt, player, vehicle);
+        this.pickup.tick(dt, vehicle === this.pickup.vehicle);
+      },
+    };
+  }
+
+  /** What is underfoot (or under a wheel) at a spot: boards, plate, or one of the kinds of land. */
+  private surfaceAt(x: number, z: number, y: number): Surface {
+    const built = this.extra.built(x, z, y);
+    if (built) return built;
+    const g = heightAt(x, z);
+    // standing well clear of the land, on something that is not boards: a boulder, a sea stack, an island, the arch
+    if (y > g + 0.35) return 'rock';
+    if (y < SEA - 0.25) return 'water';
+    return groundAt(x, z, FIRE);
   }
 
   /** Somebody stepped into the scene, or back out of it. */
   explore(on: boolean) {
     this.extra.explore(on);
     this.boatBoards.visible = on;
+    this.pines.t = 0;
+    if (!on) {
+      this.nearPines(null);
+      this.pickup.reset();
+      this.afield.reset();
+    }
+    // the pines in the way of the ramp are there for the page's view, and gone for anybody walking
+    for (const i of FELLED) for (const mesh of this.pines.far) mesh.setMatrixAt(i, on ? this.pines.none : this.pines.at[i]);
+    for (const mesh of this.pines.far) mesh.instanceMatrix.needsUpdate = true;
   }
 
   /** Scrolling the page turns the hour on: by the foot of the page the night has passed. */
@@ -497,6 +569,10 @@ export default class Overlook implements Level {
     const shot: Shot = { pos: [SCOPE[0] + d.x * 1.6, y, SCOPE[1] + d.z * 1.6], look: [TOWER[0], TOWER_BASE + TOWER_H * 0.66, TOWER[1]], yaw: 0, pitch: 0, fov: 10.5 };
     this.engine.enterScope(shot);
     if (this.engine.exploring) this.engine.cut(shot);        // on foot there is no framed view to travel from
+    // brass sliding in brass, and the click of the eyepiece
+    const audio = this.engine.audio;
+    audio.noise({ dur: 0.22, gain: 0.1, type: 'bandpass', f: [900, 2600], q: 2.2, attack: 0.05 });
+    audio.tone({ f: [1150, 1500], dur: 0.05, type: 'triangle', gain: 0.1, at: 0.2 });
   }
 
   /** A star of the constellation, touched. */
@@ -530,33 +606,66 @@ export default class Overlook implements Level {
     // pines: one small model, drawn several hundred times
     const trunk = new Builder().prism(0.032, 0.012, 0.62, 5, { color: [0.75, 0.75, 0.75], colorTop: [1, 1, 1], uRepeat: 2, vRepeat: 5 }).build();
     const crownB = new Builder();
-    const tiers: [number, number, number][] = [[0.17, 0.27, 0.36], [0.34, 0.215, 0.33], [0.52, 0.16, 0.29], [0.7, 0.11, 0.3]];
-    tiers.forEach(([y, rr, h], i) => {
+    TIERS.forEach(([y, rr, h], i) => {
       crownB.push().translate(0, y, 0).rotateY(i * 0.9);
       crownB.prism(rr, 0, h, 7, { color: [1, 1, 1], colorTop: [0.5, 0.5, 0.56], uRepeat: 7, vRepeat: 1 });
       crownB.pop();
     });
     const trees = plantPines();
-    for (const t of trees) this.solid.circle(t.x, t.z, Math.max(0.3, t.h * t.w * 0.034), t.y - 1, t.y + t.h * 0.5);
-    const bark = new InstancedMesh(trunk, psxMaterial(shared, { map: this.tex.bark, vertexColors: true, wind: [0.2, 1.1, 1] }), trees.length);
-    const crown = new InstancedMesh(
-      crownB.build(),
-      psxMaterial(shared, { map: this.tex.needles, vertexColors: true, cut: true, twoSided: true, wind: [0.2, 1.1, 1], texFade: [120, 420] }),
-      trees.length,
-    );
+    // (two of them stand where the pickup's ramp runs: they are taken away while somebody is in the world, and
+    // so are never something to bump into)
+    const felled = new Set(FELLED);
+    trees.forEach((t, i) => {
+      if (!felled.has(i)) this.solid.circle(t.x, t.z, Math.max(0.3, t.h * t.w * 0.034), t.y - 1, t.y + t.h * 0.5);
+    });
+    const barkMat = psxMaterial(shared, { map: this.tex.bark, vertexColors: true, wind: [0.2, 1.1, 1] });
+    const crownMat = psxMaterial(shared, { map: this.tex.needles, vertexColors: true, cut: true, twoSided: true, wind: [0.2, 1.1, 1], texFade: [120, 420] });
+    const bark = new InstancedMesh(trunk, barkMat, trees.length);
+    const crown = new InstancedMesh(crownB.build(), crownMat, trees.length);
+    // The pines that frame the picture, and whichever others somebody on foot is near, are drawn with a
+    // model that stands being looked at (pines.ts). There is room for the framing ones and a few dozen more.
+    const pine = buildPine();
+    const CAP = FRAMING + 56;
+    const nearTrunk = new InstancedMesh(pine.trunk, barkMat, CAP);
+    const nearBoughs = new InstancedMesh(pine.boughs, psxMaterial(shared, { map: this.boughTex, vertexColors: true, cut: true, twoSided: true, wind: [0.2, 1.1, 1], texFade: [160, 460] }), CAP);
+    const nearHeart = new InstancedMesh(pine.heart, crownMat, CAP);
     const m = new Matrix4();
     const q = new Quaternion();
     const up = new Vector3(0, 1, 0);
     const c = new Color();
-    trees.forEach((t, i) => {
+    const none = new Matrix4().makeScale(0, 0, 0);
+    const at = trees.map((t) => {
       q.setFromAxisAngle(up, t.rot);
-      m.compose(new Vector3(t.x, t.y, t.z), q, new Vector3(t.h * t.w, t.h, t.h * t.w));
-      bark.setMatrixAt(i, m);
-      crown.setMatrixAt(i, m);
+      return new Matrix4().compose(new Vector3(t.x, t.y, t.z), q, new Vector3(t.h * t.w, t.h, t.h * t.w));
+    });
+    trees.forEach((t, i) => {
+      const framing = i < FRAMING;
+      bark.setMatrixAt(i, framing ? none : at[i]);
+      crown.setMatrixAt(i, framing ? none : at[i]);
       crown.setColorAt(i, c.setRGB(t.tint[0], t.tint[1], t.tint[2]));
     });
-    bark.frustumCulled = crown.frustumCulled = false;
-    this.root.add(bark, crown);
+    for (let i = 0; i < CAP; i++) {
+      const t = i < FRAMING ? trees[i] : null;
+      for (const mesh of [nearTrunk, nearBoughs, nearHeart]) mesh.setMatrixAt(i, t ? at[i] : none);
+      c.setRGB(t ? t.tint[0] : 1, t ? t.tint[1] : 1, t ? t.tint[2] : 1);
+      nearBoughs.setColorAt(i, c);
+      nearHeart.setColorAt(i, c);
+    }
+    for (const mesh of [bark, crown, nearTrunk, nearBoughs, nearHeart]) {
+      mesh.frustumCulled = false;
+      this.root.add(mesh);
+    }
+    // the rest, filed by where they stand, so that the ones near a walker can be found quickly
+    const cells = new Map<number, number[]>();
+    trees.forEach((t, i) => {
+      if (i < FRAMING || felled.has(i)) return;
+      const k = pineCell(t.x, t.z);
+      const list = cells.get(k);
+      if (list) list.push(i);
+      else cells.set(k, [i]);
+    });
+    for (const mesh of [nearTrunk, nearBoughs, nearHeart]) mesh.count = FRAMING;
+    this.pines = { trees, at, none, far: [bark, crown], near: [nearTrunk, nearBoughs, nearHeart], slots: new Array<number>(CAP).fill(-1), slotOf: new Map(), cells, t: 0 };
 
     // rocks: along the cliff edge, tumbled at its foot, and standing in the sea
     const rock = new Builder();
@@ -569,12 +678,20 @@ export default class Overlook implements Level {
     };
     for (let i = 0; i < 26; i++) {
       const x = -22 + r() * 54;
-      const z = brinkZ(x) + 0.3 + r() * 1.4;
-      if (Math.hypot(x, z) > 7 && Math.hypot(x - RADIO[0], z - RADIO[1]) > 1.6) boulder(x, z, 0.3 + r() * 0.75);
+      const z = brinkZ0(x) + 0.3 + r() * 1.4;
+      if (Math.hypot(x, z) > 7 && Math.hypot(x - RADIO0[0], z - RADIO0[1]) > 1.6) {
+        const size = 0.3 + r() * 0.75;
+        // (not in the fire, and not where somebody sits)
+        if (Math.hypot(x - FIRE[0], z - FIRE[1]) > 1.3 + size && Math.hypot(x - RADIO[0], z - RADIO[1]) > 1.3 + size) boulder(x, z, size);
+        else {
+          r();
+          r();
+        }
+      }
     }
     for (let i = 0; i < 60; i++) {
       const x = -120 + r() * 200;
-      boulder(x, brinkZ(x) - 13 - r() * 22, 0.9 + r() * r() * 3.4, 0.3);
+      boulder(x, brinkZ0(x) - 13 - r() * 22, 0.9 + r() * r() * 3.4, 0.3);
     }
     // sea stacks: crags built from a few leaning, tapering blocks
     for (const [x, z, h, w] of [[-150, -430, 34, 12], [182, -352, 44, 12], [206, -380, 24, 9], [-60, -700, 52, 16], [118, -905, 62, 18]] as const) {
@@ -586,7 +703,9 @@ export default class Overlook implements Level {
         const segH = ((h + 4) / parts) * (0.8 + r() * 0.4);
         const top = i === parts - 1 ? rr * 0.14 : rr * (0.6 + r() * 0.2);
         rock.reset().translate(x + ox, y, z + oz).rotateY(r() * TAU).rotateZ((r() - 0.5) * 0.14);
-        rock.prism(rr, top, segH, 5 + Math.floor(r() * 2), { color: [0.6, 0.58, 0.68], colorTop: [0.95, 0.92, 1], uRepeat: 2, vRepeat: Math.max(1, Math.round(segH / (w * 1.5))), capTop: true });
+        // (several turns of the texture round it: from the camp it is too far off for the texture to show, and
+        // from a boat alongside it should not be one smear)
+        rock.prism(rr, top, segH, 5 + Math.floor(r() * 2), { color: [0.6, 0.58, 0.68], colorTop: [0.95, 0.92, 1], uRepeat: Math.max(2, Math.round((rr * 6.3) / 5)), vRepeat: Math.max(1, Math.round(segH / 5)), capTop: true });
         y += segH * 0.95;
         rr = top * 1.06;
         ox += (r() - 0.5) * w * 0.3;
@@ -594,8 +713,8 @@ export default class Overlook implements Level {
       }
     }
     // the islands under the arch and under the tower
-    rock.reset().translate(ARCH[0], SEA - 3, ARCH[1]).blob(64, { seed: 5, jitter: 0.2, detail: 2, squash: [1, 0.2, 0.75], color: [0.6, 0.58, 0.68], colorTop: [0.9, 0.9, 0.95], uvScale: 0.05 });
-    rock.reset().translate(TOWER[0], SEA - 10, TOWER[1]).blob(160, { seed: 9, jitter: 0.2, detail: 2, squash: [1, 0.2, 0.8], color: [0.6, 0.58, 0.68], colorTop: [0.9, 0.9, 0.95], uvScale: 0.03 });
+    rock.reset().translate(ARCH[0], SEA - 3, ARCH[1]).blob(64, { seed: 5, jitter: 0.2, detail: 2, squash: [1, 0.2, 0.75], color: [0.6, 0.58, 0.68], colorTop: [0.9, 0.9, 0.95], uvScale: 0.24 });
+    rock.reset().translate(TOWER[0], SEA - 10, TOWER[1]).blob(160, { seed: 9, jitter: 0.2, detail: 2, squash: [1, 0.2, 0.8], color: [0.6, 0.58, 0.68], colorTop: [0.9, 0.9, 0.95], uvScale: 0.24 });
     const rocks = new Mesh(rock.build(), psxMaterial(shared, { map: this.tex.rock, vertexColors: true, texFade: [150, 500] }));
     rocks.frustumCulled = false;
     this.root.add(rocks);
@@ -608,10 +727,12 @@ export default class Overlook implements Level {
       const d = 6 + r() * 24;
       const x = Math.sin(a) * d;
       const z = -Math.cos(a) * d * 0.8;
-      if (z < brinkZ(x) + 0.3 || Math.hypot(x - FIRE[0], z - FIRE[1]) < 2.2 || Math.hypot(x - RADIO[0], z - RADIO[1]) < 1) continue;
+      if (z < brinkZ0(x) + 0.3 || Math.hypot(x - FIRE0[0], z - FIRE0[1]) < 2.2 || Math.hypot(x - RADIO0[0], z - RADIO0[1]) < 1) continue;
       const s = 0.3 + r() * 0.35;
       const k = 0.5 + r() * 0.4;
       tuft.reset().translate(x, heightAt(x, z) - 0.03, z).rotateY(r() * TAU);
+      // (nothing grows in the fire, under the log, or up through the pickup)
+      if (Math.hypot(x - FIRE[0], z - FIRE[1]) < 1.9 || Math.hypot(x - RADIO[0], z - RADIO[1]) < 1 || Math.hypot(x - PICKUP[0], z - PICKUP[1]) < 2.9) continue;
       for (let j = 0; j < 2; j++) {
         tuft.rotateY(Math.PI / 2);
         tuft.quad([-s, 0, 0], [s, 0, 0], [s, s * 1.3, 0], [-s, s * 1.3, 0], [0, 0, 1, 1], [k, k, k * 0.9]);
@@ -681,13 +802,8 @@ export default class Overlook implements Level {
     const [sx, sz] = SCOPE;
     const sy = heightAt(sx, sz);
     const aim = Math.atan2(TOWER[0] - sx, -(TOWER[1] - sz));
-    for (let i = 0; i < 3; i++) {
-      wood.reset().translate(sx, sy, sz).rotateY((i / 3) * TAU + 0.3).translate(0.42, 0, 0).rotateZ(0.3);
-      wood.box(0.05, 1.42, 0.05, [0.75, 0.7, 0.65]);
-    }
     const scope = new Builder();
-    scope.reset().translate(sx, sy + 1.38, sz).rotateY(-aim).rotateX(-(Math.PI / 2 - 0.2)).translate(0, -0.45, 0);
-    scope.prism(0.07, 0.1, 1.15, 6, { color: [0.9, 0.9, 1], colorTop: [1.2, 1.2, 1.3], uRepeat: 1, vRepeat: 1, capTop: true, capBottom: true });
+    buildTelescope(wood, scope, sx, sy, sz, aim, 0.2);
 
     // a lantern on a post at the head of the trail down
     const [lx, lz] = LANTERN;
@@ -695,17 +811,31 @@ export default class Overlook implements Level {
     wood.reset().translate(lx, ly, lz).box(0.12, 2.2, 0.12, [0.7, 0.65, 0.6]);
     wood.reset().translate(lx, ly + 2.05, lz).rotateY(0.6).translate(0.28, 0, 0).box(0.56, 0.08, 0.08, [0.7, 0.65, 0.6]);
     this.lanternGlow = this.glows.add(lx + 0.4, ly + 1.82, lz + 0.25, 0.75, [0, 0, 0]);
+    // the lantern itself, hung from the arm: a ring to hang it by, a cap, four bars and a foot
+    const iron: RGB = [0.3, 0.28, 0.3];
+    const [hx, hy, hz] = [lx + 0.4, ly + 1.82, lz + 0.25];
+    wood.reset().translate(hx, hy + 0.2, hz).box(0.02, 0.16, 0.02, iron);
+    wood.reset().translate(hx, hy + 0.1, hz).rotateY(Math.PI / 4).prism(0.17, 0.03, 0.11, 4, { color: iron, colorTop: [0.46, 0.44, 0.46], capBottom: true });
+    for (const [cx, cz] of [[-0.08, -0.08], [0.08, -0.08], [-0.08, 0.08], [0.08, 0.08]]) wood.reset().translate(hx + cx, hy - 0.14, hz + cz).box(0.022, 0.25, 0.022, iron);
+    wood.reset().translate(hx, hy - 0.17, hz).box(0.2, 0.035, 0.2, iron);
 
     // a dead tree at the back of the spur, and who lives in it
     const [nx, nz] = SNAG;
     const ny = heightAt(nx, nz) - 0.2;
     const dead: RGB = [0.5, 0.47, 0.5];
     const deadTop: RGB = [0.78, 0.75, 0.8];
-    wood.reset().translate(nx, ny, nz).rotateZ(0.05).prism(0.2, 0.11, 3.7, 5, { color: dead, colorTop: deadTop, uRepeat: 2, vRepeat: 5, capTop: true });
+    // (it leans a little: LEAN is that lean, and the owl's perch is worked out from it)
+    const LEAN = 0.05;
+    const SNAG_H = 3.7;
+    wood.reset().translate(nx, ny, nz).rotateZ(LEAN).prism(0.2, 0.13, SNAG_H, 5, { color: dead, colorTop: deadTop, uRepeat: 2, vRepeat: 5, capTop: true });
+    // the top is where it snapped: a few splinters stand up round the back of the break
+    for (const [a, h, lean] of [[2.2, 0.34, 0.16], [3.3, 0.22, 0.1], [4.3, 0.28, 0.2]] as const) {
+      wood.reset().translate(nx, ny, nz).rotateZ(LEAN).translate(Math.cos(a) * 0.09, SNAG_H - 0.05, Math.sin(a) * 0.09).rotateY(-a).rotateZ(-lean).prism(0.035, 0.006, h, 3, { color: dead, colorTop: deadTop });
+    }
     wood.reset().translate(nx, ny + 2.1, nz).rotateY(0.5).rotateZ(-1.0).prism(0.07, 0.02, 1.5, 4, { color: dead, colorTop: deadTop, vRepeat: 2 });
     wood.reset().translate(nx, ny + 2.8, nz).rotateY(2.9).rotateZ(-0.8).prism(0.06, 0.02, 1.1, 4, { color: dead, colorTop: deadTop, vRepeat: 2 });
     wood.reset().translate(nx, ny + 1.3, nz).rotateY(4.2).rotateZ(-1.15).prism(0.05, 0.015, 0.9, 4, { color: dead, colorTop: deadTop, vRepeat: 2 });
-    this.buildOwl(nx + 0.19, ny + 3.69, nz);
+    this.buildOwl(nx - Math.sin(LEAN) * SNAG_H, ny + Math.cos(LEAN) * SNAG_H, nz);
 
     const add = (b: Builder, mat: ShaderMaterial, solid = true) => {
       if (!b.triangles) return;
@@ -728,6 +858,7 @@ export default class Overlook implements Level {
     body.translate(x, y, z).rotateY(facing);
     body.prism(0.15, 0.2, 0.34, 6, { color: [0.75, 0.7, 0.7], colorTop: [1, 0.95, 0.95], uRepeat: 2, vRepeat: 1, capBottom: true, capTop: true });
     body.push().translate(0, 0.02, -0.14).rotateX(-2.5).prism(0.1, 0.03, 0.3, 4, { color: [0.6, 0.56, 0.58] }).pop();          // tail
+    for (const side of [-1, 1]) body.push().translate(side * 0.055, -0.005, 0.1).rotateX(1.25).prism(0.03, 0.012, 0.09, 3, { color: [1.5, 1.15, 0.6] }).pop();   // feet, gripping the edge
     const bodyMesh = new Mesh(body.build(), mat);
     bodyMesh.frustumCulled = false;
     const head = new Builder();
@@ -748,9 +879,16 @@ export default class Overlook implements Level {
     const wood = new Builder();
     const lamp = scaleRGB(hex('#ffb060'), 1.3);
     const addLamp = (x: number, y: number, z: number, size: number, color: RGB) => this.lamps.push({ id: this.glows.add(x, y, z, size, [0, 0, 0]), color, order: this.lamps.length + 1 });
+    // (each lamp is a lantern on the head of its post: a cage, a cap, and the light inside)
+    const lantern = (x: number, y: number, z: number) => {
+      wood.reset().translate(x, y - 0.26, z).box(0.34, 0.05, 0.34, [0.34, 0.32, 0.34]);
+      for (const [cx, cz] of [[-0.13, -0.13], [0.13, -0.13], [-0.13, 0.13], [0.13, 0.13]]) wood.reset().translate(x + cx, y - 0.22, z + cz).box(0.035, 0.42, 0.035, [0.3, 0.28, 0.3]);
+      wood.reset().translate(x, y + 0.2, z).rotateY(Math.PI / 4).prism(0.3, 0.04, 0.2, 4, { color: [0.34, 0.32, 0.34], colorTop: [0.5, 0.47, 0.48], capBottom: true });
+    };
     PATH.slice(2).forEach(([x, z]) => {
       const y = heightAt(x + 1.6, z);
-      wood.reset().translate(x + 1.6, y, z).box(0.2, 3, 0.2, [0.6, 0.55, 0.5]);
+      wood.reset().translate(x + 1.6, y, z).box(0.2, 2.86, 0.2, [0.6, 0.55, 0.5]);
+      lantern(x + 1.6, y + 3.1, z);
       addLamp(x + 1.6, y + 3.1, z, 2.3, lamp);
     });
     // a cabin by the shore with a light left on
@@ -758,7 +896,9 @@ export default class Overlook implements Level {
     const hy = heightAt(hx, hz) - 0.3;
     cabinShell(wood);                              // four walls and a doorway: it can be gone into
     wood.reset().translate(hx, hy + 3.4, hz).rotateY(0.25 + Math.PI / 4).prism(5.6, 0, 2.6, 4, { color: [0.5, 0.45, 0.45], colorTop: [0.7, 0.65, 0.65], uRepeat: 4, vRepeat: 1 });
-    addLamp(hx + 1.2, hy + 1.7, hz + 3.1, 1.5, scaleRGB(hex('#ffc070'), 1.1));
+    // (the light left on is a candle end on the sill of its window)
+    const pane = cabinPoint((CABIN.win.x[0] + CABIN.win.x[1]) / 2 + 0.3, CABIN.win.y[0] + 0.17, CABIN.d / 2 - CABIN.wall + 0.09);
+    addLamp(pane.x, pane.y, pane.z, 1.4, scaleRGB(hex('#ffc070'), 1.1));
     // the pier, running out into the bay
     const [px, pz] = PATH[PATH.length - 1];
     const heading = Math.atan2(0.6, -0.8);
@@ -775,7 +915,8 @@ export default class Overlook implements Level {
     this.pierEnd = { x: px + end.x * LEN, z: pz + end.z * LEN, dx: end.x, dz: end.z };
     for (const d of [LEN * 0.5, LEN]) {
       const [x, z] = [px + end.x * d + 1.2, pz + end.z * d];
-      wood.reset().translate(x, SEA + 1.4, z).box(0.2, 3, 0.2, [0.6, 0.55, 0.5]);
+      wood.reset().translate(x, SEA + 1.4, z).box(0.2, 2.86, 0.2, [0.6, 0.55, 0.5]);
+      lantern(x, SEA + 4.5, z);
       addLamp(x, SEA + 4.5, z, 1.7, lamp);
     }
     const mesh = new Mesh(wood.build(), psxMaterial(shared, { map: this.tex.wood, vertexColors: true }));
@@ -798,6 +939,11 @@ export default class Overlook implements Level {
     const boards = new Builder();
     boards.translate(0, 0.26, 0).scale(1, 1, 2.7).prism(0.92, 0.92, 0.04, 6, { color: [0.5, 0.46, 0.42], colorTop: [0.72, 0.68, 0.62], uRepeat: 3, capTop: true });
     for (const z of [-1.2, 1.25]) boards.reset().translate(0, 0.5, z).box(1.56, 0.06, 0.3, [0.7, 0.65, 0.6], [0.92, 0.87, 0.8], 0.5);
+    // a small outboard hung on the stern (the boat's own front points down its +Z), and a can of fuel for it
+    boards.reset().translate(0, 0.62, -3.3).box(0.3, 0.44, 0.36, [0.3, 0.32, 0.36], [0.44, 0.47, 0.52], 2);
+    boards.reset().translate(0, -0.3, -3.42).box(0.08, 0.95, 0.1, [0.3, 0.32, 0.36]);
+    boards.reset().translate(0, 0.86, -3.0).rotateX(-1.2).prism(0.025, 0.025, 0.5, 4, { color: [0.3, 0.3, 0.33] });
+    boards.reset().translate(0.45, 0.3, -2.2).box(0.24, 0.3, 0.16, [1.0, 0.3, 0.2], [1.2, 0.4, 0.26], 2);
     this.boatBoards = new Mesh(boards.build(), boat.material);
     this.boatBoards.frustumCulled = false;
     this.boatBoards.visible = false;
@@ -1072,6 +1218,128 @@ export default class Overlook implements Level {
 
   /* ---- per frame ---- */
 
+  /** Sounds the place makes by itself: the fire spits, the owl calls now and then, and wind goes
+   *  through the pines. How loud each is depends on how far off the listener is. */
+  private ambient(dt: number, lit: number, dark: number) {
+    const audio = this.engine.audio;
+    if (!audio.running) return;
+    const r = this.r;
+    const cam = this.engine.camera.position;
+    const facing = this.engine.camera.getWorldDirection(this.tmp2);
+    const yaw = Math.atan2(facing.x, -facing.z);
+    // how loud, and how far to one side, something at a spot is from where the listener stands
+    const hear = (x: number, y: number, z: number, reach: number): [number, number] => {
+      const dx = x - cam.x;
+      const dz = z - cam.z;
+      const d = Math.hypot(dx, y - cam.y, dz);
+      return [clamp(1 - d / reach) ** 1.5, clamp((dx * Math.cos(yaw) + dz * Math.sin(yaw)) / Math.max(d, 4), -0.8, 0.8)];
+    };
+    // a knot in the wood goes: a sharp crack, and sparks
+    if (lit > 0.5 && (this.popIn -= dt) < 0) {
+      this.popIn = 2.5 + r() * 7;
+      const [k, pan] = hear(this.firePos.x, this.firePos.y, this.firePos.z, 60);
+      if (k > 0.02) {
+        audio.noise({ dur: 0.03, gain: 0.26 * k, f: 1700 + r() * 2400, q: 2.4, pan, send: 0.12 });
+        audio.noise({ dur: 0.09, gain: 0.1 * k, type: 'lowpass', f: [900, 300], at: 0.02, pan });
+        if (r() < 0.4) audio.noise({ dur: 0.02, gain: 0.18 * k, f: 2400 + r() * 2000, q: 3, at: 0.12 + r() * 0.2, pan });
+        for (let i = 0; i < 5; i++) this.ember(1.6);
+      }
+    }
+    // the owl, to nobody in particular
+    if (dark > 0.5 && !this.timeline && (this.owlIdle -= dt) < 0) {
+      this.owlIdle = 28 + r() * 46;
+      const [k, pan] = hear(this.owl.pos.x, this.owl.pos.y, this.owl.pos.z, 140);
+      if (k > 0.02 && this.owlHoot <= 14) {
+        for (const at of [0, 0.42, 0.95]) audio.tone({ f: [at ? 360 : 384, at ? 318 : 344], dur: at === 0.42 ? 0.2 : 0.44, type: 'sine', gain: 0.13 * k, at, attack: 0.05, vib: [5, 12], lp: 1000, pan, send: 0.8 });
+        this.owl.want = 0;
+        this.owl.hold = 2.5;
+      }
+    }
+    // wind in the pines: a long breath through whichever stand nearest
+    if ((this.windIn -= dt) < 0) {
+      this.windIn = 6 + r() * 9;
+      let best = 1e9;
+      let bx = 0;
+      let bz = 0;
+      const P = this.pines;
+      const look = (i: number) => {
+        const t = P.trees[i];
+        const d = Math.hypot(t.x - cam.x, t.z - cam.z, t.y + t.h * 0.5 - cam.y);
+        if (d < best) [best, bx, bz] = [d, t.x, t.z];
+      };
+      for (let i = 0; i < FRAMING; i++) look(i);
+      P.slotOf.forEach((_, i) => look(i));
+      const k = clamp(1.25 - best / 36);
+      if (k > 0.03) {
+        const pan = clamp(((bx - cam.x) * Math.cos(yaw) + (bz - cam.z) * Math.sin(yaw)) / Math.max(best, 6), -0.7, 0.7);
+        const f = 620 + r() * 260;
+        audio.noise({ dur: 2.6 + r() * 1.4, gain: 0.085 * k, type: 'bandpass', f: [f, f * 1.5], q: 0.6, attack: 1.1, pan, send: 0.3 });
+        audio.noise({ dur: 2.2, gain: 0.035 * k, type: 'highpass', f: 3800, attack: 1.3, at: 0.3, pan });
+      }
+    }
+  }
+
+  /** The pines nearest somebody on foot are drawn with the close-up model; the rest of the forest stays
+   *  as it is. Called a few times a second while walking, and with null to put them all back. */
+  private nearPines(eye: Vector3 | null) {
+    const P = this.pines;
+    const room = P.slots.length - FRAMING;
+    const want: number[] = [];
+    if (eye) {
+      const found: [number, number][] = [];
+      const cx = Math.floor(eye.x / PINE_CELL);
+      const cz = Math.floor(eye.z / PINE_CELL);
+      for (let ix = cx - 2; ix <= cx + 2; ix++) {
+        for (let iz = cz - 2; iz <= cz + 2; iz++) {
+          for (const i of P.cells.get((ix + 512) * 1024 + iz + 512) ?? []) {
+            const t = P.trees[i];
+            const d = Math.hypot(t.x - eye.x, t.z - eye.z, (t.y - eye.y) * 0.5);
+            // (a margin on the way out, so a tree at the edge of range does not flicker)
+            if (d < (P.slotOf.has(i) ? 66 : 54)) found.push([d, i]);
+          }
+        }
+      }
+      found.sort((a, b) => a[0] - b[0]);
+      for (let k = 0; k < Math.min(room, found.length); k++) want.push(found[k][1]);
+    }
+    const keep = new Set(want);
+    let changed = false;
+    // put away the ones no longer near
+    for (let s = FRAMING; s < P.slots.length; s++) {
+      const i = P.slots[s];
+      if (i < 0 || keep.has(i)) continue;
+      for (const mesh of P.near) mesh.setMatrixAt(s, P.none);
+      for (const mesh of P.far) mesh.setMatrixAt(i, P.at[i]);
+      P.slots[s] = -1;
+      P.slotOf.delete(i);
+      changed = true;
+    }
+    // bring in the ones that have come near
+    let s = FRAMING;
+    const c = new Color();
+    for (const i of want) {
+      if (P.slotOf.has(i)) continue;
+      while (s < P.slots.length && P.slots[s] >= 0) s++;
+      if (s >= P.slots.length) break;
+      const t = P.trees[i];
+      for (const mesh of P.near) mesh.setMatrixAt(s, P.at[i]);
+      for (const mesh of P.far) mesh.setMatrixAt(i, P.none);
+      c.setRGB(t.tint[0], t.tint[1], t.tint[2]);
+      P.near[1].setColorAt(s, c);
+      P.near[2].setColorAt(s, c);
+      P.slots[s] = i;
+      P.slotOf.set(i, s);
+      changed = true;
+    }
+    if (!changed) return;
+    // (draw no more of the close-up model than is in use: from the page's view that is the framing pines alone)
+    let used = FRAMING;
+    for (let k = FRAMING; k < P.slots.length; k++) if (P.slots[k] >= 0) used = k + 1;
+    for (const mesh of P.near) mesh.count = used;
+    for (const mesh of [...P.near, ...P.far]) mesh.instanceMatrix.needsUpdate = true;
+    for (const mesh of [P.near[1], P.near[2]]) if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
+
   private applyMood(m: Mood) {
     applyAtmos(this.engine.shared, m);
     this.sky.setStars(m.stars);
@@ -1137,6 +1405,7 @@ export default class Overlook implements Level {
       if (r() < dt * 4.5 * this.heat * lit) this.ember();
       if (r() < dt * 1.6 * lit) this.puff();
       if (this.motes.alive < 26 && r() < dt * 6 * dark) this.firefly();
+      this.ambient(dt, lit, dark);
     }
 
     // lamps: they come on one after another, nearest first
@@ -1202,6 +1471,13 @@ export default class Overlook implements Level {
     this.updateBirds(time);
     this.updateOwl(dt, time, dark);
     this.updateDeep(dt, time, dark);
+    if (this.engine.exploring) {
+      this.afield.update(this.engine.camera.position);
+      if ((this.pines.t -= dt) <= 0) {
+        this.pines.t = 0.3;
+        this.nearPines(this.engine.camera.position);
+      }
+    }
     this.extra.update(dt, time);
     this.radio.update(dt, time);
 
@@ -1319,5 +1595,8 @@ export default class Overlook implements Level {
     for (const t of Object.values(this.tex)) (Array.isArray(t) ? t : [t]).forEach((x) => x.dispose());
     this.radio.dispose();
     this.extra.dispose();
+    this.boughTex.dispose();
+    this.pickup.dispose();
+    this.afield.dispose();
   }
 }
