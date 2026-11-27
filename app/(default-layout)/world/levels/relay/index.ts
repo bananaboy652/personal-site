@@ -563,7 +563,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
 
   /** How brightly the tower burns when left alone: fully, once you have answered it. */
   private restingTower() {
-    return store.has(this.id) ? 1 : 0.62 + 0.2 * (this.timeline ? 0 : this.driftK);
+    return store.has(this.id) ? 1 : 0.62 + 0.2 * this.scrolled;
   }
 
   /* ---- the opening ---- */
@@ -2304,7 +2304,7 @@ export default class Relay extends BaseLevel<Weather> implements Level {
     this.rain.material.uniforms.uAmount.value = this.rainAmount * (1 - this.cover * on);
 
     // the storm's own sound goes when the storm does (the page scrolled well down)
-    const k = this.timeline ? 0 : this.driftK;
+    const k = this.scrolled;
     const calm = k > 0.62 ? true : k < 0.4 ? false : this.calm;
     const clock = performance.now() / 1000;
     if (calm !== this.calm && clock - this.calmAt > 6) {

@@ -480,11 +480,17 @@ export class Runtime {
       // a finger does not hover: let the prompt show for a moment, then let go
       if (e.touch) this.later(() => e.clearPointer(), 1900);
     });
+    // (Scrolling does not hurry an opening along: a reload that comes back part way down the page
+    // would never show it. What scrolling changes in the scene waits for the opening to finish.)
     on(window, 'scroll', () => {
       this.onScroll();
-      if (window.scrollY > 40) this.level?.hurry?.();
       if (!this.framing) this.framing = requestAnimationFrame(this.frame);
     }, { passive: true });
+    // Come back to with the Back button, a page may be put up again just as it was left, without
+    // loading. That is the page being opened too: at the top of it, the opening plays.
+    on(window, 'pageshow', (ev: PageTransitionEvent) => {
+      if (ev.persisted && !e.exploring && !e.inScope && window.scrollY < window.innerHeight * 0.5) this.replay();
+    });
     on(window, 'resize', () => this.frame());
     on(window, 'keydown', (ev: KeyboardEvent) => {
       if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement || ev.metaKey || ev.ctrlKey || ev.altKey) return;

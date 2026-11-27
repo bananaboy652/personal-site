@@ -1249,7 +1249,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.afield?.update(dt, time, beyond);
 
     // the page scrolled down: the snow sets in with the cloud
-    const storm = this.timeline ? 0 : this.driftK;
+    const storm = this.scrolled;
     this.heavy.object.visible = storm > 0.02;
     this.heavy.material.uniforms.uAmount.value = storm * this.snowAmt;
     this.snow.material.uniforms.uAmount.value = this.snowAmt;

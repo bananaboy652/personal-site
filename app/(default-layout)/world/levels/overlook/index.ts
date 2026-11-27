@@ -185,6 +185,7 @@ export default class Overlook implements Level {
   /** the mood before scrolling is taken into account, and how far the page has turned the hour on */
   private base: Mood = MOODS.night;
   private scrollK = 0;
+  private scrollGate = 1;
   private scrollDone = -1;
   private starFlash: number[] = [0, 0, 0, 0, 0, 0];
   private starGlows: number[] = [];
@@ -1097,8 +1098,10 @@ export default class Overlook implements Level {
       this.base = blend(this.from, this.to, smooth(0, 1, this.moodT));
       turned = true;
     }
-    // the page's scroll turns the hour on toward the next one (not while the opening is playing)
-    const sk = this.timeline ? 0 : this.scrollK;
+    // the page's scroll turns the hour on toward the next one: not while the opening is playing, and
+    // gently once it is over rather than all at once
+    this.scrollGate = this.timeline ? 0 : Math.min(1, this.scrollGate + dt / 2.5);
+    const sk = this.scrollK * smooth(0, 1, this.scrollGate);
     if (turned || sk !== this.scrollDone) {
       this.scrollDone = sk;
       const next = MOODS[MOOD_ORDER[(MOOD_ORDER.indexOf(this.mood) + 1) % MOOD_ORDER.length]];

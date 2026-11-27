@@ -29,6 +29,13 @@ export abstract class BaseLevel<A extends Atmos = Atmos> {
   protected drift: A | null = null;
   protected driftK = 0;
   private driftDone = -1;
+  /** nothing while the opening plays, then let up to 1 over a couple of seconds: what scrolling changes
+   *  comes in after the opening, not on top of it and not all at once */
+  private scrollGate = 1;
+  /** how far the page's scroll has changed the scene this frame: `driftK`, less what the opening holds back */
+  protected get scrolled() {
+    return this.driftK * smooth(0, 1, this.scrollGate);
+  }
   private base!: A;
   private from!: A;
   private to!: A;
@@ -96,7 +103,8 @@ export abstract class BaseLevel<A extends Atmos = Atmos> {
       changed = true;
     }
     // the page's scroll, laid over whatever the level itself is doing (but not over its opening)
-    const k = this.timeline || !this.drift ? 0 : this.driftK;
+    this.scrollGate = this.timeline ? 0 : Math.min(1, this.scrollGate + dt / 2.5);
+    const k = this.drift ? this.scrolled : 0;
     if (changed || k !== this.driftDone) {
       this.driftDone = k;
       this.now = k > 0.001 && this.drift ? blend(this.base, this.drift, k) : this.base;
@@ -105,7 +113,7 @@ export abstract class BaseLevel<A extends Atmos = Atmos> {
     }
   }
 
-  /** The visitor clicked or scrolled during the opening: get on with it. */
+  /** The visitor clicked on the world or stepped into it during the opening: get on with it. */
   hurry() {
     if (this.timeline) this.timeline.speed = 6;
   }
