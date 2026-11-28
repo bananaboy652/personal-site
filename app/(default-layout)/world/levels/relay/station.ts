@@ -705,41 +705,57 @@ export function signalLamp(stand: Builders, yoke: Builder, drum: Builder) {
 /* ---- the buggy ------------------------------------------------------------ */
 
 /** A small works buggy: two seats, a roll bar, a tray. Built about its own
- *  origin, on its wheels, nose toward -z. */
+ *  origin, on its wheels, nose toward -z. Whoever drives it is seen sat in it,
+ *  so it is built to be sat in: the seat is BUGGY_SEAT high, there is a well
+ *  in the floor for their feet, the wheel is where their hands come to, and
+ *  the cage is clear of their head and ears. */
 export function buggy(b: Builders) {
   const body: RGB = [0.82, 0.62, 0.2];
   const p = b.paint.reset();
-  // chassis and tray
-  p.push().translate(0, 0.34, 0).box(1.18, 0.16, 2.3, DARK).pop();
+  // chassis and tray: the floor is cut away between the bonnet and the seats and a pan hung lower there, for feet
+  p.push().translate(0, 0.34, 0.475).box(1.18, 0.16, 1.35, DARK).pop();
+  p.push().translate(0, 0.34, -0.885).box(1.18, 0.16, 0.53, DARK).pop();
+  p.push().translate(0, 0.22, -0.41).box(1.1, 0.05, 0.46, DARK).pop();
+  for (const sx of [-0.565, 0.565]) p.push().translate(sx, 0.22, -0.41).box(0.05, 0.28, 0.46, DARK).pop();
   p.push().translate(0, 0.5, 0.72).box(1.2, 0.3, 0.9, body, [0.95, 0.74, 0.26]).pop();
   // bonnet, with a single lamp
   p.push().translate(0, 0.5, -0.86).box(1.02, 0.36, 0.6, body, [0.95, 0.74, 0.26]).pop();
   p.push().translate(0, 0.62, -1.18).box(0.24, 0.16, 0.05, [3.0, 2.8, 2.2]).pop();
-  // seats
+  // seats: a squab the height of a chair above the foot well, and a back
   for (const sx of [-0.28, 0.28]) {
-    b.felt.reset().translate(sx, 0.5, 0.06).box(0.44, 0.12, 0.44, [0.45, 0.45, 0.5]);
-    b.felt.reset().translate(sx, 0.62, 0.3).box(0.44, 0.46, 0.1, [0.45, 0.45, 0.5]);
+    b.felt.reset().translate(sx, 0.5, 0.06).box(0.44, BUGGY_SEAT - 0.5, 0.44, [0.45, 0.45, 0.5]);
+    b.felt.reset().translate(sx, BUGGY_SEAT, 0.3).box(0.44, 0.46, 0.1, [0.45, 0.45, 0.5]);
   }
-  // roll bar, with a lamp on top
+  // roll bar, with a lamp on top (tall enough to clear a pair of ears)
+  const top = 1.8, brow = 1.68;
   for (const sx of [-0.56, 0.56]) {
-    strut(p, [sx, 0.5, 0.36], [sx, 1.62, 0.36], 0.06, DARK);
-    strut(p, [sx, 0.5, -0.5], [sx, 1.5, -0.36], 0.06, DARK);
-    strut(p, [sx, 1.5, -0.36], [sx, 1.62, 0.36], 0.06, DARK);
+    strut(p, [sx, 0.5, 0.36], [sx, top, 0.36], 0.06, DARK);
+    strut(p, [sx, 0.5, -0.5], [sx, brow, -0.36], 0.06, DARK);
+    strut(p, [sx, brow, -0.36], [sx, top, 0.36], 0.06, DARK);
   }
-  strut(p, [-0.56, 1.62, 0.36], [0.56, 1.62, 0.36], 0.06, DARK);
-  strut(p, [-0.56, 1.5, -0.36], [0.56, 1.5, -0.36], 0.06, DARK);
-  p.push().translate(0, 1.66, 0.36).prism(0.07, 0.06, 0.1, 6, { color: [2.4, 1.3, 0.3], capTop: true }).pop();
-  // steering column
-  strut(p, [-0.28, 0.6, -0.5], [-0.28, 0.98, -0.28], 0.04, DARK);
-  p.push().translate(-0.28, 0.98, -0.28).rotateX(-0.9).prism(0.16, 0.16, 0.03, 8, { color: DARK }).pop();
+  strut(p, [-0.56, top, 0.36], [0.56, top, 0.36], 0.06, DARK);
+  strut(p, [-0.56, brow, -0.36], [0.56, brow, -0.36], 0.06, DARK);
+  p.push().translate(0, top + 0.04, 0.36).prism(0.07, 0.06, 0.1, 6, { color: [2.4, 1.3, 0.3], capTop: true }).pop();
+  // steering column, and the wheel where a driver's hands come to
+  const [wx, wy, wz] = BUGGY_WHEEL;
+  strut(p, [wx, 0.62, wz - 0.22], [wx, wy, wz], 0.04, DARK);
+  p.push().translate(wx, wy, wz).rotateX(-0.9).prism(0.16, 0.16, 0.03, 8, { color: DARK }).pop();
   // wheels
-  for (const [wx, wz] of [[-0.62, -0.82], [0.62, -0.82], [-0.62, 0.82], [0.62, 0.82]] as const) {
-    b.felt.reset().translate(wx - 0.11, 0.3, wz).rotateZ(-Math.PI / 2).prism(0.3, 0.3, 0.22, 10, { color: [0.3, 0.3, 0.33], colorTop: [0.42, 0.42, 0.46], capTop: true, capBottom: true });
+  for (const [x, z] of [[-0.62, -0.82], [0.62, -0.82], [-0.62, 0.82], [0.62, 0.82]] as const) {
+    b.felt.reset().translate(x - 0.11, 0.3, z).rotateZ(-Math.PI / 2).prism(0.3, 0.3, 0.22, 10, { color: [0.3, 0.3, 0.33], colorTop: [0.42, 0.42, 0.46], capTop: true, capBottom: true });
   }
   // a number on the tray
   b.sign.reset().translate(0, 0.52, 1.18);
   panel(b.sign, 0.5, 0.26, SIGN.door);
 }
+
+/** The buggy as somewhere to sit, in its own space: how high the driver's seat is; where their eye is
+ *  (0.62 above where their hips rest on it); the middle of the steering wheel; and the floor of the
+ *  well their feet go in, which runs from z = -0.64 to z = -0.18. */
+export const BUGGY_SEAT = 0.72;
+export const BUGGY_EYE: V3 = [-0.28, BUGGY_SEAT + 0.63, 0.1];
+export const BUGGY_WHEEL: V3 = [-0.28, 1.08, -0.28];
+export const BUGGY_FLOOR = 0.27;
 
 /* ---- poles and wires ------------------------------------------------------ */
 

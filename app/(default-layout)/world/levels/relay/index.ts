@@ -21,36 +21,49 @@
 // through a gap in an old wall, to the yard: into the hut, up the rungs to its
 // roof and the lamp, up the inside of the mast to three galleries and the
 // beacon. The service road winds down the south face into the cloud, and under
-// the cloud there is a lay-by (see below.ts). Close-up detail is built when
+// the cloud there is a lay-by (see below.ts). Behind the yard, out of sight of
+// the tor, an airstrip runs down the nose of the hill, and the station's
+// aeroplane stands at the top of it (strip.ts). Close-up detail is built when
 // somebody comes near (engine/detail.ts), so the page's view costs what it did.
+//
+// The light in the doorway of the old bothy is the gate: it leads on to the
+// Overlook. The tower burns by itself and answers when it pleases: whenever a
+// light is passed the whole way down the chain, it is the last to reply.
+//
+// There is a cat (cat.ts): the station's, a calico, sat by the path below the
+// tor. And Will, on his back in the grass beside it, looking at the sky: lie
+// down next to him and the blue hour goes on into night, with all its stars
+// (night.ts).
 import { BufferGeometry, Float32BufferAttribute, Group, LineSegments, Mesh, type Object3D, type ShaderMaterial, Vector3 } from 'three';
 import { type Atmos, applyAtmos, blend, pointLight, spotLight } from '../../engine/atmos';
 import type { Amb, AudioSpec } from '../../engine/audio';
 import { BaseLevel } from '../../engine/base';
 import { Builder, type V3 } from '../../engine/builder';
 import { Detail } from '../../engine/detail';
-import type { Engine, Interactable, IntroKind, Level, Shot, Walk } from '../../engine/engine';
+import type { Engine, Interactable, IntroKind, Level, Shot, Spot, Walk } from '../../engine/engine';
 import { G } from '../../engine/font';
 import { EMBER as HUD_EMBER, type Hud } from '../../engine/hud';
-import { FarTower, Gate, Radio, answerSignal } from '../../engine/kit';
+import { FarTower, Gate, Radio } from '../../engine/kit';
 import { type RGB, TAU, clamp, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
+import { Plane } from '../../engine/plane';
 import { type Player, Vehicle } from '../../engine/player';
 import { customMaterial, psxMaterial } from '../../engine/shaders';
 import { Sky } from '../../engine/sky';
-import { store } from '../../engine/store';
 import { Timeline, easeOut } from '../../engine/timeline';
-import { WORLDS } from '../../engine/worlds';
 import { type Below, buildBelow } from './below';
+import { Cat } from './cat';
+import { Night } from './night';
 import {
   CLOUD, CRAG, FENCE, GATEWAY, HUT, ISLANDS, type Island, LAYBY, Land, MAST, MAST_H, PATH, ROAD, ROAD_HALF, TOWER, TOWER_BASE, YARD,
   cloudGeometry, groundKind, islandHeight, nearPath, nearRoad,
 } from './land';
 import {
-  ANCHOR_R, BEACON_Y, BULB, type Builders, DECKS, DECK_R, GUY_AT, HORN, HUT_WIN, INSIDE, LAMP_PIVOT, MAST_HW, MAST_LADDER, PLINTH, ROOF_LADDER, ROOF_Y, ROOM,
+  ANCHOR_R, BEACON_Y, BUGGY_EYE, BULB, type Builders, DECKS, DECK_R, GUY_AT, HORN, HUT_WIN, INSIDE, LAMP_PIVOT, MAST_HW, MAST_LADDER, PLINTH, ROOF_LADDER, ROOF_Y, ROOM,
   anchors, bench, bicycle, buggy, crates, fence, hang, hutInside, hutShell, lampPost, makeBuilders, mastDetail, mastFaces, mastFittings, oldWall, picnicTable,
   pole, rocks, signalLamp, smallMast, strut, trigPoint, yardGround,
 } from './station';
-import { paintChart, relayTextures } from './textures';
+import { FINGER, PLANE_AT, PLANE_HEADING, SHELTER, SOCK, SOCK_H, WIND_TO, fingerpost, pathStones, stripGround, stripLamps, stripMarkers, stripPath, stripYard, windsock } from './strip';
+import { relayTextures } from './textures';
 
 /* ---- the hour -------------------------------------------------------------- */
 
@@ -205,6 +218,38 @@ const UNDER: Hour = {
   streaks: 0,
   reach: 0,
 };
+/** What the blue hour goes on into for somebody lying on their back in the grass: night, with the
+ *  last of the light only a rim along the cloud. (The moon stays where the evening left it.) */
+const DEEP: Hour = {
+  ...HOURS.smallhours,
+  label: 'Night',
+  zenith: k('#02040f'),
+  mid: k('#040a20'),
+  horCool: k('#081430'),
+  horWarm: k('#142c54'),
+  glowCore: k('#47708f'),
+  glowAz: GLOW_AZ,
+  glowWidth: 2.3,
+  ambient: k('#070b1c'),
+  hemi: k('#131f44', 0.9),
+  sunAz: GLOW_AZ,
+  sunEl: 22,
+  sunCol: k('#34507f', 0.55),
+  stars: 1.5,
+  moonEl: HOURS.bluehour.moonEl,
+  moonTint: [0.95, 0.97, 1],
+  cloudLit: k('#5d7fae'),
+  cloudShade: k('#0b1430'),
+  town: 0.3,
+  streaks: 0.45,
+  reach: 1,
+};
+/** what it sounds like lying still: the wind dropped, and under it the mast, humming */
+const STILL: Amb[] = [
+  { kind: 'wind', gain: 0.04, pitch: 230, gust: 0.5 },
+  { kind: 'hum', gain: 0.034, freq: 50 },
+  { kind: 'room', gain: 0.022, pitch: 294 },
+];
 /** names this world's moods used to go by */
 const OLD_MOODS: Record<string, string> = { storm: 'bluehour', clear: 'smallhours' };
 
@@ -215,6 +260,14 @@ const BROW: [number, number] = [MAST[0] - 19, MAST[1] - 22];
 /** which way the one on the brow faces: out over the cloud to the north-west */
 const BROW_YAW = -40;
 const BIKE: [number, number] = [GATEWAY[1] + 7.2, FENCE[3] + 0.35];
+/** Who is about. Will lies on his back in the grass just below the tor, beside the path, with his feet
+ *  to the mast, looking at the sky; there is room beside him (further from the path) to lie down too.
+ *  The cat's seat is at his head. Nothing is planted on any of the three. */
+const WILL: [number, number] = [1.17, -10.0];
+const BESIDE: [number, number] = [2.37, -10.0];
+const CAT_HOME: [number, number] = [0.62, -9.15];
+/** where somebody lying down takes up room: the two of them, head to foot, and the cat */
+const lain = (x: number, z: number) => (x > WILL[0] - 1.05 && x < BESIDE[0] + 1.05 && z > WILL[1] - 1.5 && z < WILL[1] + 1.35) || Math.hypot(x - CAT_HOME[0], z - CAT_HOME[1]) < 0.45;
 /** how long the beacon takes to come round */
 const BEAT = 4.8;
 const SODIUM: RGB = [1.0, 0.56, 0.2];
@@ -312,15 +365,22 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
   debug: [string, () => void][] = [
     ['Sound the horn', () => this.horn()],
     ['Run a light down the chain', () => this.ripple(0)],
-    ['Answer (hold the light on the tower)', () => this.solve()],
+    ['Tower: answer now', () => this.solve()],
+    ['Pass a light down the chain to the tower', () => this.round()],
     ['Cut the mast lights', () => this.setBreaker('mast', !this.power.mast)],
   ];
   walk!: Walk;
+  cast!: { will: Spot };
   /** the service road, from the yard's gate to the bottom, for anything that wants to follow it */
   readonly road = ROAD;
 
   private rt = relayTextures();
   private sky: Sky;
+  private night: Night;
+  /** how far the night has come on for somebody lying down, 0..1 (and what it was last frame) */
+  private nightK = 0;
+  private nightWas = 0;
+  private voiceNow: 'open' | 'below' | 'rest' = 'open';
   private land = new Land();
   private detail = new Detail();
   private tower: FarTower;
@@ -382,6 +442,13 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
   // on foot
   private buggy!: Vehicle;
   private buggyHome = new Group();
+  private plane!: Plane;
+  private cat!: Cat;
+  private sock = new Group();
+  private stripGlows: { id: number; col: RGB }[] = [];
+  private inGate = false;
+  /** when the station next passes a light down the chain without being asked */
+  private nextRound = 1e9;
   private ladders: Ladder[] = [];
   private climbing: Ladder | null = null;
   private climbY = 0;
@@ -402,7 +469,6 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
   private nextTick = 0;
   private buzz = 0;
   private hornFlash = 0;
-  private muffled = false;
   private headGlow = 0;
   private lampHalo = 0;
   private windowGlow = 0;
@@ -418,6 +484,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     this.sky = new Sky(shared, this.tex, { stars: 1300, band: 1000, clouds: 9, cloudBand: [1.6, 7.5], seed: 31 });
     this.sky.drift = 0.0006;
     this.root.add(this.sky.group);
+    this.night = new Night(shared, this.sky, this.tex.waterNoise);
 
     // the hill
     this.groundMat = psxMaterial(shared, { map: this.tex.ground, vertexColors: true, texFade: [60, 240] });
@@ -433,12 +500,15 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     this.tower = new FarTower(engine, this.root, this.glows, { x: TOWER[0], z: TOWER[1], base: TOWER_BASE, scale: 0.82, fogScale: 0.4, metal: this.tex.metal, white: this.tex.white });
     const shaft = this.root.children[before] as Mesh | undefined;
     if (shaft?.isMesh) this.solid.add(shaft);
-    this.tower.awake = this.restingTower();
+    this.tower.awake = 1;
     for (const h of [0.25, 0.6, 1, 1.5, 2.2, 3]) this.towerMarks.push(new Vector3(TOWER[0], TOWER_BASE + 420 * 0.82 * h, TOWER[1]));
 
     this.buildStation();
     this.buildLamp();
     this.buildOnFoot();
+    this.cast = {
+      will: { at: [WILL[0], this.land.ground(WILL[0], WILL[1]), WILL[1]], yaw: 0, pose: 'starfish', beside: [BESIDE[0], this.land.ground(BESIDE[0], BESIDE[1]), BESIDE[1]] },
+    };
 
     this.interactables.push(
       this.radio.interactable,
@@ -456,6 +526,9 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
         onClick: () => this.pluck(rl),
       })),
       this.buggy.interactable,
+      this.plane.interactable,
+      this.cat.hello,
+      this.cat.stroke,
       ...this.footThings(),
     );
     this.setAtmos(HOURS.bluehour);
@@ -463,7 +536,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       solid: this.solid,
       eye: 1.7,
       spawn: { pos: [0, 0.05, 0], yaw: 0 },
-      vehicles: [this.buggy],
+      vehicles: [this.buggy, this.plane],
       surface: (x, z, y) => groundKind(x, z, y),
       tick: (dt, pl, v) => this.walkTick(dt, pl, v),
     };
@@ -477,11 +550,6 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
   }
 
   subtitle = () => HOURS[this.mood]?.label ?? HOURS.bluehour.label;
-
-  /** How brightly the tower burns when left alone: fully, once you have answered it. */
-  private restingTower() {
-    return store.has(this.id) ? 1 : 0.6 + 0.2 * this.scrolled;
-  }
 
   /* ---- the opening ---- */
 
@@ -547,7 +615,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       this.lit.chain = 1;
       this.ripple(0, true);
     });
-    t.span(10.6, 13.2, (q) => (this.tower.awake = this.restingTower() * q));
+    t.span(10.6, 13.2, (q) => (this.tower.awake = q));
     t.at(11.2, () => e.hud.title(this.title, HOURS.bluehour.label));
   }
 
@@ -580,7 +648,9 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     this.mood = 'bluehour';
     this.setAtmos(HOURS.bluehour);
     this.lit = { window: 1, lamp: 1, tiers: 3, beacon: 1, chain: 1 };
-    this.tower.awake = this.restingTower();
+    this.tower.awake = 1;
+    // (the first light the station sends round by itself comes a while after the place has settled)
+    this.nextRound = this.time + 70 + this.r() * 60;
   }
 
   setMood(name: string, seconds = 5) {
@@ -602,6 +672,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       return;
     }
     this.hornFlash = 1;
+    this.cat.heard();
     this.blast(audio.hz(-12), 0, 0.27, 700, 0.2);
     this.ripple(2.4, false, true);
   }
@@ -613,9 +684,12 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     audio.tone({ f: f * 1.498, dur, type: 'sawtooth', gain: gain * 0.55, attack: 0.22, lp, at, pan, send: 0.85 });
   }
 
-  /** A light runs down the chain: each relay flares in turn, nearest first, with a note of its own. */
-  ripple(delay = 0, soft = false, horns = false) {
+  /** A light runs down the chain: each relay flares in turn, nearest first, with a note of its own.
+   *  When it has gone the whole way (further than can be seen, most evenings) the tower, which is
+   *  the end of the chain, replies: unless `last` says it has spoken already. */
+  ripple(delay = 0, soft = false, horns = false, last = true) {
     const audio = this.engine.audio;
+    if (last) this.after(delay + 0.35 + this.relays.length * 0.42 + 2.2, () => this.towerReplies(soft));
     const list = this.relays.filter((rl) => rl.far <= this.now.reach + 0.05 || !this.engine.settings.motion);
     list.forEach((rl, i) => {
       const at = delay + 0.35 + i * 0.42 + rl.far * 0.6;
@@ -641,7 +715,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     this.beatAt = this.time - BEAT * 0.2;
   }
 
-  /** The tower has had the light on it long enough: it answers. */
+  /** The tower has had the light on it long enough: it answers, there and then. */
   solve() {
     this.solvedAt = this.time;
     this.armed = false;
@@ -649,11 +723,23 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     this.tower.flash();
     const audio = this.engine.audio;
     audio.tone({ f: [audio.hz(-24), audio.hz(-12)], dur: 2.6, type: 'sine', gain: 0.16, attack: 0.9, send: 0.9 });
-    if (!answerSignal(this.engine)) {
-      this.engine.hud.toast('The tower answers', 3);
-      [0, 7, 12, 14].forEach((s, i) => audio.chime(s, { at: 0.3 + i * 0.18, gain: 0.12, decay: 3.4 }));
-    }
-    this.ripple(1.2, true);
+    this.engine.hud.toast('The tower answers', 3);
+    [0, 7, 12, 14].forEach((s, i) => audio.chime(s, { at: 0.3 + i * 0.18, gain: 0.12, decay: 3.4 }));
+    this.ripple(1.2, true, false, false);
+  }
+
+  /** The end of the chain: whatever was sent down it has arrived, and the tower says so. Nobody asked it to. */
+  private towerReplies(soft: boolean) {
+    if (this.time - this.solvedAt < 14) return;           // (it has only just answered the lamp)
+    this.tower.flash();
+    const audio = this.engine.audio;
+    audio.tone({ f: [audio.hz(-24), audio.hz(-12)], dur: 2.8, type: 'sine', gain: soft ? 0.07 : 0.11, attack: 1.1, send: 0.95 });
+  }
+
+  /** The station passes a light down the chain by itself, as it does a few times an hour. */
+  round() {
+    this.pulseNow();
+    this.ripple(0.6, true);
   }
 
   private after(seconds: number, fn: () => void) {
@@ -887,6 +973,11 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       verge.quad(edge(p, -1, 1.7, 1.1), edge(q, -1, 1.7, 1.1), edge(q, -1), edge(p, -1), [p.s / 3, 0, q.s / 3, 0.6], gl, gl, gv, gv);
       verge.quad(edge(p, 1), edge(q, 1), edge(q, 1, 1.7, 1.1), edge(p, 1, 1.7, 1.1), [p.s / 3, 0, q.s / 3, 0.6], gv, gv, gl, gl);
     }
+    // the airstrip behind the yard: mown turf laid along the back of the nose, and what marks it out
+    stripGround(verge);
+    stripMarkers(b);
+    pathStones(b, ground);
+    fingerpost(b, FINGER[0], ground(FINGER[0], FINGER[1]), FINGER[1]);
     const tarMat = psxMaterial(shared, { map: this.rt.tarmac, vertexColors: true, texFade: [70, 220] });
     for (const m of [this.mesh(tar, tarMat), this.mesh(verge, this.groundMat)]) if (m) this.solid.add(m);
 
@@ -909,11 +1000,16 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       const s = 0.45 + r() * 0.6;
       const pale = r();
       const c: RGB = pale > 0.6 ? [0.95, 0.9, 0.62] : [0.62, 0.72, 0.5];
-      for (const yaw of [r() * 3.1, r() * 3.1 + 1.4]) {
-        tufts.reset().translate(x, y - 0.04, z).rotateY(yaw);
-        tufts.quad([-s * 0.6, 0, 0], [s * 0.6, 0, 0], [s * 0.6, s, 0], [-s * 0.6, s, 0], [0, 0, 1, 1], c);
+      const yaws = [r() * 3.1, r() * 3.1 + 1.4];
+      const bush = r() < 0.2 ? 0.5 + r() * 0.5 : 0;
+      // (nothing grows where somebody lies. The dice are thrown all the same, so every other tuft is where it was.)
+      if (!lain(x, z)) {
+        for (const yaw of yaws) {
+          tufts.reset().translate(x, y - 0.04, z).rotateY(yaw);
+          tufts.quad([-s * 0.6, 0, 0], [s * 0.6, 0, 0], [s * 0.6, s, 0], [-s * 0.6, s, 0], [0, 0, 1, 1], c);
+        }
       }
-      if (r() < 0.2) heath.reset().translate(x + 0.7, y + 0.05, z + 0.4).blob(0.5 + r() * 0.5, { seed: i, detail: 0, jitter: 0.3, squash: [1.3, 0.45, 1.1], color: [0.36, 0.26, 0.36], colorTop: [0.6, 0.42, 0.56], uvScale: 0.6 });
+      if (bush && !lain(x + 0.7, z + 0.4) && !lain(x + 0.2, z + 0.4) && !lain(x + 1.2, z + 0.4)) heath.reset().translate(x + 0.7, y + 0.05, z + 0.4).blob(bush, { seed: i, detail: 0, jitter: 0.3, squash: [1.3, 0.45, 1.1], color: [0.36, 0.26, 0.36], colorTop: [0.6, 0.42, 0.56], uvScale: 0.6 });
     }
     this.mesh(tufts, psxMaterial(shared, { map: this.tex.tuft, vertexColors: true, cut: true, twoSided: true, wind: [0.07, 1.2, 1], windUv: true, texFade: [50, 140] }));
     this.mesh(heath, this.groundMat);
@@ -927,6 +1023,9 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       for (let j = 0; j < n; j++) way.push([lerp(ax, bx, j / n), lerp(az, bz, j / n)]);
     }
     way.push(PATH[PATH.length - 1]);
+    // (and the way down from the brow behind the yard to the airstrip, trodden the same)
+    stripPath(trod, ground);
+    trod.reset();
     for (let i = 0; i < way.length - 1; i++) {
       const [ax, az] = way[i], [bx, bz] = way[i + 1];
       const l = Math.hypot(bx - ax, bz - az) || 1;
@@ -985,7 +1084,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     lines.frustumCulled = false;
     this.root.add(lines);
 
-    // three crates by the hut: one for each station that talks to the tower
+    // three crates by the hut: one for each station round the tower
     const cr = new Builder();
     crates(cr, HUT.x + 0.9, YARD, HUT.z + HUT.hd + 0.55);
     this.mesh(cr, psxMaterial(shared, { map: this.rt.cargo, vertexColors: true }));
@@ -1008,6 +1107,19 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     }
     for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) this.solid.circle(mx + sx * MAST_HW, mz + sz * MAST_HW, 0.14, YARD, YARD + PLINTH + MAST_H);
     this.solid.circle(this.lampAt[0] - Math.sin(0.5) * 1.65, this.lampAt[2] - Math.cos(0.5) * 1.65, 0.2);
+
+    // the cat: its seat by the path below the tor, the bench (between whoever sits there and the radio),
+    // and two places it likes when somebody is about: the top of the survey pillar, and a slab of the tor
+    this.cat = new Cat(e, this.root, this.glows, this.solid, this.tex.white, {
+      home: { x: CAT_HOME[0], z: CAT_HOME[1], face: 270 },
+      // (on the nearer of the bench's two planks: there is a gap between them)
+      bench: { x: BENCH[0] - 0.12, z: BENCH[1] + 0.1, face: 0, from: [BENCH[0] - 0.12, BENCH[1] + 0.9] },
+      rounds: [
+        { x: 2.4, z: 2.2, face: 345, from: [1.55, 1.55] },
+        { x: 5.6, z: 0.4, face: 300, from: [3.95, -0.25] },
+      ],
+      watch: [mx, YARD + BEACON_Y, mz],
+    });
 
     // the gate: a light standing in the doorway of the bothy
     this.gate = new Gate(e, this.root, this.glows, { x: door.x, y: door.y, z: door.z, width: 2.2, height: 3.0, yaw: 0, noise: this.tex.fogNoise });
@@ -1054,6 +1166,8 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     this.headGlow = this.glows.add(0, -999, 0, 0.5, [0, 0, 0]);
     // the paraffin heater in the corner of the hut: it is always lit
     this.glows.add(INSIDE.heater[0], INSIDE.heater[1] + 0.05, INSIDE.heater[2], 0.32, [0.9, 0.36, 0.1]);
+    // the lamps down either side of the airstrip (on the yard lamp's time switch)
+    for (const l of stripLamps()) this.stripGlows.push({ id: this.glows.add(l.p[0], l.p[1], l.p[2], 0.3, [0, 0, 0]), col: l.col });
     // moths at the yard lamp
     for (let i = 0; i < 6; i++) this.moths.push({ id: this.glows.add(0, -999, 0, 0.05, [0, 0, 0]), a: this.r() * TAU, r: 0.3 + this.r() * 0.7, h: this.r() * 0.8 - 0.5, w: 1.6 + this.r() * 2.6 });
   }
@@ -1109,22 +1223,35 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     // down in the cloud the world closes in
     const eyeY = e.camera.position.y;
     const under = e.exploring ? smooth(CLOUD + 5, CLOUD - 8, eyeY) : 0;
-    if (under > 0 || this.under > 0) {
-      const a = under > 0 ? blend(this.now, UNDER, under) : this.now;
-      applyAtmos(u, a);
-      this.applyExtras(a);
+    // lying on your back in the grass, the blue hour goes on into night: over half a minute, and back more quickly
+    const lying = e.resting;
+    this.nightK = clamp(this.nightK + (lying ? dt / 32 : -dt / 8));
+    const nk = smooth(0, 1, this.nightK);
+    let w = this.now;
+    if (under > 0) w = blend(w, UNDER, under);
+    if (nk > 0) w = blend(w, DEEP, nk);
+    if (under > 0 || this.under > 0 || nk > 0 || this.nightWas > 0) {
+      applyAtmos(u, w);
+      this.applyExtras(w);
       // the beacon, somewhere up above: the murk overhead goes red with it and dark again
       const red = under * this.pulse * smooth(420, 60, Math.hypot(e.camera.position.x - MAST[0], e.camera.position.z - MAST[1]));
       (u.uZenith.value as Vector3).x += 0.3 * red;
       (u.uMid.value as Vector3).x += 0.12 * red;
     }
     this.under = under;
-    const w = under > 0 ? blend(this.now, UNDER, under) : this.now;
-    // and it sounds different in there
-    if (under > 0.6 !== this.muffled) {
-      this.muffled = under > 0.6;
-      e.audio.setSpec(this.muffled ? { ...this.audio, ambience: BELOW, pad: { ...this.audio.pad, cutoff: 520 } } : this.audio);
+    this.nightWas = nk;
+    // (the stars the page shows give way to the same stars held steady, among all the others)
+    if (nk > 0) this.sky.setStars(w.stars * (1 - nk));
+    this.night.set(nk, w.stars);
+    this.night.update(dt, lying);
+    // It sounds different inside the cloud. And for somebody lying still the wind drops and the music
+    // sits back, until it is quiet enough to hear the mast hum.
+    const voice = under > 0.6 ? 'below' : this.nightK > 0.06 ? 'rest' : 'open';
+    if (voice !== this.voiceNow) {
+      this.voiceNow = voice;
+      e.audio.setSpec(voice === 'below' ? { ...this.audio, ambience: BELOW, pad: { ...this.audio.pad, cutoff: 520 } } : voice === 'rest' ? { ...this.audio, ambience: STILL } : this.audio);
     }
+    e.audio.swell = 1 - 0.45 * nk;
 
     this.beat(dt, time, w);
     this.aimLamp(dt, time);
@@ -1133,9 +1260,24 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     this.sounds(dt, time);
 
     this.hornFlash = Math.max(0, this.hornFlash - dt * 1.4);
+    // the windsock (once somebody is near enough for it to be there): down the wind, lifting and falling with the gusts
+    if (this.sock.parent) {
+      const gust = 0.55 + 0.45 * noise2(time * 0.21, 3.3, 71);
+      this.sock.rotation.set(0.1 + (1 - gust) * 0.8 + Math.sin(time * 5.1) * 0.03 * gust, rad(180 - WIND_TO) + (noise2(time * 0.33, 9.1, 73) - 0.5) * 0.7, Math.sin(time * 3.7) * 0.05, 'YXZ');
+    }
+    const rides = e.explore.vehicle;
+    const lies = this.cast.will;
+    this.cat.update(dt, time, {
+      pulse: this.pulse,
+      cold: this.scrolled,
+      lying: e.resting && lies.beside ? { x: lies.beside[0], z: lies.beside[2], yaw: lies.yaw, free: [Math.sign(lies.beside[0] - lies.at[0]), 0] } : null,
+      wheels: rides && Math.abs(rides.speed) > 1 ? { x: rides.x, z: rides.z } : null,
+    });
     this.detail.update(e.camera.position);
     this.below?.update(dt, time, this.glows, under);
-    this.sky.update(dt);
+    // (The sky turns far faster than a real one, which is right for a picture and wrong for lying under:
+    // it slows almost to a stop, so that the only things seen to move up there are the things that do.)
+    this.sky.update(dt * lerp(1, 0.025, nk));
     this.tower.update(dt, time);
     this.gate.update(dt, time);
     this.gateFill.uniforms.uAlpha.value = 0.2 + 0.03 * Math.sin(time * 0.8) + this.gate.energy * 0.5 + (e.hovered === this.gate.interactable ? 0.12 : 0);
@@ -1221,6 +1363,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     }
     const halo = lampOn * 0.16;
     this.glows.setColor(this.lampHalo, SODIUM[0] * halo, SODIUM[1] * halo, SODIUM[2] * halo);
+    for (const s of this.stripGlows) this.glows.setColor(s.id, s.col[0] * lampOn * 0.85, s.col[1] * lampOn * 0.85, s.col[2] * lampOn * 0.85);
     // the hut's inside is as bright as its bulb, and so is its window
     const bulb = this.lamps[1].on();
     this.innerMat.uniforms.uTint.value.set(1.05, 1, 0.92).multiplyScalar(0.55 + 0.45 * bulb);
@@ -1269,7 +1412,6 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
   /** Light answers light: keep the beam on the tower and it notices. */
   private watchTower(dt: number) {
     const e = this.engine;
-    const rest = this.restingTower();
     if (this.timeline) return;                             // the opening has the tower in hand
     let off = 9;
     for (const p of this.towerMarks) off = Math.min(off, this.tmp.copy(p).sub(this.lens).normalize().angleTo(this.beamDir));
@@ -1284,9 +1426,12 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       this.hold = 0;
       this.solve();
     }
-    const since = this.time - this.solvedAt;
-    const lift = since < 12 ? 1 : rest;
-    this.tower.awake += (Math.max(lift, rest + (1 - rest) * smooth(0, 3, this.hold)) - this.tower.awake) * (1 - Math.exp(-dt * 2.5));
+    // (left alone it burns as it always does, and now and then the station sends a light round to it)
+    this.tower.awake += (1 - this.tower.awake) * (1 - Math.exp(-dt * 2.5));
+    if (this.time > this.nextRound) {
+      this.nextRound = this.time + 150 + this.r() * 190;
+      if (this.power.mast) this.round();
+    }
   }
 
   /** The small noises of the place: the wires singing, the flasher's click, the lamp's buzz, the set. */
@@ -1428,7 +1573,6 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
         void dx;
         ch.translate(cx, cy - 0.3, cz).quad([-0.5, 0, 0], [0.5, 0, 0], [0.5, 0.62, 0], [-0.5, 0.62, 0], [0, 0, 1, 1]);
         this.mesh(ch, psxMaterial(e.shared, { map: this.rt.chart }), g);
-        paintChart(this.rt.chart, WORLDS.map((w) => store.has(w.id)));
         this.root.add(g);
         return g;
       },
@@ -1463,7 +1607,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
         },
       });
     }
-    // the door in the foot of the tower, and the three lamps over it
+    // the door in the foot of the tower, and the three lamps over it (all three lit: somebody is in)
     this.detail.add({
       at: [TOWER[0], TOWER_BASE + 10, TOWER[1]],
       within: 420,
@@ -1477,25 +1621,62 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
         b.paint.reset().translate(dx, TOWER_BASE, dz).rotateY(a).translate(0, 0, 0.5).box(2.2, 4.2, 0.12, [0.16, 0.17, 0.2]);
         b.conc.reset().translate(dx, TOWER_BASE - 1.2, dz).rotateY(a).translate(0, 0, 2.6).box(6, 1.25, 5, [0.6, 0.6, 0.62], [0.8, 0.8, 0.82], 0.4);
         this.bakeAll(b, g, ['conc', 'paint']);
-        const have = WORLDS.map((w) => store.has(w.id));
-        have.forEach((on, i) => {
+        for (let i = 0; i < 3; i++) {
           const lx = dx + Math.cos(a) * (i - 1) * 0.9 + Math.sin(a) * 0.7;
           const lz = dz - Math.sin(a) * (i - 1) * 0.9 + Math.cos(a) * 0.7;
-          this.glows.add(lx, TOWER_BASE + 4.75, lz, 0.45, on ? [1.3, 0.75, 0.3] : [0.05, 0.06, 0.09]);
-        });
+          this.glows.add(lx, TOWER_BASE + 4.75, lz, 0.45, [1.3, 0.75, 0.3]);
+        }
         this.interactables.push({
           id: 'tower-door', label: 'The door', center: new Vector3(dx + Math.sin(a) * 0.8, TOWER_BASE + 2, dz + Math.cos(a) * 0.8), radius: 1.6, reach: 5, walkOnly: true, marker: false,
           onClick: () => {
-            const n = WORLDS.filter((w) => store.has(w.id)).length;
             this.engine.audio.noise({ dur: 0.12, gain: 0.3, type: 'lowpass', f: 140, attack: 0.002, send: 0.6 });
             this.engine.audio.tone({ f: [70, 52], dur: 1.4, type: 'sine', gain: 0.16, attack: 0.02, send: 0.9 });
-            this.engine.hud.toast(n === WORLDS.length ? 'Shut. Three lamps lit over it. Ask the gate.' : `Shut. Three lamps over it, ${n} lit.`, 6);
+            this.engine.hud.toast('Shut from this side. The gate goes round to the bay it stands in.', 7);
           },
         });
         this.root.add(g);
         return g;
       },
     });
+
+    // the top of the airstrip: the shelter and what is in it, the tie-downs, the board, the windsock
+    this.detail.add({
+      at: [PLANE_AT[0], PLANE_AT[1] + 1, PLANE_AT[2]],
+      // (near enough to matter from the yard and the mast; too far to be built for the page's view from the tor)
+      within: 140,
+      build: () => {
+        const g = new Group();
+        const b = makeBuilders();
+        stripYard(b, (x, z) => this.land.ground(x, z));
+        this.bakeAll(b, g, ['wood', 'conc']);
+        // (the shelter's tin walls and its drums are in the way too)
+        const [sx, sz] = SHELTER;
+        const sy = this.land.ground(sx, sz);
+        const wall = (ax: number, az: number, cx: number, cz: number) => {
+          this.solid.triangle(ax, sy, az, cx, sy, cz, cx, sy + 2.2, cz, false, true);
+          this.solid.triangle(ax, sy, az, cx, sy + 2.2, cz, ax, sy + 2.2, az, false, true);
+        };
+        wall(sx - 1.5, sz - 2.6, sx - 1.5, sz + 2.6);
+        wall(sx - 1.5, sz + 2.6, sx + 1.5, sz + 2.6);
+        wall(sx + 1.5, sz - 2.6, sx - 1.5, sz - 2.6);
+        this.solid.circle(sx - 0.62, sz - 1.95, 0.62).circle(sx - 0.85, sz - 0.75, 0.6);
+        this.solid.circle(SOCK[0], SOCK[1], 0.12);
+        // the sock itself turns on the head of its pole
+        const sb = new Builder();
+        windsock(sb);
+        this.mesh(sb, this.mats.paint, this.sock);
+        this.sock.position.set(SOCK[0], this.land.ground(SOCK[0], SOCK[1]) + SOCK_H + 0.03, SOCK[1]);
+        g.add(this.sock);
+        this.root.add(g);
+        return g;
+      },
+    });
+
+    // the station's aeroplane, at the top of the strip with its nose down it. (It is behind the brow
+    // of the yard, where the page's view cannot see it; it is not drawn at all until somebody steps in.)
+    // (It may be flown as far as the tower on its crag, which is a long way: the chain of relays is the way there.)
+    this.plane = new Plane(e, { parent: this.root, gear: 'wheels', at: PLANE_AT, heading: PLANE_HEADING, body: '#e4dfd0', trim: '#b3271e', label: 'Fly the plane', range: 6400 });
+    this.plane.o.object.visible = false;
 
     // ladders: up the inside of the mast, and up the back of the hut
     const m = MAST_LADDER;
@@ -1538,7 +1719,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       turn: 88,
       grip: 4,
       chase: [5.4, 2.4],
-      seat: [-0.28, 1.25, 0.1],
+      seat: BUGGY_EYE,
       reach: 3,
     });
   }
@@ -1551,7 +1732,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     const out: Interactable[] = [
       foot('plate', 'Light answers light', v(LAMP_PIVOT, -0.95), 0.4, () => this.tap(), { reach: 3 }),
       foot('man', () => (this.manned ? 'Let go of the lamp' : 'Take hold of the lamp'), this.pivot, 0.7, () => this.man(!this.manned), { reach: 3.2 }),
-      foot('bench', () => (this.sitting ? 'Get up' : 'Sit a while'), new Vector3(BENCH[0] - 0.45, this.land.ground(BENCH[0], BENCH[1]) + 0.5, BENCH[1]), 0.7, () => this.sit(BENCH[0] - 0.4, BENCH[1] + 0.05, 0), { reach: 3 }),
+      foot('bench', () => (this.sitting ? 'Get up' : 'Sit a while'), new Vector3(BENCH[0] - 0.58, this.land.ground(BENCH[0], BENCH[1]) + 0.5, BENCH[1]), 0.55, () => this.sit(BENCH[0] - 0.56, BENCH[1] + 0.05, 0), { reach: 3 }),
       foot('brow', () => (this.sitting ? 'Get up' : 'Sit a while'), new Vector3(BROW[0], this.land.ground(BROW[0], BROW[1]) + 0.5, BROW[1]), 0.9, () => this.sit(BROW[0], BROW[1], BROW_YAW), { reach: 3 }),
       foot('bell', 'Ring the bell', new Vector3(BIKE[0] + 0.3, YARD + 0.95, BIKE[1]), 0.5, () => this.bell(), { reach: 2.6 }),
       foot('crates', 'Three crates', new Vector3(HUT.x + 1.3, YARD + 0.6, HUT.z + HUT.hd + 0.55), 0.7, () => this.readCrates(), { reach: 3 }),
@@ -1639,6 +1820,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
 
   private bell() {
     const a = this.engine.audio;
+    this.cat.heard();
     for (const at of [0, 0.19]) {
       a.tone({ f: 2093, dur: 0.5, type: 'sine', gain: 0.14, at, send: 0.4 });
       a.tone({ f: 2093 * 2.76, dur: 0.3, type: 'sine', gain: 0.05, at, send: 0.4 });
@@ -1655,9 +1837,7 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
   }
 
   private readCrates() {
-    const have = WORLDS.map((w) => store.has(w.id));
-    const n = have.filter(Boolean).length;
-    this.engine.hud.toast(n === 3 ? 'Three crates. All three collected.' : 'Three crates, one for each station. Nobody has come for them.', 5);
+    this.engine.hud.toast('Three crates, one for each station. Nobody has come for them.', 5);
     this.engine.audio.noise({ dur: 0.05, gain: 0.26, type: 'lowpass', f: 300 });
   }
 
@@ -1686,6 +1866,8 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
       '00:10  Tried the roof lamp on it. Held it three seconds. It answered.',
       '00:12  Light answers light. Put that on a plate.',
       '04:30  All of them in step for a minute, then not. Nobody asked them to.',
+      '05:10  Sent a light round. The tower was last to answer, as ever.',
+      '06:20  Mowed the strip. Sock says north-west. Lamps left on for whoever is coming.',
     ];
     this.engine.hud.toast(pages[this.logPage % pages.length], 7);
     this.logPage++;
@@ -1693,9 +1875,8 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
   }
 
   private readChart() {
-    paintChart(this.rt.chart, WORLDS.map((w) => store.has(w.id)));
-    const n = WORLDS.filter((w) => store.has(w.id)).length;
-    this.engine.hud.toast(n === 0 ? 'Three stations round a tower. None of them lit.' : `Three stations round a tower. ${n} lit.`, 5);
+    this.engine.hud.toast('Three stations round a tower. The way round goes one way: the bay, the pass, here.', 7);
+    this.engine.audio.noise({ dur: 0.1, gain: 0.18, type: 'highpass', f: 2600, attack: 0.03 });
   }
 
   private tea() {
@@ -1813,15 +1994,31 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     // the lamp follows your eye until you walk away from it
     if (this.manned && (v || Math.hypot(pl.x - this.mannedAt[0], pl.z - this.mannedAt[1]) > 1.6)) this.man(false);
 
+    // into the light in the old doorway: that is the gate, and it leads on
+    const gx = pl.x - this.gateAt.x, gz = pl.z - (this.gateAt.z - 0.5);
+    const inDoor = !v && Math.abs(gx) < 1.0 && Math.abs(gz) < 0.6 && Math.abs(pl.y - (this.gateAt.y - 1.6)) < 1.6;
+    if (inDoor && !this.inGate && !e.hud.menu) this.gate.open();
+    this.inGate = inDoor || (this.inGate && Math.hypot(gx, gz) < 3);
+
     // whatever is being driven has a lamp on the front of it
     const u = e.shared;
     if (v) {
-      const hr = rad(v.heading);
-      this.tmp.set(v.x + Math.sin(hr) * 1.3, v.y + 0.7, v.z - Math.cos(hr) * 1.3);
-      this.tmp2.set(Math.sin(hr), -0.2, -Math.cos(hr)).normalize();
-      spotLight(u, 1, this.tmp, this.tmp2, 28, 64, 2.6, 2.4, 1.9);
+      let lit = 1;
+      if (v === this.plane) {
+        // The aeroplane's is under its left wing, well out of the pilot's eye, and goes where the wing
+        // goes. (Its own middle is what `y` gives, a good metre off the ground: the model's space is used.)
+        const ob = v.o.object;
+        this.tmp.set(-2.6, 0.6, -0.75).applyMatrix4(ob.matrixWorld);
+        this.tmp2.set(0.05, -0.17, -1).normalize().applyQuaternion(ob.quaternion);
+        lit = clamp(this.plane.running * 1.5);
+      } else {
+        const hr = rad(v.heading);
+        this.tmp.set(v.x + Math.sin(hr) * 1.3, v.y + 0.7, v.z - Math.cos(hr) * 1.3);
+        this.tmp2.set(Math.sin(hr), -0.2, -Math.cos(hr)).normalize();
+      }
+      spotLight(u, 1, this.tmp, this.tmp2, 28, 64, 2.6 * lit, 2.4 * lit, 1.9 * lit);
       this.glows.setPos(this.headGlow, this.tmp.x, this.tmp.y, this.tmp.z);
-      this.glows.setColor(this.headGlow, 1.2, 1.1, 0.85);
+      this.glows.setColor(this.headGlow, 1.2 * lit, 1.1 * lit, 0.85 * lit);
     } else if (this.hadLamp) {
       spotLight(u, 1, this.tmp.set(0, -1e5, 0), this.tmp2.set(0, -1, 0), 1, 1, 0, 0, 0);
       this.glows.setColor(this.headGlow, 0, 0, 0);
@@ -1832,11 +2029,14 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
 
   explore(on: boolean) {
     const e = this.engine;
+    this.plane.o.object.visible = on;
     if (on) return;
     // stepped back out to the page: the place is put back as the page shows it
     this.climbing = null;
     this.manned = false;
     this.sitting = null;
+    this.inGate = false;
+    this.cat.home();
     e.player.eye = 1.7;
     this.inside = false;
     this.power = { lamp: true, hut: true, mast: true, signal: true };
@@ -1847,8 +2047,11 @@ export default class TheRelay extends BaseLevel<Hour> implements Level {
     if (this.mood !== 'bluehour' && !this.timeline) this.rest();
     this.detail.reset();
     this.under = 0;
-    if (this.muffled) {
-      this.muffled = false;
+    this.nightK = this.nightWas = 0;
+    this.night.set(0, this.now.stars);
+    e.audio.swell = 1;
+    if (this.voiceNow !== 'open') {
+      this.voiceNow = 'open';
       e.audio.setSpec(this.audio);
     }
     applyAtmos(e.shared, this.now);

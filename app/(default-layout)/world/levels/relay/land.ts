@@ -1,6 +1,9 @@
 // The lie of the land. A ridge of moor with two tops: a tor at the south end,
 // where you stand, and a hundred metres north of it a flat shoulder that
-// somebody levelled for a mast. Everything else falls away into cloud.
+// somebody levelled for a mast. Everything else falls away into cloud. Behind
+// the mast the hill runs out northward in a long nose, with an airstrip mown
+// along its back: from the tor none of that can be seen, it lies below the
+// brow of the yard.
 //
 // natural() is the hill before anybody built on it. The service road is laid
 // along it and the ground is trimmed to the road. The mesh is sampled from
@@ -29,6 +32,35 @@ export const HUT = { x: MAST[0] + 8.4, z: MAST[1] + 4.2, hw: 3.2, hd: 2.1, h: 2.
 export const WALL_Z = -61.5;
 export const DOOR: [number, number] = [7, WALL_Z];
 
+/** The airstrip on the nose behind the mast: its centre line, its top (south) end and its bottom end,
+ *  half its mown width, and how high its top end is. A machine stands on the level at the top; from
+ *  there it is downhill all the way to where the hill simply stops. */
+export const STRIP = { x: 0, z0: -165, z1: -277, half: 7, y0: -14.7 };
+export const STRIP_LEN = STRIP.z0 - STRIP.z1;
+/** how wide the back of the nose is, either side of the strip's middle, before it falls away */
+const NOSE_HALF = 9;
+
+/** How high the strip is `s` metres down it from its top end: level for a few metres, easing over
+ *  into a steady fall of one in thirteen. (Above the top and below the bottom it goes on level.) */
+export function stripY(s: number) {
+  const LEVEL = 12, EASE = 30, FALL = 0.075;
+  const t = clamp(s, 0, STRIP_LEN);
+  if (t <= LEVEL) return STRIP.y0;
+  if (t < EASE) return STRIP.y0 - (FALL * (t - LEVEL) ** 2) / (2 * (EASE - LEVEL));
+  return STRIP.y0 - FALL * (t - (LEVEL + EASE) / 2);
+}
+
+/** How far a spot is from the flat back of the nose (0 on it), and how high that back is abreast of it. */
+function nose(x: number, z: number): [number, number] {
+  const zc = clamp(z, STRIP.z1 - 8, STRIP.z0 + 6);
+  return [Math.max(0, Math.hypot(x - STRIP.x, z - zc) - NOSE_HALF), stripY(STRIP.z0 - zc)];
+}
+
+/** How far a spot is outside the mown strip and the rough either side of it (0 on it). */
+export function offStrip(x: number, z: number) {
+  return Math.max(0, Math.abs(x - STRIP.x) - NOSE_HALF, z - (STRIP.z0 + 4), STRIP.z1 - 6 - z);
+}
+
 const flank = (d: number) => (d <= 0 ? 0 : 0.36 * (d - 10 * (1 - Math.exp(-d / 10))));
 /** the higher of two heights, rounded off where they meet */
 const smax = (a: number, b: number, k: number) => {
@@ -45,8 +77,11 @@ export function natural(x: number, z: number) {
   const top = -3 - 7.2 * smooth(0, 0.45, t) - 2.8 * smooth(0.5, 0.75, t);
   const hRidge = top - flank(Math.hypot(x, z + 104 * t) - 7);
   let h = smax(smax(hTor, hMast, 3), hRidge, 3);
-  // lumps: next to none on the tops, plenty on the slopes
-  const steep = smooth(1.5, 14, -h - (z < -70 ? 8 : 0));
+  // the nose behind the mast, its back made ready for a strip
+  const [nd, ny] = nose(x, z);
+  if (nd < 140) h = smax(h, ny - flank(nd), 3);
+  // lumps: next to none on the tops (or along the back of the nose), plenty on the slopes
+  const steep = smooth(1.5, 14, -h - (z < -70 ? 8 : 0)) * smooth(2, 14, nd);
   h += (fbm(x / 38, z / 38, 7, 3) - 0.5) * 5 * steep + (fbm(x / 9, z / 9, 19, 2) - 0.5) * (0.25 + 0.7 * steep);
   // and the moor it stands on, far below
   const floor = -118 + (fbm(x / 170, z / 170, 31, 3) - 0.5) * 28;
@@ -190,6 +225,9 @@ export function heightAt(x: number, z: number) {
   const [x0, z0, x1, z1] = FENCE;
   const inYard = Math.min(x - x0, x1 - x, z - z0, z1 - z);
   if (inYard > -3) h = lerp(h, YARD - 0.4, smooth(-3, 0.5, inYard));
+  // and under the airstrip, so that the mown strip laid on it lies proud of the rough either side
+  const off = offStrip(x, z);
+  if (off < 8) h = lerp(stripY(STRIP.z0 - z) - 0.3, h, smooth(1, 8, off));
   return h;
 }
 
@@ -242,7 +280,8 @@ export class Land {
 
   constructor() {
     this.xs = axis(-280, 168, 7, 2600);
-    this.zs = axis(-238, 301, 7, 2600);
+    // (fine as far north as the end of the nose: the same lines as before south of z = -238)
+    this.zs = axis(-301, 301, 7, 2600);
     const { xs, zs } = this;
     this.h = new Float32Array(xs.length * zs.length);
     for (let j = 0; j < zs.length; j++) for (let i = 0; i < xs.length; i++) this.h[j * xs.length + i] = heightAt(xs[i], zs[j]);

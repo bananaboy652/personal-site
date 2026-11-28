@@ -160,28 +160,39 @@ interface Board {
   rune?: number;
 }
 
-/** One sheet of notices, 128 by 64. Where each is: see SIGN below. */
+/** The sheet of notices is this big; where each one is on it, and what it says: */
+const SHEET_W = 128;
+const SHEET_H = 96;
+const BOARDS = {
+  // the plate on the lamp's post
+  plate: { x: 0, y: 0, w: 48, h: 30, lines: ['LIGHT', 'ANSWERS', 'LIGHT'], ink: hex('#e0cf9c'), ground: hex('#1c2026'), border: hex('#8f8363') },
+  // on the fence
+  danger: { x: 48, y: 0, w: 40, h: 30, lines: ['DANGER', 'KEEP', 'OUT'], ink: hex('#1a1a1c'), ground: hex('#d8b23a'), border: hex('#1a1a1c') },
+  // on the hut door
+  door: { x: 88, y: 0, w: 40, h: 30, lines: ['RELAY', 'NO 7'], ink: hex('#e8e6de'), ground: hex('#274a66'), border: hex('#e8e6de') },
+  // the bus stop's timetable
+  timetable: { x: 0, y: 32, w: 48, h: 32, lines: ['ROUTE 14', 'MON 0710', 'FRI 0710'], ink: hex('#20242a'), ground: hex('#dcd9cf'), border: hex('#6b6f76') },
+  // the fingerpost under the cloud
+  finger: { x: 48, y: 32, w: 40, h: 14, lines: ['RELAY 1'], ink: hex('#1c1d20'), ground: hex('#e6e3d8') },
+  // the kiosk
+  phone: { x: 48, y: 48, w: 40, h: 14, lines: ['PHONE'], ink: hex('#f0eee6'), ground: hex('#9c2a22') },
+  // at the cattle grid
+  private: { x: 88, y: 32, w: 40, h: 32, lines: ['PRIVATE', 'ROAD', 'NO 7'], ink: hex('#e8e6de'), ground: hex('#30343a'), border: hex('#8a8f96') },
+  // the fingerpost at the yard's gate
+  airstrip: { x: 0, y: 66, w: 48, h: 14, lines: ['AIRSTRIP'], ink: hex('#1c1d20'), ground: hex('#e6e3d8') },
+  // on the shelter at the strip
+  fuel: { x: 0, y: 82, w: 40, h: 14, lines: ['FUEL'], ink: hex('#f0eee6'), ground: hex('#9c2a22') },
+  // the board at the top of the strip
+  strip: { x: 48, y: 66, w: 48, h: 30, lines: ['RELAY 7', 'AIRSTRIP', 'ONE WAY'], ink: hex('#e8e6de'), ground: hex('#274a66'), border: hex('#e8e6de') },
+} satisfies Record<string, Board>;
+
+/** One sheet of notices. Where each is: see SIGN below. */
 function signs() {
-  const W = 128;
-  const H = 64;
+  const W = SHEET_W;
+  const H = SHEET_H;
   const font = fontAtlas();
   const atlas = (font.image as { data: Uint8Array }).data;
-  const boards: Board[] = [
-    // the plate on the lamp's post
-    { x: 0, y: 0, w: 48, h: 30, lines: ['LIGHT', 'ANSWERS', 'LIGHT'], ink: hex('#e0cf9c'), ground: hex('#1c2026'), border: hex('#8f8363') },
-    // on the fence
-    { x: 48, y: 0, w: 40, h: 30, lines: ['DANGER', 'KEEP', 'OUT'], ink: hex('#1a1a1c'), ground: hex('#d8b23a'), border: hex('#1a1a1c') },
-    // on the hut door
-    { x: 88, y: 0, w: 40, h: 30, lines: ['RELAY', 'NO 7'], ink: hex('#e8e6de'), ground: hex('#274a66'), border: hex('#e8e6de') },
-    // the bus stop's timetable
-    { x: 0, y: 32, w: 48, h: 32, lines: ['ROUTE 14', 'MON 0710', 'FRI 0710'], ink: hex('#20242a'), ground: hex('#dcd9cf'), border: hex('#6b6f76') },
-    // the fingerpost
-    { x: 48, y: 32, w: 40, h: 14, lines: ['RELAY 1'], ink: hex('#1c1d20'), ground: hex('#e6e3d8') },
-    // the kiosk
-    { x: 48, y: 48, w: 40, h: 14, lines: ['PHONE'], ink: hex('#f0eee6'), ground: hex('#9c2a22') },
-    // at the cattle grid
-    { x: 88, y: 32, w: 40, h: 32, lines: ['PRIVATE', 'ROAD', 'NO 7'], ink: hex('#e8e6de'), ground: hex('#30343a'), border: hex('#8a8f96') },
-  ];
+  const boards: Board[] = Object.values(BOARDS);
   const ink = new Uint8Array(W * H);
   const which = new Int16Array(W * H).fill(-1);
   boards.forEach((b, n) => {
@@ -204,63 +215,53 @@ function signs() {
 }
 
 /** Where each notice is on the sheet: [u0, v0, u1, v1]. */
-export const SIGN = {
-  plate: [0, 34 / 64, 48 / 128, 1],
-  danger: [48 / 128, 34 / 64, 88 / 128, 1],
-  door: [88 / 128, 34 / 64, 1, 1],
-  timetable: [0, 0, 48 / 128, 0.5],
-  finger: [48 / 128, 18 / 64, 88 / 128, 0.5],
-  phone: [48 / 128, 2 / 64, 88 / 128, 16 / 64],
-  private: [88 / 128, 0, 1, 0.5],
-} satisfies Record<string, [number, number, number, number]>;
+const place = (b: Board): [number, number, number, number] => [b.x / SHEET_W, (SHEET_H - b.y - b.h) / SHEET_H, (b.x + b.w) / SHEET_W, (SHEET_H - b.y) / SHEET_H];
+export const SIGN = Object.fromEntries(Object.entries(BOARDS).map(([name, b]) => [name, place(b)])) as Record<keyof typeof BOARDS, [number, number, number, number]>;
 
-/** The chart on the hut wall: the tower in the middle and the three stations
- *  round it, each under its own sign. `answered` lights the ones whose signal
- *  the tower has had back. Painted again whenever that changes. */
-export function paintChart(tex: DataTexture, answered: boolean[]) {
+/** The chart on the hut wall: the tower in the middle, the three stations round
+ *  it each under its own sign, and the way round from one to the next, which
+ *  only goes one way: the bay, the pass, here, and the bay again. */
+function chart() {
   const W = 64;
   const H = 40;
-  const data = (tex.image as { data: Uint8Array }).data;
   const paper = pal('#2a2620', '#342f27', '#3e382e');
   const ink = hex('#c9b98a');
   const dim = hex('#6c6350');
   const lit = hex('#f08a48');
-  const mark = new Uint8Array(W * H);                   // 1 dim ink, 2 station n lit, 3 ink
+  const mark = new Uint8Array(W * H);                   // 1 dim ink, 2 lit, 3 ink
   const rune = (n: number, x0: number, y0: number) => runeRows(n).forEach((row, y) => row.split('').forEach((c, x) => {
-    if (c === '#') mark[(y0 + y) * W + x0 + x] = answered[n] ? 2 : 1;
+    if (c === '#') mark[(y0 + y) * W + x0 + x] = 3;
   }));
   // the tower: a stem with a broken ring, and its beam going up off the sheet
   for (let y = 6; y < 30; y++) mark[y * W + 32] = 3;
   for (let x = 28; x <= 36; x++) if (x !== 31 && x !== 33) mark[19 * W + x] = 3;
   for (let x = 30; x <= 34; x++) mark[30 * W + x] = 3;
+  // the stations: the bay (left), here (below), the pass (right)
   const at: [number, number][] = [[6, 26], [29, 32], [51, 26]];
   at.forEach(([x, y], n) => rune(n, x, y));
-  // a line from each station to the tower
-  const line = (x0: number, y0: number, x1: number, y1: number, v: number) => {
+  const line = (x0: number, y0: number, x1: number, y1: number, v: number, every = 2) => {
     const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
-    for (let i = 0; i <= n; i += 2) mark[Math.round(y0 + ((y1 - y0) * i) / n) * W + Math.round(x0 + ((x1 - x0) * i) / n)] ||= v;
+    for (let i = 0; i <= n; i += every) mark[Math.round(y0 + ((y1 - y0) * i) / n) * W + Math.round(x0 + ((x1 - x0) * i) / n)] ||= v;
   };
-  line(13, 25, 30, 14, answered[0] ? 2 : 1);
-  line(51, 25, 34, 14, answered[2] ? 2 : 1);
-  for (let yy = 0; yy < H; yy++) {
-    for (let x = 0; x < W; x++) {
-      const y = H - 1 - yy;
-      const m = mark[y * W + x];
-      const edge = x === 0 || x === W - 1 || y === 0 || y === H - 1;
-      const c = m === 2 ? lit : m === 3 ? ink : m === 1 ? dim : edge ? dim : ramp(paper, 0.3 + fbm(x / 9, y / 9, 391, 2) * 0.7, x, y);
-      const i = (yy * W + x) * 4;
-      data[i] = c[0] * 255;
-      data[i + 1] = c[1] * 255;
-      data[i + 2] = c[2] * 255;
-      data[i + 3] = 255;
-    }
-  }
-  tex.needsUpdate = true;
-}
-function chart() {
-  const t = makeTexture(64, 40, () => [0, 0, 0, 1], false);
-  paintChart(t, [false, false, false]);
-  return t;
+  // a line of sight from each of the far two to the tower
+  line(13, 25, 30, 14, 1);
+  line(51, 25, 34, 14, 1);
+  // the way round, in the colour of a lamp, with a head on each leg of it: bay to pass, pass to here, here to bay
+  const leg = (x0: number, y0: number, x1: number, y1: number) => {
+    line(x0, y0, x1, y1, 2, 1);
+    const l = Math.hypot(x1 - x0, y1 - y0);
+    const [dx, dy] = [(x1 - x0) / l, (y1 - y0) / l];
+    for (const s of [-1, 1]) line(x1, y1, Math.round(x1 - dx * 3 + s * dy * 2), Math.round(y1 - dy * 3 - s * dx * 2), 2, 1);
+  };
+  leg(12, 23, 48, 23);
+  leg(50, 34, 40, 37);
+  leg(27, 37, 12, 34);
+  return makeTexture(W, H, (x, yy) => {
+    const y = H - 1 - yy;
+    const m = mark[y * W + x];
+    const edge = x === 0 || x === W - 1 || y === 0 || y === H - 1;
+    return px(m === 2 ? lit : m === 3 ? ink : m === 1 ? dim : edge ? dim : ramp(paper, 0.3 + fbm(x / 9, y / 9, 391, 2) * 0.7, x, y));
+  }, false);
 }
 
 /** Three crate ends side by side, each stencilled with one station's sign. */
