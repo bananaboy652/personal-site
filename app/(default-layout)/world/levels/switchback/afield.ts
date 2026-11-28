@@ -2,7 +2,8 @@
 // Everything that is only there for somebody who steps into the scene and goes
 // somewhere: the loop bridge down from the lay-by, the road below made into
 // something a truck can be driven on, the town at the bottom with three doors
-// waiting on a parcel, and the things that are not on the way to anywhere.
+// waiting on a parcel, the things that are not on the way to anywhere, and up
+// the closed road the other way, the airfield (see airfield.ts).
 // It all hangs on one group that is hidden unless somebody is walking about,
 // and its lights are out then too: the framed view never sees any of it.
 import { type Group, type Material, Mesh, type ShaderMaterial, Vector3 } from 'three';
@@ -14,12 +15,14 @@ import type { GlowBatch, Particles } from '../../engine/fx';
 import { EMBER as HUD_EMBER, type Hud, INK, MUTED } from '../../engine/hud';
 import type { FarTower, Gate } from '../../engine/kit';
 import { type RGB, clamp, lerp } from '../../engine/math';
+import { Plane } from '../../engine/plane';
 import type { Player, Vehicle } from '../../engine/player';
 import { psxMaterial } from '../../engine/shaders';
 import { store } from '../../engine/store';
 import type { Surface } from '../../engine/surface';
 import type { Textures } from '../../engine/textures';
-import { WORLDS } from '../../engine/worlds';
+import { WORLDS, nextWorld } from '../../engine/worlds';
+import { type Airfield, STRIP, buildAirfield, buildSock } from './airfield';
 import type { Drive } from './drive';
 import { type Shrine, type Spring, type Wreck, buildShrine, buildSpring, buildWreck } from './finds';
 import type { Truck } from './props';
@@ -67,14 +70,14 @@ const BANK: RGB = [0.8, 0.86, 1.0];
 const DECK: RGB = [0.36, 0.38, 0.47];
 const WARM: RGB = [1.5, 0.9, 0.42];
 const LANTERNS = 34;
-/** what each world's stone at the shrine burns with */
+/** what each place's stone at the shrine burns with */
 const SIGNS: RGB[] = [[1.5, 0.62, 0.25], [0.4, 1.0, 1.25], [0.85, 1.0, 1.5]];
 
 const v3 = (p: P3, lift = 0) => new Vector3(p.x, p.y + lift, p.z);
 
 // What this world remembers between visits that is nobody's business but its
 // own: 'round' once the three parcels have been delivered, 'shrine' once the
-// old one has. (The store keeps these apart from the signals the gate counts.)
+// old one has.
 const kept = () => store.notes('switchback');
 const keep = (what: string) => store.note('switchback', what);
 
@@ -90,8 +93,12 @@ export class Afield {
   readonly done = [false, false, false];
   /** the parcel in the wreck: 0 still there, 1 being carried, 2 left at the shrine */
   old = 0;
+  /** the ski plane on the snowfield behind the spur (see airfield.ts): something else to drive */
+  readonly plane: Plane;
 
   private town: Town;
+  private airfield: Airfield;
+  private sock: Mesh;
   private spring: Spring;
   private wreck: Wreck;
   private train: Train;
@@ -101,8 +108,6 @@ export class Afield {
   private windows: number[][] = [];
   private still = [0, 0, 0];
   private stones: number[] = [];
-  private answered = [false, false, false];
-  private asked = 9;
   private hearth = 0;
   private hearthK = 0;
   private blinker = 0;
@@ -285,6 +290,12 @@ export class Afield {
     this.stones = shrine.stones.map((s) => glows.add(s.x, s.y, s.z, 0.75, [0, 0, 0]));
     this.hearth = glows.add(shrine.hearth.x, shrine.hearth.y, shrine.hearth.z, 0.8, [0, 0, 0]);
 
+    /* ---- up the closed road: the airfield ---- */
+
+    const field = (this.airfield = buildAirfield({ lit, wood, stone: conc, snow: snowB, bits, road: roadB, hull, ground: floor }));
+    lights.push(...field.lights);
+    for (const l of field.lamps) this.lamp(l.at, l.color, l.size, l.flame);
+
     /* ---- into the world ---- */
 
     for (const b of [roadB, snowB, conc, wood, bits, lit, ...dark]) b.bake(lights);
@@ -309,6 +320,12 @@ export class Afield {
     });
     add(water, psxMaterial(shared, { map: tex.white, lit: false, tint: [0.16, 0.5, 0.52] }));
     ground.add(new Mesh(ghost.build()), { wall: false });
+    // the windsock, on its own so that it can stream and snap; and the plane, on the strip (which is solid by now)
+    this.sock = new Mesh(buildSock().build(), psxMaterial(shared, { map: local.panel, vertexColors: true, twoSided: true }));
+    this.sock.frustumCulled = false;
+    this.sock.position.set(field.sock.x, field.sock.y - 0.3, field.sock.z);
+    root.add(this.sock);
+    this.plane = new Plane(engine, { parent: root, gear: 'skis', at: [field.plane.x, field.plane.y, field.plane.z], heading: field.heading, body: '#e0642f', trim: '#f4ead8', label: 'Fly the ski plane' });
     for (let i = 0; i < LANTERNS; i++) this.lanterns.push({ id: glows.add(0, FLOOR - 80, 0, 0.8, [0, 0, 0]), x: 0, y: 0, z: 0, vy: 0, seed: c.rand(), t: -1 });
 
     // The other lights on the road: from the bend they could be anybody's. Met
@@ -346,6 +363,8 @@ export class Afield {
     boxed(bench, ROAD_W / 2 + 0.2, 'gravel');
     boxed(road, 3.9, 'gravel');
     boxed(shrine.way, 1.2, 'wood');
+    // (the strip is snow like the field round it, but packed: said here so that it is plain what it is)
+    boxed(field.strip, STRIP.width / 2 + 0.4, 'snow');
 
     this.things();
   }
@@ -454,6 +473,28 @@ export class Afield {
     this.shrine.stones.forEach((s, i) => {
       this.interactables.push({ id: `stone-${i}`, label: 'A carved stone', center: v3(s), radius: 0.55, walkOnly: true, marker: false, onClick: () => this.readStone(i) });
     });
+    const field = this.airfield;
+    this.interactables.push(
+      { id: 'airfield-board', label: 'Read the board', center: v3(field.board), radius: 0.6, reach: 7, walkOnly: true, marker: false, onClick: () => this.readBoard() },
+      {
+        id: 'keeper',
+        label: 'Say hello',
+        center: v3(field.keeper.at),
+        radius: field.keeper.r + 0.3,
+        walkOnly: true,
+        marker: false,
+        onClick: () => {
+          hello(250);
+          this.say(field.keeper.says, 6);
+        },
+      },
+      this.plane.interactable,
+    );
+  }
+
+  private readBoard() {
+    this.c.engine.audio.noise({ dur: 0.014, gain: 0.05, f: 2000, q: 3.5 });
+    this.say(['"Road closed for the winter."', '"Airfield: follow the lamps down."'], 6);
   }
 
   private depot() {
@@ -556,17 +597,19 @@ export class Afield {
     this.c.tower.flash();
   }
 
+  /** Three stones for the three places on the one way round. Each says where its place lies on it from here. */
   private readStone(i: number) {
     const w = WORLDS[i];
+    const here = this.c.engine.level?.id ?? 'switchback';
     this.c.engine.audio.noise({ dur: 0.014, gain: 0.05, f: 2000, q: 3.5 });
-    const lit = store.has(w.id);
-    this.say([`${G.rune(w.rune)}  ${w.title}`, lit ? 'Its light is answered' : 'Cold. Its signal is not answered yet'], 5);
+    const where = w.id === here ? 'This mountain. The fox keeps it' : nextWorld(here).id === w.id ? 'Next on the way round: the tunnel' : 'The way round comes in from there';
+    this.say([`${G.rune(w.rune)}  ${w.title}`, where], 5);
   }
 
   private readHearth() {
-    const all = store.hasAll(WORLDS.map((w) => w.id));
     this.c.engine.audio.noise({ dur: 0.014, gain: 0.05, f: 2000, q: 3.5 });
-    this.say([`${G.rune(5)}  Three stones, one door`, all ? 'All three are lit. Ask the gate.' : 'It opens when all three are lit'], 6);
+    const home = this.old === 2 || this.memory.includes('shrine');
+    this.say([`${G.rune(5)}  Three places, one way round`, home ? 'A light is on inside' : 'Its doors are shut. Nobody home'], 6);
   }
 
   /* ---- every frame ---- */
@@ -579,11 +622,11 @@ export class Afield {
     const z = v ? v.z : pl.z;
     this.manifest = Math.max(0, this.manifest - dt);
 
-    // into the mouth of the tunnel: that is the gate, and it opens
+    // into the mouth of the tunnel: that is the gate, and it leads on to the next place round
     const m = c.mouth;
     const gd = Math.hypot(x - m.x, z - m.z);
     const inFront = (x - m.x) * m.fx + (z - m.z) * m.fz;
-    if (gd < 5.6 && inFront > -2.5 && Math.abs(y - m.y) < 6 && !this.atGate && !c.engine.hud.menu) {
+    if (gd < 5.6 && inFront > -2.5 && Math.abs(y - m.y) < 6 && !this.atGate) {
       this.atGate = true;
       c.gate.open();
     } else if (gd > 11) this.atGate = false;
@@ -665,17 +708,13 @@ export class Afield {
       (mat.uniforms.uEmissive.value as Vector3).set(lerp(0.02, 1.25, w), lerp(0.03, 0.84, w), lerp(0.05, 0.42, w));
       for (const id of this.windows[i]) g.setColor(id, WARM[0] * w * on * 0.7, WARM[1] * w * on * 0.7, WARM[2] * w * on * 0.7);
     });
-    // the shrine's stones burn for the worlds whose signals have been answered
-    this.asked += dt;
-    if (this.asked > 1) {
-      this.asked = 0;
-      this.answered = WORLDS.slice(0, 3).map((w) => store.has(w.id));
-    }
+    // the shrine's three stones burn, each in its own place's colour; the little house behind them is
+    // lit once the parcel that was owed it has been left (and for a while after the bell is rung)
     this.stones.forEach((id, i) => {
-      const k = this.answered[i] ? on * (0.75 + 0.25 * Math.sin(time * 2.1 + i * 2)) : 0;
+      const k = on * (0.75 + 0.25 * Math.sin(time * 2.1 + i * 2));
       g.setColor(id, SIGNS[i][0] * k, SIGNS[i][1] * k, SIGNS[i][2] * k);
     });
-    this.hearthK = Math.max(this.answered.every(Boolean) ? 1 : this.old === 2 || this.memory.includes('shrine') ? 0.45 : 0, this.hearthK - dt * 0.5);
+    this.hearthK = Math.max(this.old === 2 || this.memory.includes('shrine') ? 0.8 : 0, this.hearthK - dt * 0.5);
     const hk = this.hearthK * on * (0.85 + 0.15 * Math.sin(time * 7));
     g.setColor(this.hearth, 1.5 * hk, 0.85 * hk, 0.36 * hk);
     // the wreck's one indicator, in time with nothing
@@ -696,6 +735,13 @@ export class Afield {
         this.bubble = 0.3 + c.rand() * 1.4;
         a.tone({ f: [380 + c.rand() * 300, 700 + c.rand() * 400], dur: 0.05, gain: 0.02 * (1 - sd / 14), send: 0.2 });
       }
+    }
+
+    // the windsock streams downwind and never hangs still; smoke goes the same way from the hut's stove
+    const af = this.airfield;
+    this.sock.rotation.set(0.1 + 0.05 * Math.sin(time * 2.3) + 0.03 * Math.sin(time * 7.1), af.downwind + 0.13 * Math.sin(time * 1.1) + 0.05 * Math.sin(time * 5.3 + 1), 0, 'YXZ');
+    if (shown && dt > 0 && Math.hypot(cam.x - af.smoke.x, cam.z - af.smoke.z) < 260 && c.rand() < dt * 3) {
+      c.puffs.spawn({ x: af.smoke.x, y: af.smoke.y, z: af.smoke.z, vx: 0.7, vy: 0.5 + c.rand() * 0.3, vz: 0.3, life: 3 + c.rand() * 1.5, size: 0.22, grow: 5, color: [0.62, 0.64, 0.72], fade: [0.34, 0.38, 0.48], alpha: 0.22, drag: 0.4, wander: 0.25 });
     }
 
     this.updateLanterns(dt, time, on);
@@ -839,7 +885,9 @@ export class Afield {
   hud(hud: Hud) {
     const e = this.c.engine;
     if (!e.exploring || hud.menu || e.inScope) return;
-    if (!e.explore.vehicle && this.manifest <= 0) return;
+    // (it is the truck's sheet: at its wheel it is always up, on foot when there is reason, in the plane never)
+    const v = e.explore.vehicle;
+    if (v ? v !== this.c.drive.vehicle : this.manifest <= 0) return;
     // the delivery sheet, in the corner
     const u = hud.unit;
     const x = Math.round(hud.safe.x0 * hud.w + 7 * u);

@@ -4,15 +4,17 @@
 // driver having a hot drink from the machine before the last drop of the
 // round. Below, the same road zigzags down under its lamps to a town on a
 // frozen river. Across the valley, through a gap in the ranges, stands the
-// tower; from here its beam is faint.
+// tower, its beam standing on the horizon.
 //
 // The level opens at blue hour with the bend empty. The truck drives in, the
 // lamps come on from the valley upward, the town lights its windows, the snow
 // begins and night settles.
 //
-// The signal here is darkness: "dip your lights for the mountain". Put out
-// every light at the bend (the truck's, the street lamps, and the machine's,
-// which goes dark when it sells out) and the tower sees you.
+// The tower keeps its own counsel: it burns all night, and now and then, when
+// a train's lit windows cross the valley under it, it answers them. It can be
+// had to answer the bend too: "dip your lights for the mountain". Put out every
+// light here (the truck's, the street lamps, and the machine's, which goes
+// dark when it sells out) and it answers the dark.
 //
 // Step into the scene and it goes on past the frame: the truck can be driven,
 // a loop bridge leads down from the far end of the lay-by to the road below,
@@ -37,21 +39,22 @@ import { type Atmos, dirFrom, pointLight, spotLight } from '../../engine/atmos';
 import type { AudioSpec } from '../../engine/audio';
 import { BaseLevel } from '../../engine/base';
 import { type BakedLight, Builder } from '../../engine/builder';
-import type { Engine, IntroKind, Level, Shot, Walk } from '../../engine/engine';
+import type { Engine, IntroKind, Level, Shot, Spot, Walk } from '../../engine/engine';
 import { Particles, precipitation } from '../../engine/fx';
 import { type Hud, MUTED } from '../../engine/hud';
-import { FarTower, Gate, Radio, answerSignal } from '../../engine/kit';
+import { FarTower, Gate, Radio } from '../../engine/kit';
 import { type RGB, clamp, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
+import { Mirror } from '../../engine/mirror';
 import type { Player, Vehicle } from '../../engine/player';
 import { cloudMaterial, customMaterial, psxMaterial } from '../../engine/shaders';
 import { Sky } from '../../engine/sky';
-import { store } from '../../engine/store';
 import { Timeline, easeOut } from '../../engine/timeline';
 import { Afield } from './afield';
+import { SOCK, SOCK_H } from './airfield';
 import { Drive } from './drive';
-import { EMBER, type Fox, type Truck, buildFox, buildPole, buildPortal, buildShelter, buildSnowman, buildTruck, buildVending } from './props';
+import { EMBER, type Fox, TRUCK, type Truck, buildFox, buildPole, buildPortal, buildShelter, buildTruck, buildVending } from './props';
 import { Ground, type P3, inGap } from './road';
-import { Emitters, lampBuzz, machineHum, wireSong } from './sound';
+import { Emitters, lampBuzz, machineHum, sockFlap, wireSong } from './sound';
 import { FLOOR, type RoadPoint, TRACK_N, at, buildTerrain, descent, heightAt, plantPines, polar, railLine, riverN } from './terrain';
 import { type LocalTextures, createLocalTextures } from './textures';
 import { type Spark, inCorridor } from './town';
@@ -160,8 +163,11 @@ const FOX_WAY: [number, number][] = [FOX_HOME, [6, -7.4], [11, -8], [16.5, -4], 
 const BEND_LAMP: [number, number, number] = [1.6, 5.0, 0.3];
 const WARM: RGB = [1.7, 0.95, 0.42];
 const COOL: RGB = [0.5, 0.85, 0.95];
-/** the tower's light before it has been answered */
-const FAINT = 0.28;
+/** How far down the traffic mirror is tipped, radians: enough that it shows the bend and the spot the
+ *  page looks from, and enough that somebody who walks up under it finds themselves in it. */
+const MIRROR_TILT = 0.24;
+/** where Will sits in the bed of the truck, and which way he faces, in the truck's own space as it is driven (see `cast`) */
+const WILL: [number, number, number] = [-0.26, 0.02, 152];
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
@@ -169,7 +175,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   readonly id = 'switchback';
   readonly title = 'The Switchback';
   // yaw is an offset from the aim the engine works out for the view's centre
-  // Every view is from the same spot (and for a reason: see buildSnowman); they differ in tilt and lens.
+  // Every view is from the same spot (it is where the visitor stands, and the traffic mirror shows them standing there); they differ in tilt and lens.
   shots: Record<string, Shot> = {
     home: { pos: [0, 1.9, 0], yaw: 0, pitch: 3, fov: 50 },
     games: { pos: [0, 1.94, 0], yaw: 0, pitch: 2, fov: 46 },
@@ -208,7 +214,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     ],
   };
   debug: [string, () => void][] = [
-    ['Lights out (the signal)', () => this.allLights(false)],
+    ['Lights out', () => this.allLights(false)],
     ['Lights on', () => this.allLights(true)],
     ['Tower answers now', () => this.answer()],
     ['Send a train', () => (this.train.t = -650)],
@@ -218,6 +224,13 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   ];
 
   walk!: Walk;
+  /** Will is in the back of the truck, out of the snow as far as that goes: sat on the quilt in the
+   *  front left corner of the bed with his back to the big cushion there, facing the tail and turned
+   *  a little toward the bend, so that the page's view has his face (and, from behind, whoever is
+   *  driving is seen past him). He is the truck's own passenger: where it is driven, he goes. (In the
+   *  truck's own space, as the engine drives it: its nose is -Z and its right-hand side, the one the
+   *  bend sees, +X.) */
+  cast!: { will: Spot };
 
   private local: LocalTextures;
   private sky: Sky;
@@ -241,8 +254,8 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   private afield!: Afield;
   /** everything that is only there for somebody who has stepped in: hidden otherwise */
   private field = new Group();
-  /** the snowman: he goes wherever you go */
-  private me = new Group();
+  /** the traffic mirror on the pole: a real glass (see buildBend) */
+  private mirror!: Mirror;
   private deck!: Mesh;
   private baked: BakedLight[] = [];
   private sparks: Spark[] = [];
@@ -255,7 +268,6 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   private veil!: ShaderMaterial;
   private frontMat!: ShaderMaterial;
   private tracks!: Mesh;
-  private snowman: Mesh[] = [];
   private trackCount = 0;
   private cans: Mesh[] = [];
   private canT: number[] = [];
@@ -273,9 +285,11 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   /** seconds for which every light at the bend has been out */
   private dark = 0;
   private darkK = 0;
-  private answered = false;
   private relight = -1;
-  private towerK = FAINT;
+  /** how brightly the tower burns: fully, left to itself */
+  private towerK = 1;
+  /** the tower's own whims: whether a given train is one it answers (dice of its own) */
+  private whim = rng(606);
 
   // the truck's arrival
   private present = true;
@@ -310,7 +324,6 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   private signPos = new Vector3();
   private machinePos = new Vector3();
   private machineFront = new Vector3();
-  private mirrorFrom = new Vector3();
   private mirrorPos = new Vector3();
   private lightsPos = new Vector3();
   private hornPos = new Vector3();
@@ -323,8 +336,6 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     const shared = engine.shared;
     this.local = createLocalTextures();
     for (const t of Object.values(this.local)) this.own(t);
-    this.answered = store.has(this.id);
-    this.towerK = this.answered ? 1 : FAINT;
 
     this.sky = new Sky(shared, this.tex, { stars: 1300, band: 900, clouds: 7, cloudBand: [3, 11], seed: 23 });
     this.root.add(this.sky.group);
@@ -333,6 +344,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.buildValley();
     this.buildBend();
     this.buildTruck();
+    this.cast = { will: { parent: this.carrier, at: [WILL[0], TRUCK.bedY, WILL[1]], yaw: WILL[2], pose: 'lounge', holding: 'handheld' } };
     this.buildFox();
     this.tower = new FarTower(engine, this.root, this.glows, { x: TOWER_AT[0], z: TOWER_AT[1], base: -150, scale: 2.3, fogScale: 0.45, metal: this.tex.metal, white: this.tex.white });
 
@@ -346,7 +358,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     // (the truck's own switches are out of reach from the driver's seat: the horn is Space twice)
     const atWheel = () => this.drive.vehicle.occupied;
     this.interactables.push(
-      { id: 'lights', label: () => (this.lights.truck ? 'Switch the lights off' : 'Switch the lights on'), center: this.lightsPos, radius: 0.85, hidden: () => !this.parked || atWheel(), onClick: () => this.toggleTruck() },
+      { id: 'lights', label: () => (this.lights.truck ? 'Switch the lights off' : 'Switch the lights on'), center: this.lightsPos, radius: 0.6, hidden: () => !this.parked || atWheel(), onClick: () => this.toggleTruck() },
       { id: 'horn', label: 'Sound the horn', center: this.hornPos, radius: 0.75, hidden: () => !this.parked || atWheel(), onClick: () => this.honk() },
       { id: 'parcels', label: 'Deliver the drinks', center: this.parcelPos, radius: 0.5, hidden: () => !this.parked || this.stock > 0 || atWheel(), onClick: () => this.restock() },
       { id: 'machine', label: () => (this.stock > 0 ? 'Buy a hot drink' : 'Sold out'), center: this.machinePos, radius: 0.95, onClick: () => this.vend() },
@@ -368,6 +380,8 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
         { at: this.lampPos, reach: 9, level: 0.04, on: () => this.lampK, make: lampBuzz },
         // (the wind comes and goes; the wires run from the pole out over the valley)
         { at: { x: this.lampPos.x + 3, y: this.lampPos.y + 2.5, z: this.lampPos.z }, reach: 18, level: 0.055, on: () => 0.5 + 0.5 * Math.sin(this.clock * 0.21) * Math.sin(this.clock * 0.067 + 1), make: wireSong },
+        // (the windsock up at the airfield: only there, like the airfield, for somebody out in the scene)
+        { at: { x: at(SOCK[0], SOCK[1])[0], y: heightAt(...at(SOCK[0], SOCK[1])) + SOCK_H, z: at(SOCK[0], SOCK[1])[1] }, reach: 16, level: 0.09, on: () => (this.field.visible ? 0.75 + 0.25 * Math.sin(this.clock * 0.9) : 0), make: sockFlap },
       ]),
     );
   }
@@ -391,8 +405,8 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     };
     // Working out what is solid, and building everything that lies beyond the
     // frame, takes a moment that the page should not have to wait for: it is
-    // put off until the first time somebody steps in.
-    this.ground.defer(() => this.buildBeyond());
+    // put off until the first time somebody steps in (see explore, and update).
+    this.ground.defer(() => this.buildBeyond(), heightAt);
   }
 
   private buildBeyond() {
@@ -427,6 +441,8 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       rand: rng(907),
     });
     this.interactables.push(...this.afield.interactables);
+    // the ski plane up at the airfield is something else that can be driven
+    this.walk.vehicles?.push(this.afield.plane);
   }
 
   /** Somebody stepped into the scene, or back out to the page. */
@@ -440,7 +456,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       if (this.fox.state === 'sit') this.tag.mode = 'tag';
       return;
     }
-    // back as it was framed: the tracks swept, the fox on its seat, the snowman where he always stands
+    // back as it was framed: the tracks swept, the fox on its seat
     this.drive.reset();
     this.tag.mode = 'home';
     this.tag.moving = false;
@@ -464,7 +480,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.rest();
     if (kind === 'none') return;
     const home = e.portrait ? this.portraitShots.home : this.shots.home;
-    // (the camera never leaves the snowman's head, so it can only rise a hand's breadth)
+    // (the camera never leaves the spot the visitor stands on, so it can only rise a hand's breadth)
     const lifted = (dPitch: number, dFov: number, dy: number): Shot => ({ pos: [home.pos[0], home.pos[1] + dy, home.pos[2]], yaw: home.yaw, pitch: home.pitch + dPitch, fov: home.fov + dFov });
     e.setFade(1);
     const t = (this.timeline = new Timeline());
@@ -496,7 +512,6 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     void e.fadeTo(0, 1.5);
     e.cut(lifted(4.5, 7, 0.12));
     e.moveTo(e.shotName, 11, easeOut);
-    const rest = this.answered ? 1 : FAINT;
     t.at(1.3, () => this.blendTo(NIGHT, 7.6));
     t.at(1.5, () => this.arrive());
     t.span(1.8, 5.6, (kk) => {
@@ -509,7 +524,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     t.at(6.5, () => this.toggleLamp(true));
     t.span(6.8, 10.6, (kk) => (this.snowAmt = kk));
     t.at(8.6, () => (this.train.t = -650));
-    t.span(9.2, 11.6, (kk) => (this.towerK = lerp(0.06, rest, kk)));
+    t.span(9.2, 11.6, (kk) => (this.towerK = lerp(0.06, 1, kk)));
     t.at(10.3, () => e.hud.title(this.title, this.subtitle()));
     t.at(12.9, () => e.hud.nudge(4.5));
   }
@@ -529,7 +544,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.trackCount = Infinity;
     this.dark = this.darkK = 0;
     this.relight = -1;
-    this.towerK = this.answered ? 1 : FAINT;
+    this.towerK = 1;
     this.tower.awake = this.towerK;
     this.train.t = 9999;
     this.train.wait = 7;
@@ -645,29 +660,28 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.engine.hud.toast('"Dip your lights for the mountain"', 4);
   }
 
-  /** The traffic mirror shows the bend behind you, and who is standing in it. */
+  /** Look closely into the traffic mirror from wherever you are standing. It is a real glass (see
+   *  buildBend): what it shows is the bend, the truck, and whoever is looking into it. */
   look() {
     const e = this.engine;
-    const m = this.mirrorFrom;
-    if (e.exploring) {
-      // on foot it shows you wherever you have got to (or the truck, if you are in it)
-      const pl = e.player;
-      const d = Math.hypot(pl.x - m.x, pl.y + 1.3 - m.y, pl.z - m.z);
-      e.enterScope({ pos: [m.x, m.y, m.z], look: [pl.x, pl.y + 1.25, pl.z], yaw: 0, pitch: 0, fov: clamp((Math.atan(1.7 / Math.max(d, 1)) * 360) / Math.PI, 5, 44) });
-      return;
-    }
-    const fov = 9.5;
+    const m = this.mirrorPos;
+    // (the page looks from where its view is taken, whichever way the pointer has it leaning)
+    const from = e.exploring ? e.camera.position.toArray() : (e.portrait ? this.portraitShots[e.shotName] ?? this.portraitShots.home : this.shots[e.shotName] ?? this.shots.home).pos;
+    const d = Math.hypot(m.x - from[0], m.y - from[1], m.z - from[2]);
+    // (close enough that the glass fills the view: on an upright screen it is the width that it has to fit)
+    const fit = Math.min(1, e.camera.aspect * 0.92);
+    const fov = clamp((Math.atan(0.6 / (Math.max(d, 1) * fit)) * 360) / Math.PI, 3.2, 40);
     // Through a glass the pointer looks around, and it is resting on the mirror (off to one
-    // side of the window) when this starts: lean the other way by as much, so that what
-    // the mirror shows begins in the middle of it.
+    // side of the window) when this starts: lean the other way by as much, so that the mirror
+    // begins in the middle of it.
     let yaw = 0;
     let pitch = 0;
     const at = { x: 0, y: 0 };
-    if (!e.touch && e.project(this.mirrorPos, at)) {
+    if (!e.exploring && !e.touch && e.project(m, at)) {
       yaw = -((at.x / e.stats.w) * 2 - 1) * fov * 0.55;
       pitch = -(1 - (at.y / e.stats.h) * 2) * fov * 0.35;
     }
-    e.enterScope({ pos: [m.x, m.y, m.z], look: [0, 1.35, 0], yaw, pitch, fov });
+    e.enterScope({ pos: [from[0], from[1], from[2]], look: [m.x, m.y, m.z], yaw, pitch, fov });
   }
 
   shooFox() {
@@ -713,17 +727,23 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     }
   }
 
-  /** The tower has seen the dark bend. */
+  /** The tower has seen the dark bend, and answers it. */
   private answer() {
     const a = this.engine.audio;
-    const first = !this.answered;
-    this.answered = true;
-    this.towerK = 1;
     this.tower.flash();
     this.relight = 9;
     a.tone({ f: [a.hz(-24), a.hz(-12)], dur: 2.4, type: 'sine', gain: 0.13, attack: 0.9, send: 0.9 });
     [0, 7, 14, 19].forEach((s, i) => a.chime(s, { at: 0.6 + i * 0.24, gain: 0.1, decay: 4 }));
-    if (!answerSignal(this.engine) || !first) this.engine.hud.toast('The tower answers', 3.5);
+    this.engine.hud.toast('The tower answers', 3.5);
+  }
+
+  /** The tower answering something of its own accord (a train's lights going by under it): the same
+   *  three slow pulses, and from this far off only the ghost of a sound. */
+  private stir() {
+    const a = this.engine.audio;
+    this.tower.flash();
+    a.tone({ f: [a.hz(-24), a.hz(-12)], dur: 3.2, type: 'sine', gain: 0.045, attack: 1.4, send: 1 });
+    a.chime(7, { at: 1.1, gain: 0.03, decay: 5, octave: -1 });
   }
 
   /* ---- the truck coming in ---- */
@@ -781,7 +801,8 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       g.updateMatrixWorld(true);
     }
     this.truckSide.set(this.truckFwd.z, 0, -this.truckFwd.x);          // its right-hand side
-    this.lightsPos.copy(this.truckPos).addScaledVector(this.truckFwd, -0.95).setY(this.truckPos.y + 0.7);
+    // (its lights are found at its tail: the front of the bed is somebody's seat)
+    this.lightsPos.copy(this.truckPos).addScaledVector(this.truckFwd, -1.3).setY(this.truckPos.y + 0.55);
     this.hornPos.copy(this.truckPos).addScaledVector(this.truckFwd, 1.0).setY(this.truckPos.y + 1.3);
     this.parcelPos.copy(this.truckPos).addScaledVector(this.truckFwd, -1.25).setY(this.truckPos.y + 1.0);
   }
@@ -1018,17 +1039,23 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       this.canT.push(9);
     });
 
-    // the traffic mirror, bracketed off the same pole so that drivers can see round the bend
+    // The traffic mirror, bracketed off the same pole so that drivers can see round the bend. Its rim
+    // is painted; its glass is a real one (engine/mirror.ts), tipped down toward the lay-by like any
+    // road mirror: from the page's view it holds the truck from above, the lay-by and whoever stands
+    // at the bend, and somebody who walks up under it finds themselves in it with the road behind.
     const qy = ground(px, pz) + 3.6;
     const qx = px + Math.sin(toYou - 0.5) * 0.7;
     const qz = pz + Math.cos(toYou - 0.5) * 0.7;
     body.reset().translate(px, qy - 0.02, pz).rotateY(toYou - 0.5).translate(0, 0, 0.35).box(0.05, 0.05, 0.7, [0.95, 0.5, 0.28]);
     body.reset().translate(qx, qy + 0.5, qz).rotateY(toYou).translate(0, 0, -0.06).box(1.0, 0.06, 0.3, [0.95, 0.5, 0.28]);
-    const glass = new Builder();
-    glass.translate(qx, qy, qz).rotateY(toYou).quad([-0.5, -0.5, 0.07], [0.5, -0.5, 0.07], [0.5, 0.5, 0.07], [-0.5, 0.5, 0.07]);
-    this.add(glass, psxMaterial(shared, { map: this.local.mirror, lit: false, cut: true, tint: [1.15, 1.15, 1.15] }));
+    const rim = new Builder();
+    rim.translate(qx, qy, qz).rotateY(toYou).rotateX(MIRROR_TILT).quad([-0.5, -0.5, 0.07], [0.5, -0.5, 0.07], [0.5, 0.5, 0.07], [-0.5, 0.5, 0.07]);
+    this.add(rim, psxMaterial(shared, { map: this.local.mirror, lit: false, cut: true, tint: [1.15, 1.15, 1.15] }));
+    // (the way the glass faces, and its middle: a finger's breadth behind the rim)
+    const facing: [number, number, number] = [Math.sin(toYou) * Math.cos(MIRROR_TILT), -Math.sin(MIRROR_TILT), Math.cos(toYou) * Math.cos(MIRROR_TILT)];
+    this.mirror = new Mirror(this.engine, { at: [qx + facing[0] * 0.055, qy + facing[1] * 0.055, qz + facing[2] * 0.055], facing, radius: 0.415, size: 128, range: 80 });
+    this.root.add(this.mirror.mesh);
     this.mirrorPos.set(qx, qy, qz);
-    this.mirrorFrom.set(qx + Math.sin(toYou) * 0.6, qy, qz + Math.cos(toYou) * 0.6);
 
     // a crate by the rail with the radio on it, where the driver has been sitting
     const [cx, cz] = CRATE;
@@ -1045,20 +1072,6 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     for (const s of [-0.5, 0.5]) body.reset().translate(ax, ay, az).rotateY(aYaw).translate(s, 0, -0.04).box(0.07, 1.5, 0.07, post);
     chev.translate(ax, ay + 0.85, az).rotateY(aYaw).quad([-0.75, 0, 0], [0.75, 0, 0], [0.75, 0.62, 0], [-0.75, 0.62, 0], [0, 0, 2, 1]);
     this.add(chev, psxMaterial(shared, { map: this.local.chevron, twoSided: true }));
-
-    // And you. He is only drawn when the camera is well outside him (in the mirror, or
-    // flying about): from inside there is nothing to see, but when the view leans to one
-    // side his nose would poke into the edge of the picture.
-    // (He is built where the framed view stands, on a group of his own: step into the
-    // scene and he goes wherever you go, so the mirror shows him wherever you are.)
-    const sSnow = new Builder();
-    const sBits = new Builder();
-    buildSnowman(sSnow, sBits, Math.PI - rad(20));
-    this.root.add(this.me);
-    this.snowman = [
-      this.add(sSnow, psxMaterial(shared, { map: this.local.snow, vertexColors: true }), 0, this.me),
-      this.add(sBits, psxMaterial(shared, { map: this.local.panel, vertexColors: true }), 0, this.me),
-    ];
 
     // the posts, the machine, the shelter, the poles and the crate are all things to walk into
     const bodyMesh = this.add(body, psxMaterial(shared, { map: this.local.panel, vertexColors: true }));
@@ -1185,19 +1198,8 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     this.deck.visible = !beyond;
 
     this.placeTruck();
-    // the snowman stands where you stand; at the wheel he is in the cab, out of sight
-    const me = this.me;
-    if (walking) {
-      const pl = e.player;
-      me.position.set(pl.x, pl.y, pl.z);
-      me.rotation.y = rad(20 - pl.yaw);
-    } else {
-      me.position.set(0, 0, 0);
-      me.rotation.y = 0;
-    }
-    me.visible = !atWheel;
-    const outOfHead = this.tmp.set(me.position.x, me.position.y + 1.86, me.position.z).distanceTo(e.camera.position) > 0.75;
-    for (const m of this.snowman) m.visible = outOfHead;
+    // (looked into closely, the mirror is kept up to the moment)
+    this.mirror.far = e.inScope ? 24 : 8;
     this.tracks.geometry.setDrawRange(0, Number.isFinite(this.trackCount) ? this.trackCount : Infinity);
     if (!this.parked) this.trackCount = Math.floor(this.truckK * 44) * 24;
 
@@ -1247,6 +1249,11 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     (T.blink.uniforms.uTint.value as Vector3).set(0.2 + 1.2 * haz, 0.1 + 0.55 * haz, 0.03 + 0.1 * haz);
     const dome = this.present ? 0.2 + 0.5 * this.headK : 0;
     (T.cab.uniforms.uTint.value as Vector3).set(dome, dome * 0.92, dome * 0.82);
+    (T.cabin.uniforms.uTint.value as Vector3).set(dome * 1.5, dome * 1.38, dome * 1.23);
+    // an empty cab's windows are bright panes; with somebody at the wheel they are openings, and the
+    // inside (and whoever is in it) is what is seen
+    T.windows.visible = !this.drive.vehicle.occupied;
+    T.inside.visible = this.drive.vehicle.occupied;
     T.cones.uniforms.uAlpha.value = 0.075 * hk;
     const nose = this.tmp.copy(this.truckPos).addScaledVector(this.truckFwd, 1.7).setY(this.truckPos.y + 0.8);
     const aim = this.tmp2.copy(this.truckFwd).setY(-0.05).normalize();
@@ -1360,7 +1367,13 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
           a.tone({ f: a.hz(10, 0), dur: 1.3, type: 'triangle', gain: 0.018, attack: 0.2, lp: 900, at: 1.5, pan: -0.3, send: 1 });
         }
       }
-    } else tr.t += dt * 58;
+    } else {
+      const was = tr.t;
+      tr.t += dt * 58;
+      // Its lit windows are going by under the tower: more often than not, the tower answers them.
+      // (Nobody is told, and it is not on any clock but the railway's.)
+      if (was < 380 && tr.t >= 380 && !this.timeline && this.whim() < 0.6) this.stir();
+    }
     tr.flash = Math.max(0, tr.flash - dt * 1.2);
     const lit = tr.t <= 1500 ? 1 : 0;
     tr.ids.forEach((id, i) => {
@@ -1514,6 +1527,7 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
     const driving = v === t;
     this.drive.tick(dt, driving);
     this.afield.tick(dt, pl, v);
+    if (v && !driving) return;                              // (in the plane: none of what follows is theirs)
     if (driving) {
       if (!this.afoot.told) {
         // first time at the wheel: what the job is, and where the way down starts
@@ -1527,14 +1541,14 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
       }
       return;
     }
-    // the truck is in the way like anything else
-    const hr = rad(t.heading);
-    const dx = pl.x - t.x;
-    const dz = pl.z - t.z;
-    const along = dx * Math.sin(hr) - dz * Math.cos(hr);
-    const side = dx * Math.cos(hr) + dz * Math.sin(hr);
-    const [hw, hl] = [t.o.half[0] + 0.3, t.o.half[1] + 0.3];
-    if (this.present && Math.abs(along) < hl && Math.abs(side) < hw && pl.y < t.y + 1.7 && pl.y > t.y - 1.6) {
+    // the truck is in the way like anything else, and so is the plane's body (its wings are overhead)
+    const shove = (o: Vehicle, hw: number, hl: number) => {
+      const hr = rad(o.heading);
+      const dx = pl.x - o.x;
+      const dz = pl.z - o.z;
+      const along = dx * Math.sin(hr) - dz * Math.cos(hr);
+      const side = dx * Math.cos(hr) + dz * Math.sin(hr);
+      if (Math.abs(along) >= hl || Math.abs(side) >= hw || pl.y > o.y + 1.7 || pl.y < o.y - 1.6) return;
       if (hw - Math.abs(side) < hl - Math.abs(along)) {
         const k = (hw - Math.abs(side)) * (side < 0 ? -1 : 1);
         pl.x += Math.cos(hr) * k;
@@ -1544,7 +1558,9 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
         pl.x += Math.sin(hr) * k;
         pl.z -= Math.cos(hr) * k;
       }
-    }
+    };
+    if (this.present) shove(t, t.o.half[0] + 0.3, t.o.half[1] + 0.3);
+    shove(this.afield.plane, 0.95, 3.5);
     // snow underfoot
     const moved = Math.hypot(pl.vx, pl.vz) * dt;
     if (pl.onGround && moved > 0) {
@@ -1673,5 +1689,6 @@ export default class Switchback extends BaseLevel<Hour> implements Level {
   dispose() {
     super.dispose();
     this.radio.dispose();
+    this.mirror.dispose();
   }
 }

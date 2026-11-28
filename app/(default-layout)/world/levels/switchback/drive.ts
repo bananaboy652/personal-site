@@ -1,7 +1,7 @@
 // The truck as something to drive. The engine's Vehicle does the driving and
 // makes the noise of it; this looks after what goes with it here: the tracks
-// it leaves in the snow, the snow its wheels throw up, the horn, the inside
-// of the cab, and fetching it back if it ever falls out of the world.
+// it leaves in the snow, the snow its wheels throw up, the horn, and fetching
+// it back if it ever falls out of the world.
 import { BufferGeometry, Float32BufferAttribute, type Group, Mesh, type Texture } from 'three';
 import type { Engine } from '../../engine/engine';
 import type { Particles } from '../../engine/fx';
@@ -26,7 +26,6 @@ export class Drive {
   private last: { x: number; y: number; z: number; rx: number; rz: number } | null = null;
   private tap = { was: false, t: 9 };
   private safe = { x: 0, y: 0, z: 0, heading: 0, t: 0 };
-  private glass: Mesh | undefined;
   private kick = 0;
   /** how long it has been asked to go forward and gone nowhere, and the same backward; what the
    *  driver has been told about it so far (0 nothing, 1 to back up or pull forward, 2 that the horn
@@ -41,7 +40,7 @@ export class Drive {
   /** `carrier` is what moves: the truck's own model sits in it turned to face
    *  the carrier's -Z, the way the engine's vehicles point. It must already be
    *  standing where the truck is parked. */
-  constructor(private engine: Engine, root: Group, readonly carrier: Group, private truck: Truck, snow: Texture, private ground: Ground, private horn: () => void, private puffs: Particles) {
+  constructor(private engine: Engine, root: Group, readonly carrier: Group, truck: Truck, snow: Texture, private ground: Ground, private horn: () => void, private puffs: Particles) {
     this.vehicle = new Vehicle(engine, {
       object: carrier,
       kind: 'car',
@@ -55,11 +54,13 @@ export class Drive {
       chase: [6.2, 2.7],
       // behind the wheel, which is on the right
       seat: [0.33, 1.52, -0.82],
+      // (their hips against the seat's back, on the cushion; the cab's roof is 0.88 m over them)
+      rider: [0.33, 0.9, -0.66],
+      headroom: 0.88,
       reach: 3.4,
     });
     this.safe = { x: this.vehicle.x, y: this.vehicle.y, z: this.vehicle.z, heading: this.vehicle.heading, t: 0 };
     this.road = { ...this.safe };
-    this.glass = truck.group.children.find((m) => (m as Mesh).material === truck.cab) as Mesh | undefined;
 
     // the tracks it leaves: a long ribbon that is written into as it goes
     this.pos = new Float32Array(SEGMENTS * 36);
@@ -96,11 +97,6 @@ export class Drive {
     // nothing far overhead counts as ground while the camera is following the truck (see Ground)
     this.ground.ceiling = driving ? v.y + 4.5 : Infinity;
 
-    // from the driver's seat the cab is drawn from inside: the dash and the wheel, not the painted windows
-    const seat = driving && e.explore.seat;
-    for (const m of this.truck.cabin) m.visible = seat;
-    if (this.glass) this.glass.visible = !seat;
-
     // Off the road a small truck can get itself somewhere it cannot climb out of. Asked to go and
     // going nowhere for a while, the driver is told the way out: the horn brings the plough, which
     // tows it back to the last stretch of road it was on.
@@ -132,8 +128,9 @@ export class Drive {
     // the horn: H (or its button), or the handbrake twice in quick succession
     const jump = driving && e.controls.jump;
     this.tap.t += dt;
+    // (only the truck's own: when something else is being driven, its horn is not this one's to take)
     let sound = driving && !!e.controls.horn;
-    e.controls.horn = false;
+    if (driving) e.controls.horn = false;
     if (jump && !this.tap.was) {
       if (this.tap.t < 0.36) sound = true;
       this.tap.t = 0;
@@ -256,8 +253,6 @@ export class Drive {
     this.stuck = this.stuckBack = this.told = 0;
     this.roads = [];
     this.ground.ceiling = Infinity;
-    for (const m of this.truck.cabin) m.visible = false;
-    if (this.glass) this.glass.visible = true;
     const v = this.vehicle;
     this.safe = { x: v.x, y: v.y, z: v.z, heading: v.heading, t: 0 };
     this.road = { ...this.safe };

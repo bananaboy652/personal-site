@@ -1,5 +1,6 @@
 // Sounds that sit somewhere in the world and go on sounding: the hum of the
-// drinks machine, the buzz of the street lamp, the wind singing in the wires.
+// drinks machine, the buzz of the street lamp, the wind singing in the wires,
+// a windsock cracking in the wind.
 // Each is louder the nearer you stand to it, so from the bend they are only
 // just there and walked up to they are the thing itself. Nothing is built
 // until sound is on, and everything is let go when it goes off.
@@ -137,5 +138,20 @@ export function wireSong(ctx: Ctx, white: AudioBuffer, keep: (n: AudioScheduledS
     lfo.connect(gain(ctx, 0.5)).connect(g.gain);
     src.connect(band(ctx, 'bandpass', f, 26 + i * 6)).connect(g).connect(out);
   });
+  return out;
+}
+
+/** A windsock (or any stout cloth) held out in a stiff wind: a soft roar that is shaken faster than
+ *  it can be followed, and cracks now and then as the cloth snaps. */
+export function sockFlap(ctx: Ctx, white: AudioBuffer, keep: (n: AudioScheduledSourceNode) => void): AudioNode {
+  const out = gain(ctx, 0.5);
+  const src = noise(ctx, white, keep);
+  src.connect(band(ctx, 'lowpass', 700, 0.7)).connect(out);
+  // two shakes that never quite fall into step
+  for (const [rate, depth] of [[7.3, 0.3], [11.9, 0.22]]) osc(ctx, 'sine', rate, keep).connect(gain(ctx, depth)).connect(out.gain);
+  // the snap: a brighter band, let through in short bursts
+  const snap = gain(ctx, 0);
+  src.connect(band(ctx, 'bandpass', 2300, 1.2)).connect(snap).connect(out);
+  osc(ctx, 'square', 3.1, keep).connect(band(ctx, 'highpass', 30, 0.7)).connect(gain(ctx, 0.2)).connect(snap.gain);
   return out;
 }

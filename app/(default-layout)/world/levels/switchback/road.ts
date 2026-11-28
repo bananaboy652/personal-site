@@ -28,13 +28,18 @@ export interface P3 {
 export class Ground extends Solid {
   ceiling = Infinity;
   private build: (() => void) | null = null;
+  private rough: ((x: number, z: number) => number) | null = null;
 
   /** None of this is needed until somebody steps into the scene, and working
-   *  it out takes a moment: put it off until the first time anything asks
-   *  where the ground is. `build` fills this in (and makes whatever else is
-   *  only there to be walked about in). */
-  defer(build: () => void) {
+   *  it out takes a moment: it is put off until then (the level calls ensure()
+   *  when somebody steps in). `build` fills this in, and makes whatever else is
+   *  only there to be walked about in. Anybody who asks where the ground is
+   *  before that (the page's own view does, to stand a figure where it looks
+   *  from) is told by `rough`, the lie of the land as a rule: being asked is
+   *  not a reason to build a town. */
+  defer(build: () => void, rough: (x: number, z: number) => number) {
     this.build = build;
+    this.rough = rough;
   }
 
   ensure() {
@@ -45,12 +50,12 @@ export class Ground extends Solid {
   }
 
   floor(x: number, z: number, maxY = Infinity): number {
-    this.ensure();
+    if (this.build) return this.rough ? this.rough(x, z) : -Infinity;
     return super.floor(x, z, Math.min(maxY, this.ceiling));
   }
 
   push(p: { x: number; z: number }, y: number, r: number, heights?: number[]): boolean {
-    this.ensure();
+    if (this.build) return false;
     return super.push(p, y, r, heights);
   }
 }

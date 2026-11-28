@@ -90,24 +90,13 @@ function vending() {
   }, false);
 }
 
-/** The face of the traffic mirror: an orange rim round a dark glass in which
- *  there is a road, a lamp, and something small and white standing under it. */
+/** The rim of the traffic mirror: an orange ring, and nothing inside it (the
+ *  glass is a real one, set behind: see engine/mirror.ts). */
 function mirror() {
   return makeTexture(32, 32, (x, y) => {
-    const dx = x - 15.5;
-    const dy = y - 15.5;
-    const r = Math.hypot(dx, dy);
-    if (r > 15.6) return [0, 0, 0, 0];
-    if (r > 12.8) return (x + y) % 7 === 0 ? [0.72, 0.36, 0.2, 1] : [0.91, 0.47, 0.25, 1];
-    const fy = 31 - y;
-    // sky, a dark mountain, then the snowy road curving away
-    let c: RGB = fy < 12 ? [0.07, 0.11, 0.2] : fy < 17 ? [0.04, 0.06, 0.1] : [0.34, 0.4, 0.55];
-    if (fy >= 17 && Math.abs(dx + (fy - 17) * 0.5) < 1.2) c = [0.14, 0.16, 0.22];
-    if (fy >= 9 && fy <= 10 && x >= 19 && x <= 20) c = [1, 0.75, 0.4];                 // the lamp
-    if ((fy === 16 || fy === 17) && x === 18) c = [0.95, 0.97, 1];                    // and who stands under it
-    if (fy === 15 && x === 18) c = [0.95, 0.97, 1];
-    const sheen = (dx - dy) / 30 > 0.2 ? 1.25 : 1;
-    return [c[0] * sheen, c[1] * sheen, c[2] * sheen, 1];
+    const r = Math.hypot(x - 15.5, y - 15.5);
+    if (r > 15.6 || r <= 12.8) return [0, 0, 0, 0];
+    return (x + y) % 7 === 0 ? [0.72, 0.36, 0.2, 1] : [0.91, 0.47, 0.25, 1];
   }, false);
 }
 

@@ -3,7 +3,7 @@
 // into builders it is handed (things that never move) or returns its own
 // meshes (the truck and the fox, which do).
 import { Group, Mesh, type ShaderMaterial, type Texture, Vector3 } from 'three';
-import { Builder } from '../../engine/builder';
+import { Builder, type V3 } from '../../engine/builder';
 import type { Uniforms } from '../../engine/shaders';
 import { psxMaterial } from '../../engine/shaders';
 import type { RGB } from '../../engine/math';
@@ -14,15 +14,43 @@ const SNOW: RGB = [1.02, 1.07, 1.18];
 
 const lens = (shared: Uniforms, map: Texture, tint: RGB) => psxMaterial(shared, { map, lit: false, tint, twoSided: true });
 
-/** A cab window with the lamp on inside and somebody sitting there. */
+/** A cab window with the lamp on inside: the back of the seat against the light, and nobody in it
+ *  (the driver is out at the machine; it is drawn like this only while the cab is empty). */
 function cabWindow() {
   return makeTexture(16, 8, (x, y) => {
     const fy = 7 - y;
-    const head = Math.hypot(x - 6, fy - 3) < 2.1;
-    const shoulders = fy >= 5 && x >= 2 && x <= 10;
-    const seat = x >= 9 && x <= 11 && fy >= 2;
-    return head || shoulders || seat ? [0.06, 0.05, 0.05, 1] : [1, 0.72, 0.42, 1];
+    const seat = (x >= 9 && x <= 11 && fy >= 2) || (fy >= 6 && x >= 2 && x <= 11);
+    return seat ? [0.06, 0.05, 0.05, 1] : [1, 0.72, 0.42, 1];
   }, false);
+}
+
+/** A flat wall with a window cut in it: the four strips of wall round the opening. `a b c d` are the
+ *  wall's corners and `ha hb hc hd` the opening's, each from bottom left, counter-clockwise seen from outside. */
+function frame(b: Builder, a: V3, bb: V3, c: V3, d: V3, ha: V3, hb: V3, hc: V3, hd: V3, color: RGB) {
+  b.quad(a, bb, hb, ha, [0, 0, 1, 0.14], color);
+  b.quad(bb, c, hc, hb, [0.9, 0, 1, 1], color);
+  b.quad(hd, hc, c, d, [0, 0.86, 1, 1], color);
+  b.quad(a, ha, hd, d, [0, 0, 0.1, 1], color);
+}
+
+/** A post between two points, `w` thick: a steering column. */
+function strut(b: Builder, p0: V3, p1: V3, w: number, color: RGB, colorTop: RGB = color) {
+  const [dx, dy, dz] = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  const len = Math.hypot(dx, dy, dz);
+  b.reset().translate(p0[0], p0[1], p0[2]).rotateY(Math.atan2(dx, dz)).rotateX(Math.acos(dy / len)).box(w, len, w, color, colorTop);
+}
+
+/** The four sides and the bottom of a box standing on the local origin, and no lid: a cab is a tub
+ *  that can be seen down into through its windows. */
+function tub(b: Builder, w: number, h: number, d: number, color: RGB, colorTop: RGB) {
+  const x = w / 2;
+  const z = d / 2;
+  const side = (p0: V3, p1: V3, p2: V3, p3: V3, len: number) => b.quad(p0, p1, p2, p3, [0, 0, len, h], color, color, colorTop, colorTop);
+  side([-x, 0, z], [x, 0, z], [x, h, z], [-x, h, z], w);
+  side([x, 0, z], [x, 0, -z], [x, h, -z], [x, h, z], d);
+  side([x, 0, -z], [-x, 0, -z], [-x, h, -z], [x, h, -z], w);
+  side([-x, 0, -z], [-x, 0, z], [-x, h, z], [-x, h, -z], d);
+  b.quad([-x, 0, -z], [x, 0, -z], [x, 0, z], [-x, 0, z], [0, 0, w, d], color);
 }
 
 /* ---- the truck -------------------------------------------------------------- */
@@ -33,12 +61,18 @@ export interface Truck {
   head: ShaderMaterial;
   tail: ShaderMaterial;
   blink: ShaderMaterial;
+  /** the cab's windows as they look lit from inside with nobody there, and the inside itself (seat,
+   *  wheel, dash): each shows as brightly as the dome lamp is burning */
   cab: ShaderMaterial;
+  cabin: ShaderMaterial;
+  /** While the cab is empty its side and back windows are bright panes that cannot be seen through
+   *  (`windows`). When somebody gets in the panes go and the inside is drawn instead (`inside`), so
+   *  that whoever is at the wheel is seen through the openings. Show one or the other. */
+  windows: Mesh;
+  inside: Mesh;
   cones: ShaderMaterial;
   /** the load, top one first: each is hidden as it is delivered */
   parcels: Mesh[];
-  /** dashboard, wheel and passenger: shown only from the driver's seat */
-  cabin: Mesh[];
   /** the four wheels, each on its own hub so that it can roll, steer and ride its spring: front left,
    *  front right, back left, back right, as the driver has them */
   wheels: Mesh[];
@@ -50,9 +84,31 @@ export interface Truck {
   textures: Texture[];
 }
 
+/** Where things are in the truck, in its own space (+z is its nose, +x its left-hand side): for
+ *  whoever sits in it. The driver's seat is on the right. */
+export const TRUCK = {
+  /** the top of the seat cushion, and the face of the seat's back */
+  seatY: 0.81,
+  seatBackZ: 0.49,
+  /** the middle of the steering wheel */
+  wheel: [-0.33, 1.2, 1.36] as [number, number, number],
+  /** the underside of the roof: nothing taller than this fits in the cab */
+  roofY: 1.78,
+  /** the openings somebody inside is seen through: the side windows run from z 0.53 to 1.47 at the
+   *  sill (1.25 at the top) and the back one is 0.94 wide; all three stand between these heights */
+  windowY: [1.23, 1.69] as [number, number],
+  /** the bed: the top of the bedding laid in the front half of it, the inside faces of its drop
+   *  sides, the back of the cab that closes its front end, and the tops of those sides */
+  bedY: 0.73,
+  bedHalf: 0.6875,
+  bedFront: 0.3075,
+  sideTop: 0.96,
+};
+
 /** A kei truck: a boxy cab over the front wheels and a flat bed with drop
- *  sides, a tarpaulin and the last few parcels of the round. Seen from the
- *  side it is about three and a half metres long. */
+ *  sides, the last few parcels of the round by the tailgate and, in the front
+ *  of the bed, somebody's bedding. Seen from the side it is about three and a
+ *  half metres long. */
 export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Texture; white: Texture }): Truck {
   const b = new Builder();
   const white: RGB = [0.86, 0.88, 0.93];
@@ -86,16 +142,22 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
   b.reset().translate(-0.736, 0.76, -0.67).box(0.012, 0.1, 1.96, EMBER);
   b.reset().translate(0.736, 0.76, -0.67).box(0.012, 0.1, 1.96, EMBER);
   b.reset().translate(0, 0.76, -1.696).box(1.4, 0.1, 0.012, EMBER);
-  // the cab: a box, with the glasshouse leaning in above it
-  b.reset().translate(0, 0.42, 0.995).box(1.46, 0.72, 1.28, white, whiteTop);
+  // The cab: a tub with no lid, with the glasshouse leaning in above it and a window cut in each
+  // side and in the back. (The windows are filled, or not, further down: see `windows`.)
+  b.reset().translate(0, 0.42, 0.995);
+  tub(b, 1.46, 0.72, 1.28, white, whiteTop);
   b.reset().translate(-0.736, 0.6, 1.0).box(0.012, 0.1, 1.2, EMBER);
   b.reset().translate(0.736, 0.6, 1.0).box(0.012, 0.1, 1.2, EMBER);
   b.reset();
   const [y0, y1, zr0, zf0, zr1, zf1, x0, x1] = [1.14, 1.78, 0.355, 1.635, 0.42, 1.34, 0.73, 0.66];
+  const [wy0, wy1] = TRUCK.windowY;
+  // (where the leaning walls are at a given height: half the cab's width, and its back wall)
+  const xAt = (y: number) => x0 + ((x1 - x0) * (y - y0)) / (y1 - y0);
+  const zAt = (y: number) => zr0 + ((zr1 - zr0) * (y - y0)) / (y1 - y0);
   b.quad([-x0, y0, zf0], [x0, y0, zf0], [x1, y1, zf1], [-x1, y1, zf1], [0, 0, 1, 1], glass);            // windscreen
-  b.quad([x0, y0, zr0], [-x0, y0, zr0], [-x1, y1, zr1], [x1, y1, zr1], [0, 0, 1, 1], white);            // back of the cab
-  b.quad([x0, y0, zf0], [x0, y0, zr0], [x1, y1, zr1], [x1, y1, zf1], [0, 0, 1, 1], white);
-  b.quad([-x0, y0, zr0], [-x0, y0, zf0], [-x1, y1, zf1], [-x1, y1, zr1], [0, 0, 1, 1], white);
+  frame(b, [x0, y0, zr0], [-x0, y0, zr0], [-x1, y1, zr1], [x1, y1, zr1], [0.47, wy0 + 0.02, zAt(wy0 + 0.02)], [-0.47, wy0 + 0.02, zAt(wy0 + 0.02)], [-0.435, wy1 - 0.02, zAt(wy1 - 0.02)], [0.435, wy1 - 0.02, zAt(wy1 - 0.02)], white);   // back of the cab
+  frame(b, [x0, y0, zf0], [x0, y0, zr0], [x1, y1, zr1], [x1, y1, zf1], [xAt(wy0), wy0, 1.47], [xAt(wy0), wy0, 0.53], [xAt(wy1), wy1, 0.55], [xAt(wy1), wy1, 1.25], white);
+  frame(b, [-x0, y0, zr0], [-x0, y0, zf0], [-x1, y1, zf1], [-x1, y1, zr1], [-xAt(wy0), wy0, 0.53], [-xAt(wy0), wy0, 1.47], [-xAt(wy1), wy1, 1.25], [-xAt(wy1), wy1, 0.55], white);
   b.reset().translate(0, y1, 0.88).box(1.36, 0.05, 0.98, white, whiteTop);
   b.reset().translate(0, y1 + 0.05, 0.88).box(1.26, 0.07, 0.88, SNOW);                                   // snow on the roof
   // bumpers, mirrors, number plate
@@ -103,8 +165,22 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
   b.reset().translate(0, 0.4, -1.7).box(1.46, 0.2, 0.05, dark);
   b.reset().translate(0, 0.44, -1.73).box(0.34, 0.12, 0.012, [0.95, 0.94, 0.85]);
   for (const s of [-1, 1]) b.reset().translate(s * 0.82, 1.22, 1.5).box(0.05, 0.2, 0.12, dark);
-  // the load: a tarpaulin with snow on it
-  b.reset().translate(0, 0.84, -0.22).blob(0.62, { seed: 12, jitter: 0.1, detail: 1, squash: [1.05, 0.44, 1.2], color: [0.15, 0.22, 0.32], colorTop: [0.8, 0.86, 1.0], uvScale: 1.2 });
+  // The bed. The tarpaulin is folded back to the tailgate under the last of the parcels, and the
+  // front half has been made comfortable for somebody waiting out the snow: a quilt on the deck, a
+  // big cushion in the corner made by the back of the cab and the left-hand side, a heap of bedding,
+  // a flask and a can from the machine. (He sits on the truck's left so that, from behind, whoever
+  // is driving is seen past him; and nothing on the right, which is the side the bend looks at,
+  // stands higher than the drop side: he is what is seen.)
+  const tarp: RGB = [0.15, 0.22, 0.32];
+  b.reset().translate(0, 0.67, -1.3).box(1.34, 0.025, 0.72, tarp, [0.24, 0.32, 0.46]);
+  b.reset().translate(0, 0.67, -0.93).box(1.3, 0.09, 0.14, tarp, [0.7, 0.76, 0.9]);
+  b.reset().translate(-0.01, 0.67, -0.27).box(1.3, 0.06, 1.12, [0.42, 0.12, 0.1], [0.74, 0.23, 0.17], 2);
+  b.reset().translate(-0.01, 0.67, -0.79).box(1.31, 0.068, 0.11, [0.72, 0.68, 0.58], [0.95, 0.9, 0.78]);
+  b.reset().translate(0.385, 0.73, 0.2).rotateY(0.436).rotateX(0.1).box(0.6, 0.46, 0.13, [0.5, 0.33, 0.2], [0.8, 0.56, 0.3], 2);
+  b.reset().translate(-0.4, 0.84, -0.34).blob(0.25, { seed: 31, jitter: 0.12, detail: 0, squash: [1.0, 0.5, 1.5], color: [0.16, 0.2, 0.36], colorTop: [0.34, 0.42, 0.66], uvScale: 2 });
+  b.reset().translate(-0.55, 0.73, 0.16).prism(0.045, 0.04, 0.24, 6, { color: [0.18, 0.4, 0.36], colorTop: [0.3, 0.58, 0.52], capTop: true });
+  b.reset().translate(-0.55, 0.97, 0.16).prism(0.03, 0.03, 0.05, 6, { color: [0.85, 0.85, 0.8], capTop: true });
+  b.reset().translate(-0.36, 0.73, 0.2).prism(0.034, 0.034, 0.12, 6, { color: EMBER, colorTop: [1.2, 0.62, 0.32], capTop: true });
   const body = new Mesh(b.build(), paint);
 
   // parcels still to deliver, by the tailgate
@@ -117,23 +193,38 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
     new Mesh(new Builder().translate(0.3, 0.67, -1.3).rotateY(0.2).box(0.42, 0.3, 0.4, card, card, 2.4).build(), parcelMat),
     new Mesh(new Builder().translate(-0.3, 0.67, -1.26).box(0.5, 0.36, 0.46, card, card, 2).build(), parcelMat),
   ];
-  // Inside the cab (never seen from outside: the windows are painted): a dash,
-  // a wheel on the right, and on the left the driver, who has shuffled over.
+  // Inside the cab, for when somebody is in it: a bench, a wheel on the right, a dash, the doors up to
+  // the sill. It is drawn as brightly as its dome lamp is burning and no more (see `cabin`), which is
+  // what a lit cab looks like from out in the dark.
   const inside = new Builder();
-  inside.reset().translate(0, 1.02, 1.5).box(1.36, 0.16, 0.26, dark);
-  inside.reset().translate(-0.33, 1.2, 1.36).rotateX(-0.5).prism(0.17, 0.17, 0.03, 8, { color: [0.07, 0.07, 0.08], capTop: true, capBottom: true });
-  // the screen pillars, the roof lining and the doors up to the sill, to look out past
-  const trim: RGB = [0.2, 0.21, 0.25];
-  inside.reset();
-  for (const s of [-1, 1]) {
-    inside.quad([s * 0.75, 1.14, 1.66], [s * 0.66, 1.14, 1.6], [s * 0.6, 1.78, 1.31], [s * 0.69, 1.78, 1.37], [0, 0, 1, 1], trim);
-    inside.quad([s * 0.74, 0.42, 0.36], [s * 0.74, 0.42, 1.63], [s * 0.74, 1.16, 1.63], [s * 0.74, 1.16, 0.36], [0, 0, 1, 1], dark, dark, trim, trim);
+  const lining: RGB = [0.62, 0.64, 0.74];
+  const fabric: RGB = [0.42, 0.5, 0.74];
+  const black: RGB = [0.12, 0.12, 0.15];
+  inside.quad([-0.72, 0.43, 1.62], [0.72, 0.43, 1.62], [0.72, 0.43, 0.37], [-0.72, 0.43, 0.37], [0, 0, 1, 1], [0.2, 0.21, 0.26]);                                   // the floor
+  inside.quad([0.72, 0.43, 0.37], [0.72, 0.43, 1.62], [0.72, 1.14, 1.62], [0.72, 1.14, 0.37], [0, 0, 1, 1], black, black, lining, lining);                          // the doors
+  inside.quad([-0.72, 0.43, 1.62], [-0.72, 0.43, 0.37], [-0.72, 1.14, 0.37], [-0.72, 1.14, 1.62], [0, 0, 1, 1], black, black, lining, lining);
+  inside.quad([-0.72, 0.43, 0.37], [0.72, 0.43, 0.37], [0.72, 1.14, 0.37], [-0.72, 1.14, 0.37], [0, 0, 1, 1], black, black, lining, lining);                         // behind the seat
+  inside.quad([0.72, 0.43, 1.62], [-0.72, 0.43, 1.62], [-0.72, 1.14, 1.62], [0.72, 1.14, 1.62], [0, 0, 1, 1], black);                                               // under the dash
+  // the glasshouse from inside: the same walls as outside, facing in, and the two screen pillars
+  frame(inside, [-x0, y0, zr0], [x0, y0, zr0], [x1, y1, zr1], [-x1, y1, zr1], [-0.47, wy0 + 0.02, zAt(wy0 + 0.02)], [0.47, wy0 + 0.02, zAt(wy0 + 0.02)], [0.435, wy1 - 0.02, zAt(wy1 - 0.02)], [-0.435, wy1 - 0.02, zAt(wy1 - 0.02)], lining);
+  frame(inside, [x0, y0, zr0], [x0, y0, zf0], [x1, y1, zf1], [x1, y1, zr1], [xAt(wy0), wy0, 0.53], [xAt(wy0), wy0, 1.47], [xAt(wy1), wy1, 1.25], [xAt(wy1), wy1, 0.55], lining);
+  frame(inside, [-x0, y0, zf0], [-x0, y0, zr0], [-x1, y1, zr1], [-x1, y1, zf1], [-xAt(wy0), wy0, 1.47], [-xAt(wy0), wy0, 0.53], [-xAt(wy1), wy1, 0.55], [-xAt(wy1), wy1, 1.25], lining);
+  for (const sx of [-1, 1]) {
+    const [pa, pb, pc, pd]: V3[] = [[sx * x0, y0, zf0], [sx * (x0 - 0.09), y0, zf0 - 0.03], [sx * (x1 - 0.08), y1, zf1 - 0.03], [sx * x1, y1, zf1]];
+    inside.quad(pa, pb, pc, pd, [0, 0, 1, 1], lining);
+    inside.quad(pb, pa, pd, pc, [0, 0, 1, 1], lining);
   }
-  inside.quad([-0.69, 1.78, 0.4], [0.69, 1.78, 0.4], [0.69, 1.78, 1.37], [-0.69, 1.78, 1.37], [0, 0, 1, 1], trim);
-  inside.quad([-0.7, 1.7, 1.39], [0.7, 1.7, 1.39], [0.69, 1.78, 1.35], [-0.69, 1.78, 1.35], [0, 0, 1, 1], dark);
-  const mate = new Builder();
-  buildSnowman(mate, inside, Math.PI + 0.6, 0.36, 0.42, 1.05, 0.5, [0.2, 0.62, 0.6]);
-  const cabin = [new Mesh(inside.build(), psxMaterial(shared, { map: tex.panel, vertexColors: true, twoSided: true })), new Mesh(mate.build(), psxMaterial(shared, { map: tex.white, vertexColors: true, tint: [0.9, 0.94, 1.02] }))];
+  inside.reset().translate(0, TRUCK.seatY - 0.15, 0.7).box(1.3, 0.15, 0.56, [0.3, 0.36, 0.56], fabric, 2);
+  inside.reset().translate(0, TRUCK.seatY, TRUCK.seatBackZ - 0.05).box(1.3, 0.5, 0.1, [0.34, 0.4, 0.62], [0.58, 0.66, 0.92], 2);
+  inside.reset().translate(0, 1.02, 1.5).box(1.36, 0.16, 0.26, black, [0.24, 0.25, 0.31]);
+  inside.reset().translate(TRUCK.wheel[0], TRUCK.wheel[1], TRUCK.wheel[2]).rotateX(-0.5).prism(0.17, 0.17, 0.03, 8, { color: [0.07, 0.07, 0.08], capTop: true, capBottom: true });
+  strut(inside, [TRUCK.wheel[0], 1.1, 1.5], [TRUCK.wheel[0], TRUCK.wheel[1] - 0.01, TRUCK.wheel[2] + 0.01], 0.05, black);
+  // the delivery sheet on a board on the other seat, and the lamp in the roof
+  inside.reset().translate(0.36, TRUCK.seatY, 0.72).rotateY(0.3).box(0.24, 0.02, 0.32, [0.5, 0.36, 0.24], [1.2, 1.16, 1.04]);
+  inside.reset().translate(0, y1 - 0.03, 0.9).box(0.16, 0.03, 0.22, [2.2, 1.9, 1.4]);
+  const cabin = psxMaterial(shared, { map: tex.panel, lit: false, vertexColors: true, tint: [0.55, 0.5, 0.45] });
+  const insideMesh = new Mesh(inside.build(), cabin);
+  insideMesh.visible = false;
 
   const quad = (bd: Builder, a: [number, number, number], c: [number, number, number]) => {
     // an axis-aligned rectangle between two opposite corners (one axis is flat)
@@ -161,13 +252,14 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
     quad(k, [s * 0.76, 0.7, -1.62], [s * 0.76, 0.8, -1.5]);
   }
   const blink = lens(shared, tex.white, [1, 0.55, 0.12]);
-  // the windows, lit from inside
+  // the windows of the empty cab, lit from inside
   const w = new Builder();
   const win = cabWindow();
   w.quad([-0.75, 1.2, 0.5], [-0.75, 1.2, 1.5], [-0.693, 1.72, 1.27], [-0.693, 1.72, 0.52], [0, 0, 1, 1]);
   w.quad([0.75, 1.2, 1.5], [0.75, 1.2, 0.5], [0.693, 1.72, 0.52], [0.693, 1.72, 1.27], [1, 0, 0, 1]);
   w.quad([0.5, 1.22, 0.335], [-0.5, 1.22, 0.335], [-0.46, 1.7, 0.385], [0.46, 1.7, 0.385], [0, 0, 1, 1]);
   const cab = lens(shared, win, [0.55, 0.5, 0.45]);
+  const windows = new Mesh(w.build(), cab);
   // what the headlamps throw: three thin sheets of light to each, crossing along the beam
   const c = new Builder();
   for (const lamp of lampsFront) {
@@ -181,13 +273,11 @@ export function buildTruck(shared: Uniforms, tex: { panel: Texture; parcel: Text
   coneMesh.renderOrder = 13;
 
   const group = new Group();
-  for (const m of [body, ...wheels, ...parcels, ...cabin, new Mesh(h.build(), head), new Mesh(t.build(), tail), new Mesh(k.build(), blink), new Mesh(w.build(), cab), coneMesh]) {
+  for (const m of [body, ...wheels, ...parcels, insideMesh, new Mesh(h.build(), head), new Mesh(t.build(), tail), new Mesh(k.build(), blink), windows, coneMesh]) {
     m.frustumCulled = false;
     group.add(m);
   }
-  // the cab's fittings are only worth drawing for somebody sitting in it
-  for (const m of cabin) m.visible = false;
-  return { group, head, tail, blink, cab, cones, parcels, cabin, wheels, lampsFront, lampsRear, blinkers, exhaust: new Vector3(-0.45, 0.26, -1.74), textures: [win] };
+  return { group, head, tail, blink, cab, cabin, windows, inside: insideMesh, cones, parcels, wheels, lampsFront, lampsRear, blinkers, exhaust: new Vector3(-0.45, 0.26, -1.74), textures: [win] };
 }
 
 /* ---- the fox ---------------------------------------------------------------- */
@@ -273,8 +363,8 @@ export function buildFox(shared: Uniforms, map: Texture): Fox {
 
 /* ---- things that stay put ---------------------------------------------------- */
 
-/** Who is standing where you stand. From inside his head there is nothing to
- *  see of him; the traffic mirror gives him away. */
+/** A snowman, scarf, bucket hat and all. The people of this valley are made of snow: the bather in
+ *  the spring, the folk in the town square, the keeper of the airfield. */
 export function buildSnowman(snow: Builder, bits: Builder, facing: number, x = 0, y = 0, z = 0, size = 1, scarf: RGB = EMBER) {
   const s: RGB = [1.0, 1.05, 1.15];
   const sTop: RGB = [1.12, 1.16, 1.26];

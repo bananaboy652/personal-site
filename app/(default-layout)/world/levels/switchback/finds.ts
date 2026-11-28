@@ -155,9 +155,9 @@ export interface Shrine {
   box: P3;
   bell: P3;
   lantern: P3;
-  /** the little house at the back, whose doors glow when there is reason */
+  /** the little house at the back, whose doors glow once the parcel owed it has been left */
   hearth: P3;
-  /** three stones, one to a world, and where a light sits on each */
+  /** three stones, one to each place on the way round, and where a light sits on each */
   stones: P3[];
   /** a notice at the foot of the stair */
   notice: P3;
@@ -343,7 +343,7 @@ export function buildShrine(kit: FindKit): Shrine {
   snow.reset().translate(ln.x, ty + 1.6, ln.z).blob(0.2, { seed: 9, jitter: 0.08, detail: 0, squash: [1.3, 0.5, 1.3], color: SNOW, uvScale: 2 });
   const lantern = { x: ln.x, y: ty + 1.3, z: ln.z };
   lights.push({ pos: [ln.x, ty + 1.5, ln.z], color: [2.2, 1.25, 0.52], range: 11 });
-  // three stones along the west side, one to a world, each with its sign cut in the face that looks across
+  // three stones along the west side, one to each place on the way round, each with its sign cut in the face that looks across
   const stones: P3[] = [];
   for (let i = 0; i < 3; i++) {
     const s = tp(TER.t - TER.w / 2 + 0.55, TER.n + TER.d / 2 - 0.9 - i * 1.25);
