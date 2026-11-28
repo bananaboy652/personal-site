@@ -339,11 +339,3 @@ export class FarTower {
     this.beamMat.uniforms.uAlpha.value = 0.03 + a * 0.7;
   }
 }
-
-/* ---- signals --------------------------------------------------------------- */
-
-/** There was once a count of signals answered, which the gate kept. Nothing is counted now: a world's
- *  tower answers when it pleases. Always false; here only until the worlds stop calling it. */
-export function answerSignal(_engine: Engine): boolean {
-  return false;
-}

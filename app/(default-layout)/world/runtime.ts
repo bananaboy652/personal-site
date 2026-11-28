@@ -81,9 +81,7 @@ export class Runtime {
   private wanted: string | null = null;
   /** the click that stepped into the world is still being handed round: it is not also a click on the world */
   private stepping = false;
-  /** the next arrival in a world is to be the short one */
-  private brisk = false;
-  private touches = new Map<number, { role: 'move' | 'look' | 'jump' | 'button'; spot: TouchSpot | null; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
+  private touches = new Map<number, { role: 'move' | 'look' | 'jump' | 'button' | 'lever'; spot: TouchSpot | null; x0: number; y0: number; x: number; y: number; t0: number; far: number }>();
   /** reads the phone's notch and home-bar margins (see insets()) */
   private probe: HTMLElement | null = null;
   private timers: number[] = [];
@@ -109,7 +107,6 @@ export class Runtime {
       this.onChange?.();
     };
     e.onTravel = (id) => this.go(id);
-    e.onFinale = () => void this.finale();
     e.audio.onChange = () => this.onChange?.();
     // sound is on unless it was switched off on an earlier visit (it starts at the first click, tap or key)
     e.audio.wanted = store.sound;
@@ -126,6 +123,7 @@ export class Runtime {
   async start(pathname: string) {
     const e = this.engine;
     e.shotName = SHOTS[pathname] ?? 'home';
+    e.people.route(pathname);
     const o = this.options;
     const id = worldOf(o.world ?? worldForPath(pathname)?.id).id;
     // The opening plays every time the page is opened. It is left out only with motion turned off, or when
@@ -191,9 +189,8 @@ export class Runtime {
     e.hovered = null;
     old?.dispose();
     try {
-      // a world plays its opening every time it is come to, unless you arrive on foot (or the tower is about to answer)
-      const kind: IntroKind = !e.settings.motion ? 'none' : walking || this.brisk ? 'quick' : 'full';
-      this.brisk = false;
+      // a world plays its opening every time it is come to, unless you arrive on foot
+      const kind: IntroKind = !e.settings.motion ? 'none' : walking ? 'quick' : 'full';
       await this.load(def.id, kind);
       e.audio.ui('arrive');
       if (walking) e.enterExplore();
@@ -206,18 +203,6 @@ export class Runtime {
     if (next && next !== this.world) void this.travel(next);
   }
 
-  /** Every signal is answered: go to the first world, where the tower is, and let it respond. */
-  async finale() {
-    if (this.world !== WORLDS[0].id) {
-      // (straight there: the tower's answer is the thing to see, not the day running out first)
-      this.brisk = true;
-      this.go(WORLDS[0].id);
-      for (let i = 0; i < 80 && (this.world !== WORLDS[0].id || this.travelling); i++) await new Promise((r) => window.setTimeout(r, 100));
-      this.brisk = false;
-    }
-    this.level?.finale?.();
-  }
-
   /** Play the current world's opening again, from the top. */
   replay() {
     this.level?.intro(this.engine.settings.motion ? 'full' : 'none');
@@ -228,6 +213,8 @@ export class Runtime {
     const e = this.engine;
     const def = worldForPath(pathname);
     e.shotName = SHOTS[pathname] ?? 'home';
+    // (on a project's page, whoever sits in the world behind it has something to say about it)
+    e.people.route(pathname);
     if (def && def.id !== this.world && this.level) void this.travel(def.id);
     else e.goTo(e.shotName);
     this.later(() => this.frame(), 300);
@@ -283,7 +270,7 @@ export class Runtime {
     this.locked = false;
     this.touches.clear();
     Object.assign(e.hud.stick, { held: false, at: null, dx: 0, dy: 0 });
-    e.hud.jumpHeld = false;
+    e.hud.jumpHeld = e.hud.leverHeld = e.hud.leverBrake = false;
     document.documentElement.style.overflow = '';
     document.documentElement.style.touchAction = '';
     this.selectable(true);
@@ -314,8 +301,13 @@ export class Runtime {
     const c = e.controls;
     const v = down ? 1 : 0;
     switch (key.toLowerCase()) {
-      case 'w': case 'arrowup': c.f = down ? 1 : c.f > 0 ? 0 : c.f; break;
-      case 's': case 'arrowdown': c.f = down ? -1 : c.f < 0 ? 0 : c.f; break;
+      // (flying, the arrow keys are a stick: Down pulls the nose up, Up pushes it down. W and S are the throttle.)
+      case 'arrowup': if (e.explore.vehicle?.o.kind === 'plane') { c.stick = down ? -1 : (c.stick ?? 0) < 0 ? 0 : c.stick; break; }
+      // falls through
+      case 'w': c.f = down ? 1 : c.f > 0 ? 0 : c.f; break;
+      case 'arrowdown': if (e.explore.vehicle?.o.kind === 'plane') { c.stick = down ? 1 : (c.stick ?? 0) > 0 ? 0 : c.stick; break; }
+      // falls through
+      case 's': c.f = down ? -1 : c.f < 0 ? 0 : c.f; break;
       case 'd': case 'arrowright': c.r = down ? 1 : c.r > 0 ? 0 : c.r; break;
       case 'a': case 'arrowleft': c.r = down ? -1 : c.r < 0 ? 0 : c.r; break;
       case 'shift': c.run = down; break;
@@ -367,7 +359,10 @@ export class Runtime {
       // of it left clear as a window on the world. The clear part runs from under the name down to the
       // first panel, which is off the foot of the screen until the page is scrolled.
       e.setFocus(this.level?.portraitFocus ?? 0.5);
-      e.setLift(0);
+      // The frame is as tall as the screen gets with the browser's bars away; while they are showing,
+      // the foot of it is under them. The picture is slid up by that much, so that what a world puts
+      // at the foot of its view (somebody lying in the grass) is seen from the first moment.
+      e.setLift(clamp((FH - H) / FH, 0, 0.2));
       e.setPanels([]);
       let head = (nav?.bottom ?? edge) + 6;
       let top = H;
@@ -469,6 +464,14 @@ export class Runtime {
       let r = dx * k;
       let f = -dy * k;
       const c = e.controls;
+      if (e.explore.vehicle?.o.kind === 'plane') {
+        // flying: side to side is the bank, and drawing the stick back toward you lifts the nose
+        c.r = Math.abs(r) < 0.1 ? 0 : r;
+        c.stick = Math.abs(f) < 0.12 ? 0 : -f;
+        c.run = false;
+        if (!e.hud.leverBrake) c.f = 0;
+        return;
+      }
       if (e.explore.vehicle) {
         // steering wants the whole sweep of the stick; the throttle mostly wants to know which way
         c.r = Math.abs(r) < 0.12 ? 0 : r;
@@ -484,6 +487,17 @@ export class Runtime {
       c.run = m > 0.9;
     };
 
+    /** The throttle lever under a thumb (flying): how far up its track the thumb is. Below where it is
+     *  shut are the brakes, for as long as the thumb stays there. */
+    const pushLever = (fy: number) => {
+      const L = e.hud.lever;
+      const c = e.controls;
+      const braking = fy > L.shut + L.r * 0.9;
+      c.power = braking ? 0 : clamp((L.shut - fy) / Math.max(1, L.shut - L.open));
+      c.f = braking ? -1 : 0;
+      e.hud.leverBrake = braking;
+    };
+
     on(window, 'pointerdown', (ev: PointerEvent) => {
       e.touch = ev.pointerType === 'touch';
       wake();
@@ -491,15 +505,19 @@ export class Runtime {
         const hud = e.hud;
         const [fx, fy] = e.frameXY(ev.clientX, ev.clientY);
         const spot = hud.menu ? null : hud.touchSpot(fx, fy);
-        const t = { role: 'look' as 'move' | 'look' | 'jump' | 'button', spot, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, t0: performance.now(), far: 0 };
+        const t = { role: 'look' as 'move' | 'look' | 'jump' | 'button' | 'lever', spot, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, t0: performance.now(), far: 0 };
         const moving = Array.from(this.touches.values()).some((o) => o.role === 'move');
-        if (spot === 'jump') {
+        if (spot === 'throttle') {
+          t.role = 'lever';
+          hud.leverHeld = true;
+          pushLever(fy);
+        } else if (spot === 'jump') {
           // (the same thumb can go on to look about; the button stays down until it lifts)
           t.role = 'jump';
           hud.jumpHeld = true;
           this.walkKey(' ', true);
         } else if (spot && spot !== 'stick') t.role = 'button';
-        else if (!hud.menu && !moving && (spot === 'stick' || (ev.clientX < window.innerWidth * 0.45 && fy > hud.safe.y0 * e.stats.h + hud.css(70)))) {
+        else if (!hud.menu && !e.talk.open && !moving && (spot === 'stick' || (ev.clientX < window.innerWidth * 0.45 && fy > hud.safe.y0 * e.stats.h + hud.css(70)))) {
           t.role = 'move';
           hud.stick.held = true;
           // on the dish, it stays where it is; anywhere else on the left, the dish comes to the thumb
@@ -518,8 +536,15 @@ export class Runtime {
       this.touches.delete(ev.pointerId);
       const hud = e.hud;
       if (t.role === 'move') {
-        Object.assign(e.controls, { f: 0, r: 0, run: false });
+        Object.assign(e.controls, { f: hud.leverBrake ? -1 : 0, r: 0, run: false, stick: 0 });
         Object.assign(hud.stick, { held: false, at: null, dx: 0, dy: 0 });
+        return;
+      }
+      if (t.role === 'lever') {
+        // (the lever stays where it was left; only the brakes let go with the thumb)
+        hud.leverHeld = hud.leverBrake = false;
+        e.controls.power = undefined;
+        e.controls.f = 0;
         return;
       }
       if (t.role === 'jump') {
@@ -534,7 +559,10 @@ export class Runtime {
         e.audio.ui('pick');
         if (t.spot === 'back') this.exitExplore();
         else if (t.spot === 'full') this.fullscreen();
-        else if (t.spot === 'out') e.board(null);
+        else if (t.spot === 'out') {
+          if (e.resting) e.rise();
+          else e.leave();
+        }
         else if (t.spot === 'view') e.explore.seat = !e.explore.seat;
         else if (t.spot === 'horn') e.controls.horn = true;
         return;
@@ -544,6 +572,10 @@ export class Runtime {
       if (hud.menu) {
         const [fx, fy] = e.frameXY(ev.clientX, ev.clientY);
         hud.click(fx, fy);
+      } else if (e.talk.open) {
+        // (a reply is chosen by tapping it; a tap anywhere else is "go on")
+        const [fx, fy] = e.frameXY(ev.clientX, ev.clientY);
+        e.talk.click(fx, fy);
       } else if (!e.explore.vehicle || e.hovered) e.use();
     };
     on(window, 'pointerup', up);
@@ -559,6 +591,7 @@ export class Runtime {
         t.far = Math.max(t.far, Math.hypot(t.x - t.x0, t.y - t.y0));
         if (t.role === 'button') return;
         if (t.role === 'move') pushStick(...e.frameXY(t.x, t.y));
+        else if (t.role === 'lever') pushLever(e.frameXY(t.x, t.y)[1]);
         else e.lookBy(dx * 0.28, dy * 0.28);
         return;
       }
@@ -622,7 +655,7 @@ export class Runtime {
       if (e.free.on) this.flyKey(ev.key, false);
       if (e.exploring) this.walkKey(ev.key, false);
     });
-    on(window, 'blur', () => Object.assign(e.controls, { f: 0, r: 0, run: false, jump: false, up: 0 }));
+    on(window, 'blur', () => Object.assign(e.controls, { f: 0, r: 0, run: false, jump: false, up: 0, stick: 0 }));
     const lost = () => {
       this.live = false;
       this.onChange?.();
@@ -677,3 +710,4 @@ export class Runtime {
 }
 
 export { DEFAULTS, WORLDS, store };
+export { looksFor } from './cast/looks';

@@ -8,6 +8,7 @@ import {
   LinearSRGBColorSpace,
   Mesh,
   NearestFilter,
+  type Object3D,
   PerspectiveCamera,
   PlaneGeometry,
   Scene,
@@ -21,12 +22,15 @@ import { clearLights } from './atmos';
 import { AudioEngine, type AudioSpec } from './audio';
 import { Hud, isHidden } from './hud';
 import { clamp, lerp, rad, smooth } from './math';
+import type { Mirror } from './mirror';
+import { People } from './people';
 import { type Controls, Player, type Vehicle } from './player';
 import { createShared, postMaterial } from './shaders';
 import type { Solid } from './solid';
 import { Steps } from './steps';
 import { store } from './store';
 import type { SurfaceAt } from './surface';
+import { Talk } from './talk';
 
 /** The widest shape of window a view is composed for: twice as wide as it is tall. On anything wider the
  *  page keeps to a stage of this shape in the middle, and the world shows more to either side of it. */
@@ -89,16 +93,29 @@ export interface Walk {
   tick?(dt: number, player: Player, vehicle: Vehicle | null): void;
 }
 
-/** Somewhere a person stands or sits about a world. */
+/** Where somebody is to be found in a world, and what they are doing there. */
 export interface Spot {
-  /** the ground under them */
+  /** Where: the ground under their feet (standing, leaning), under their seat (sitting, lounging), or
+   *  under the small of their back (lying). In the world, or in `parent`'s own space if that is given. */
   at: [number, number, number];
-  /** which way they face, degrees, like a walker's yaw: 0 looks down -Z, positive turns right */
+  /** Which way they face, degrees, like a walker's yaw: 0 looks down -Z, positive turns right. Lying on
+   *  their back, it is the way their feet point (their head lies the other way). */
   yaw: number;
-  /** what they are doing there. Sitting, `seat` is how high above `at` the thing they sit on is
-   *  (default 0.45); leaning, their back is against something behind them. */
-  pose: 'stand' | 'sit' | 'lean';
+  /** What they are doing:
+   *   stand     on their feet
+   *   sit       on something `seat` metres high (a log, a bench; default 0.45)
+   *   lean      standing with their back against something behind them
+   *   lounge    sat on the ground with their back against something behind them and their knees up
+   *   starfish  flat on their back, arms and legs spread, looking at the sky */
+  pose: 'stand' | 'sit' | 'lean' | 'lounge' | 'starfish';
   seat?: number;
+  /** what they have in their hands: a games console they are playing */
+  holding?: 'handheld';
+  /** Something that moves, which they are in or on (the bed of a truck): `at` and `yaw` are then in its
+   *  own space, and they go where it goes. */
+  parent?: Object3D;
+  /** Lying down: the place beside them where a visitor can lie down too (the ground there, in the world). */
+  beside?: [number, number, number];
 }
 
 /** A camera position. Angles are in degrees; yaw is positive to the right.
@@ -155,8 +172,6 @@ export interface Level {
   update(dt: number, time: number): void;
   /** draw anything of its own on the interface layer */
   hud?(hud: Hud): void;
-  /** what happens here once every world's signal has been answered (the first world's job) */
-  finale?(): void;
   /** present if the world can be walked around in */
   walk?: Walk;
   /** Who is about. `will` is where the site's owner is to be found, to be talked to (the figure and
@@ -202,6 +217,8 @@ interface Pose {
   yaw: number;
   pitch: number;
   fov: number;
+  /** degrees the view is tipped over, right side down (the eye of somebody in a banking aeroplane) */
+  roll?: number;
 }
 
 const deg = (r: number) => (r * 180) / Math.PI;
@@ -214,6 +231,10 @@ export class Engine {
   readonly settings: Settings;
   readonly audio = new AudioEngine();
   readonly hud: Hud;
+  /** a conversation with somebody in the world (talk.ts) */
+  readonly talk: Talk;
+  /** who is about: the site's owner, and the visitor's own character (people.ts) */
+  readonly people: People;
   readonly stats = { fps: 0, ms: 0, w: 0, h: 0, scale: 1, calls: 0, tris: 0 };
   level: Level | null = null;
   time = 0;
@@ -229,8 +250,6 @@ export class Engine {
   shotName = 'home';
   /** a gate was used: go to another world */
   onTravel: ((world: string) => void) | null = null;
-  /** every signal is answered and the gate was asked for what comes next */
-  onFinale: (() => void) | null = null;
   onCursor: ((pointing: boolean) => void) | null = null;
   /** looking through a telescope began or ended */
   onScope: ((on: boolean) => void) | null = null;
@@ -238,6 +257,8 @@ export class Engine {
   onExplore: ((on: boolean) => void) | null = null;
   /** the sound was switched on or off (the radio, a key, or the page's own button) */
   onSound: (() => void) | null = null;
+  /** mirrors that work (see mirror.ts): each adds itself, and is drawn into before the frame is */
+  readonly mirrors = new Set<Mirror>();
   /** whoever is walking about */
   readonly player = new Player();
   private steps = new Steps();
@@ -245,6 +266,8 @@ export class Engine {
   readonly controls: Controls = { f: 0, r: 0, run: false, jump: false, up: 0 };
   /** walking-about state: `t` runs 0..1 as the camera goes from the framed view to the eye */
   readonly explore = { on: false, t: 0, vehicle: null as Vehicle | null, orbit: 0, seat: false, hint: 0, idle: 0 };
+  /** lying on your back somewhere, looking at the sky (see rest): `t` runs 0..1 as you go down */
+  private lying = { on: false, t: 0, x: 0, y: 0, z: 0, yaw: 0, use: null as (() => void) | null };
   onFirstFrame: (() => void) | null = null;
   /** the debug fly-about camera */
   readonly free = { on: false, x: 0, y: 2, z: 0, yaw: 0, pitch: 0, fov: 50, f: 0, r: 0, u: 0, fast: false };
@@ -296,6 +319,8 @@ export class Engine {
     this.postScene.add(quad);
     this.camera.rotation.order = 'YXZ';
     this.hud = new Hud(this);
+    this.talk = new Talk(this);
+    this.people = new People(this);
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.resize();
@@ -320,6 +345,10 @@ export class Engine {
     this.shotT = 1;
     this.pose = this.resolve(this.to, this.aimFor(this.to));
     this.audio.setSpec(level.audio);
+    this.talk.close();
+    this.lying.on = false;
+    this.lying.t = 0;
+    this.people.setLevel(level);
   }
 
   start() {
@@ -338,6 +367,7 @@ export class Engine {
     this.stop();
     this.observer.disconnect();
     document.removeEventListener('visibilitychange', this.onVisibility);
+    this.people.dispose();
     this.level?.dispose();
     this.level = null;
     this.audio.dispose();
@@ -486,8 +516,12 @@ export class Engine {
     if (this.explore.on) {
       // the mouse is held while walking, so a click chooses rather than points
       if (this.hud.menu) return this.hud.key('Enter');
+      // (a click in an aeroplane that is in the air is not a wish to get out of it, and is not told off for being one)
+      const v = this.explore.vehicle;
+      if (v && !this.hovered && !this.talk.open && !this.scope.on && !v.canLeave(true)) return true;
       return this.use();
     }
+    if (this.talk.click(hx, hy)) return true;
     if (this.hud.click(hx, hy)) return true;
     this.level?.hurry?.();
     if (this.scope.on) {
@@ -502,6 +536,7 @@ export class Engine {
 
   /** A key was pressed. Returns true if the world used it. */
   key(key: string): boolean {
+    if (this.talk.key(key)) return true;
     if (this.hud.key(key)) return true;
     if (key === 'Escape' && this.scope.on) {
       this.exitScope();
@@ -535,7 +570,10 @@ export class Engine {
     // beside a big one can still be picked. Things in the sky come last.
     let best: Interactable | null = null;
     let bestScore = 1;
-    for (const it of level.interactables) {
+    const own = level.interactables;
+    const others = this.people.interactables;
+    for (let i = 0; i < own.length + others.length; i++) {
+      const it = i < own.length ? own[i] : others[i - own.length];
       if (isHidden(it) || (walking ? it.frameOnly : it.walkOnly)) continue;
       if (it.center && it.radius) {
         const oc = this.tmp.copy(it.center).sub(cam.position);
@@ -801,7 +839,7 @@ export class Engine {
       // (on foot the view rolls a touch into a sideways step and the lens opens a touch at a run)
       const foot = ex.vehicle ? 0 : k;
       cam.rotation.order = 'YXZ';
-      cam.rotation.set(rad(lerp(pitch, e.pitch, k)), -rad(yaw + dy * k), -rad(this.player.lean) * foot);
+      cam.rotation.set(rad(lerp(pitch, e.pitch, k)), -rad(yaw + dy * k), -rad(this.player.lean) * foot - rad(e.roll ?? 0) * k);
       cam.fov = lerp(cam.fov, e.fov, k) + this.player.kick * foot;
     }
     // On a phone the page's first panel may stand taller than the view was composed for.
@@ -860,8 +898,11 @@ export class Engine {
     const ex = this.explore;
     if (!ex.on) return;
     this.board(null);
+    this.talk.close();
     ex.on = false;
     ex.t = 0;
+    this.lying.on = false;
+    this.lying.t = 0;
     this.hud.menu = null;
     for (const v of this.level?.walk?.vehicles ?? []) v.reset();
     this.level?.explore?.(false);
@@ -878,12 +919,17 @@ export class Engine {
     const was = ex.vehicle;
     if (was && was !== v) {
       was.occupied = false;
-      // step out on the left
+      // step out on the left (unless it has somewhere better to put you: see Vehicle.alight)
       const hr = rad(was.heading);
       const side = was.o.half[0] + 0.9;
-      pl.place(was.x - Math.cos(hr) * side, was.y + 0.4, was.z - Math.sin(hr) * side, was.heading);
+      const at = was.alight();
+      if (at) pl.place(at[0], at[1], at[2], was.heading);
+      else pl.place(was.x - Math.cos(hr) * side, was.y + 0.4, was.z - Math.sin(hr) * side, was.heading);
     }
     ex.vehicle = v;
+    // (nothing an aeroplane's stick or lever was last asked for is carried into the next thing)
+    this.controls.stick = 0;
+    this.controls.power = undefined;
     if (v) {
       v.occupied = true;
       ex.orbit = 0;
@@ -892,15 +938,76 @@ export class Engine {
     }
   }
 
+  /** Get out of what you are in, if it will let you just now (an aeroplane in the air will not, and
+   *  says why). True if you are out. */
+  leave(): boolean {
+    const v = this.explore.vehicle;
+    if (!v) return true;
+    if (!v.canLeave()) return false;
+    this.board(null);
+    return true;
+  }
+
+  /** Somebody walking about lies down on their back at a place and looks up at the sky. `yaw` is the way
+   *  their feet point. They can still look about, as far as a head on the ground turns; any wish to
+   *  move gets them up again. `use` is what E (or a tap) does while they lie there with nothing else
+   *  in front of them. A level can tell by `resting`, and make the sky worth it. */
+  rest(at: [number, number, number], yaw: number, use?: () => void) {
+    const ex = this.explore;
+    if (!ex.on || ex.vehicle || this.lying.on) return;
+    Object.assign(this.lying, { on: true, x: at[0], y: at[1], z: at[2], yaw, use: use ?? null });
+    Object.assign(this.controls, { f: 0, r: 0, run: false, jump: false, up: 0 });
+    Object.assign(this.player, { vx: 0, vy: 0, vz: 0 });
+    ex.hint = 0;
+  }
+
+  /** Get up again. */
+  rise() {
+    this.lying.on = false;
+  }
+
+  /** Somebody is lying on their back looking at the sky. */
+  get resting() {
+    return this.lying.on;
+  }
+
+  /** Lying down, or on the way down or up. True while the walker is not to be moved by the keys. */
+  private lieAbout(dt: number, c: Controls): boolean {
+    const L = this.lying;
+    const pl = this.player;
+    if (L.on && (c.f || c.r || c.jump)) this.rise();
+    L.t = clamp(L.t + (L.on ? dt / 1.5 : -dt / 0.9));
+    if (L.t <= 0) return false;
+    if (L.on && L.t < 1) {
+      // on the way down the view comes round to lie along the body, and tips back to the sky
+      let dy = (L.yaw - pl.yaw) % 360;
+      if (dy > 180) dy -= 360;
+      if (dy < -180) dy += 360;
+      const k = Math.min(1, dt * 3.2);
+      pl.yaw += dy * k;
+      pl.pitch += (80 - pl.pitch) * k;
+    } else if (L.on) pl.pitch = clamp(pl.pitch, 20, 88);
+    else pl.pitch += (4 - pl.pitch) * Math.min(1, dt * 3);
+    return true;
+  }
+
   /** Use whatever is in front of you (or under the pointer). */
   use(): boolean {
     const ex = this.explore;
+    if (this.talk.open) {
+      this.talk.advance();
+      return true;
+    }
     if (this.scope.on) {
       this.exitScope();
       return true;
     }
     if (ex.vehicle && !this.hovered) {
-      this.board(null);
+      this.leave();
+      return true;
+    }
+    if (this.lying.on && !this.hovered && this.lying.use) {
+      this.lying.use();
       return true;
     }
     const hit = this.hovered ?? this.pick();
@@ -924,7 +1031,7 @@ export class Engine {
     const ex = this.explore;
     const w = this.level?.walk;
     if (!ex.on || !w) return;
-    const c = this.hud.menu || this.scope.on ? { f: 0, r: 0, run: false, jump: false, up: 0 } : this.controls;
+    const c = this.hud.menu || this.scope.on || this.talk.open ? { f: 0, r: 0, run: false, jump: false, up: 0 } : this.controls;
     const pl = this.player;
     const water = w.water ?? null;
     ex.hint = Math.max(0, ex.hint - dt);
@@ -941,7 +1048,7 @@ export class Engine {
       // left alone, the camera swings back round behind
       ex.idle += dt;
       if (ex.idle > 1.6 && Math.abs(v.speed) > 1.5) ex.orbit *= Math.exp(-dt * 2.2);
-    } else pl.update(dt, c, w.solid, water);
+    } else if (!this.lieAbout(dt, c)) pl.update(dt, c, w.solid, water);
     w.tick?.(dt, pl, v);
     // the horn, if the level did not take it for something of its own
     if (c.horn) {
@@ -956,17 +1063,37 @@ export class Engine {
     const ex = this.explore;
     const v = ex.vehicle;
     void dt;
-    if (!v) return { x: pl.x, y: pl.y + pl.eye - pl.bob, z: pl.z, yaw: pl.yaw, pitch: pl.pitch, fov: 66 };
+    if (!v) {
+      // (lying down, the eye is where the head lies: back from the middle of the body, a hand off the ground)
+      const L = this.lying;
+      const k = L.t * L.t * (3 - 2 * L.t);
+      const hr = rad(L.yaw);
+      return {
+        x: lerp(pl.x, L.x - Math.sin(hr) * 0.62, k),
+        y: lerp(pl.y + pl.eye - pl.bob, L.y + 0.24, k),
+        z: lerp(pl.z, L.z + Math.cos(hr) * 0.62, k),
+        yaw: pl.yaw,
+        pitch: pl.pitch,
+        fov: lerp(66, 76, k),
+      };
+    }
+    // (An aeroplane's view takes on some of its attitude: Vehicle.camPitch and camRoll, nothing for a car.
+    // Looking round, that attitude is seen from another side: what was a bank ahead is a climb abeam.)
+    const cs = Math.cos(rad(ex.orbit));
+    const sn = Math.sin(rad(ex.orbit));
     if (ex.seat) {
       const p = this.tmp.set(v.o.seat[0], v.o.seat[1], v.o.seat[2]).applyMatrix4(v.o.object.matrixWorld);
-      return { x: p.x, y: p.y, z: p.z, yaw: v.heading + ex.orbit, pitch: pl.pitch, fov: 70 };
+      return { x: p.x, y: p.y, z: p.z, yaw: v.heading + ex.orbit, pitch: pl.pitch + v.camPitch * cs - v.camRoll * sn, fov: 70, roll: v.camRoll * cs + v.camPitch * sn };
     }
     // The camera behind has some weight of its own (see Vehicle.follow): it comes round after the
     // thing it follows, drops back and widens a little with speed, and takes a jolt when it lands.
     const yaw = v.camYaw + ex.orbit;
     const yr = rad(yaw);
-    const dist = v.o.chase[0] * v.camBack;
-    const height = v.o.chase[1];
+    // (tipped up to follow a climb, it also drops below what it follows, so that stays in the picture)
+    const tip = rad(v.camPitch * cs);
+    const back = v.o.chase[0] * v.camBack;
+    const dist = back * Math.cos(tip) + v.o.chase[1] * Math.sin(tip);
+    const height = v.o.chase[1] * Math.cos(tip) - back * Math.sin(tip);
     const x = v.x - Math.sin(yr) * dist;
     const z = v.z + Math.cos(yr) * dist;
     let y = v.camY + height + v.jolt;
@@ -983,7 +1110,7 @@ export class Engine {
       }
       if (y < g + 0.5) y = g + 0.5;
     }
-    return { x, y, z, yaw, pitch: pl.pitch - 9, fov: 62 + v.camFov };
+    return { x, y, z, yaw, pitch: pl.pitch - 9 + v.camPitch * cs, fov: 62 + v.camFov, roll: v.camRoll * cs };
   }
 
   /* ---- the loop ---- */
@@ -1021,6 +1148,8 @@ export class Engine {
       this.level?.scroll?.(sc.page);
     }
     this.level?.update(dt, this.time);
+    this.people.update(real, this.time);
+    this.talk.update(real);
     this.updateHover();
     this.audio.update();
     this.hud.draw(real);
@@ -1044,6 +1173,7 @@ export class Engine {
     (u.uScope.value as Vector4).set(0.5, 0.5, lerp(1.4, 0.43, ek), sk > 0 ? 1 : 0);
 
     const r = this.renderer;
+    this.mirrors.forEach((m) => m.render(r, this.scene, this.camera, this.last / 1000));
     r.setRenderTarget(this.target);
     r.render(this.scene, this.camera);
     this.stats.calls = r.info.render.calls;

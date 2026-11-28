@@ -1,11 +1,10 @@
-// What the world remembers between visits: whether you turned the sound off, which
-// worlds' signals you have answered, and any small things a world wants to
-// keep for itself. Kept in the browser; if storage is blocked it simply forgets.
+// What the world remembers between visits: whether you turned the sound off,
+// and any small things a world wants to keep for itself. Kept in the browser;
+// if storage is blocked it simply forgets.
 const KEY = 'world.v1';
 
 interface Saved {
   sound: boolean;
-  signals: string[];
   /** by world: things it has asked to be remembered */
   notes: Record<string, string[]>;
 }
@@ -19,9 +18,9 @@ function read(): Saved {
     const notes: Record<string, string[]> = {};
     if (v.notes && typeof v.notes === 'object') for (const [world, list] of Object.entries(v.notes)) notes[world] = strings(list);
     // (sound is on unless somebody has switched it off)
-    return { sound: v.sound !== false, signals: strings(v.signals), notes };
+    return { sound: v.sound !== false, notes };
   } catch {
-    return { sound: true, signals: [], notes: {} };
+    return { sound: true, notes: {} };
   }
 }
 
@@ -40,25 +39,6 @@ export const store = {
   set sound(on: boolean) {
     write({ ...read(), sound: on });
   },
-  get signals(): string[] {
-    return read().signals;
-  },
-  has(world: string) {
-    return read().signals.includes(world);
-  },
-  /** Record a world's signal as answered. True if it was not already. */
-  find(world: string) {
-    const v = read();
-    if (v.signals.includes(world)) return false;
-    v.signals.push(world);
-    write(v);
-    return true;
-  },
-  /** Every one of these worlds' signals has been answered. */
-  hasAll(worlds: string[]) {
-    const have = read().signals;
-    return worlds.every((w) => have.includes(w));
-  },
   /** The small things a world has asked to have remembered (a round finished, something found). */
   notes(world: string): string[] {
     return read().notes[world] ?? [];
@@ -71,9 +51,13 @@ export const store = {
     v.notes[world] = [...have, what];
     write(v);
   },
-  /** Forget every signal answered and everything the worlds have kept. */
+  /** How many things the worlds have kept between them. */
+  get kept() {
+    return Object.values(read().notes).reduce((n, list) => n + list.length, 0);
+  },
+  /** Forget everything the worlds have kept. */
   forget() {
-    write({ ...read(), signals: [], notes: {} });
+    write({ ...read(), notes: {} });
   },
   /** Something that is only worth saying once (a hint, say) has been said in this tab already. */
   seen(what: string) {
