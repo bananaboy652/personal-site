@@ -24,6 +24,8 @@ export interface AfieldCtx {
   fire: [number, number];
   arch: [number, number];
   tower: [number, number];
+  /** the middle of the jetty at the tower's foot */
+  quay: { x: number; z: number };
   pierEnd: { x: number; z: number; dx: number; dz: number };
   /** places to leave bare: [x, z, radius] */
   clear: [number, number, number][];
@@ -159,8 +161,9 @@ export class Afield {
         if (y < SEA + 0.25) continue;
         if (off(PATH, x, z) < 1.9 || off(TRACK_TOP, x, z) < 2.4 || off(TRACK_VALLEY, x, z) < 2.4 || off(RAMP, x, z) < TRESTLE.width / 2 + 0.7) continue;
         if (Math.hypot(x - c.fire[0], z - c.fire[1]) < 3.2 || c.clear.some(([cx, cz, cr]) => Math.hypot(x - cx, z - cz) < cr)) continue;
-        // (not through the cabin's floor)
+        // (not through the cabin's floor; and nothing grows or lies about inside the tower, or in its doorway)
         if (Math.hypot(x - CABIN.x, z - CABIN.z) < 5.4) continue;
+        if (Math.hypot(x - c.tower[0], z - c.tower[1]) < 25.5) continue;
         const land = heightAt(x, z);
         if (!o.bare) {
           // on the land itself (not on a roof, a pier or a boulder)
@@ -380,6 +383,24 @@ export class Afield {
     const ly = rock(lx, lz);
     for (const side of [-0.22, 0.22]) wood.reset().translate(lx, ly + 0.06, lz).rotateY(0.9).translate(side, 0, 0).box(0.06, 0.06, 3.6, WOOD_A, WOOD_B, 0.8);
     for (let i = 0; i < 9; i++) wood.reset().translate(lx, ly + 0.07, lz).rotateY(0.9).translate(0, 0, -1.6 + i * 0.4).box(0.5, 0.04, 0.05, WOOD_A, WOOD_B, 0.8);
-    return [...this.add(wood, this.mats.wood), ...this.add(metal, this.mats.metal), ...this.add(cloth, this.mats.cloth)];
+    // A stage of planks on drums beside the jetty, on the side away from the skiff, for a floatplane to
+    // come alongside: a step down from the jetty, low enough for a wing to pass over, with a cleat and a lantern.
+    const yaw = Math.atan2(nx, nz);
+    const q = this.c.quay;
+    const stage = new Builder();
+    const at = (b: Builder, x: number, y: number, z: number) => b.reset().translate(q.x, y, q.z).rotateY(yaw).translate(x, 0, z);
+    at(stage, -4.0, SEA + 0.4, 4.5).box(5.4, 0.22, 9, WOOD_A, WOOD_B, 0.45);
+    // (a plank along its outer edge, just out of the water: the water is ankle-deep here, and somebody who
+    // steps out of a plane into it wants a step up)
+    at(stage, -6.95, SEA + 0.05, 4.5).box(0.55, 0.2, 9, DARK, WOOD_A, 0.6);
+    at(stage, -4.0, SEA + 0.05, 9.25).box(5.4, 0.2, 0.55, DARK, WOOD_A, 0.6);
+    at(stage, -1.5, SEA + 0.62, 4.5).box(0.4, 0.22, 2.2, WOOD_A, WOOD_B, 0.6);
+    for (const dz of [1.2, 4.5, 7.8]) for (const dx of [-5.3, -2.7]) at(metal, dx - 1.25, SEA + 0.1, dz).rotateZ(-Math.PI / 2).prism(0.3, 0.3, 2.5, 8, { color: [0.36, 0.44, 0.54], colorTop: [0.52, 0.62, 0.72], uRepeat: 2, vRepeat: 2, capTop: true, capBottom: true });
+    for (const dz of [2, 7]) at(metal, -6.5, SEA + 0.62, dz).box(0.09, 0.1, 0.34, [0.75, 0.77, 0.86], [1, 1, 1.1], 2);
+    // (old tyres along the edge a float lies against)
+    for (const dz of [1.5, 4.5, 7.5]) at(metal, -6.76, SEA + 0.28, dz).rotateZ(-Math.PI / 2).prism(0.3, 0.3, 0.18, 8, { color: [0.16, 0.16, 0.18], colorTop: [0.24, 0.24, 0.27], capTop: true, capBottom: true });
+    at(wood, -1.9, SEA + 0.62, 2.2).box(0.1, 1.8, 0.1, DARK, WOOD_A, 0.8);
+    at(metal, -1.9, SEA + 2.42, 2.2).prism(0.1, 0.12, 0.22, 5, { color: [1.2, 0.8, 0.4], colorTop: [1.5, 1.05, 0.55], capTop: true, capBottom: true });
+    return [...this.add(wood, this.mats.wood), ...this.add(stage, this.mats.wood, true), ...this.add(metal, this.mats.metal), ...this.add(cloth, this.mats.cloth)];
   }
 }

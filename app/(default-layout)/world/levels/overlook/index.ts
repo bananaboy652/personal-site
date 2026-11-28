@@ -5,7 +5,8 @@
 //
 // The level opens in the afternoon and runs the day out: the sun goes, the
 // lamps come on down the valley, the moon comes up behind the tower, and the
-// tower wakes and throws its beam. That lit night is where it rests.
+// tower wakes and throws its beam. That lit night is where it rests. The sky
+// is one turning sky (heavens.ts): the moon and the stars go round together.
 //
 // It is built as a level, not a backdrop: real geometry on a real height
 // function, lights and things you can act on registered with the engine.
@@ -14,11 +15,13 @@ import {
   BufferGeometry,
   Color,
   DynamicDrawUsage,
+  Float32BufferAttribute,
   Group,
   InstancedMesh,
   Matrix4,
   Mesh,
   type Object3D,
+  Points,
   Quaternion,
   type ShaderMaterial,
   Vector3,
@@ -31,19 +34,20 @@ import { FlameBatch, GlowBatch, Particles, morse } from '../../engine/fx';
 import { G } from '../../engine/font';
 import type { Hud } from '../../engine/hud';
 import { EMBER as HUD_EMBER, MUTED } from '../../engine/hud';
-import { Gate, Radio, answerSignal } from '../../engine/kit';
+import { Gate, Radio } from '../../engine/kit';
 import { Vehicle } from '../../engine/player';
 import { type RGB, TAU, clamp, hex, lerp, noise2, rad, rng, scaleRGB, smooth } from '../../engine/math';
-import { psxMaterial, ripple, waterMaterial } from '../../engine/shaders';
+import { psxMaterial, ripple, starMaterial, waterMaterial } from '../../engine/shaders';
 import { Solid } from '../../engine/solid';
 import type { Surface } from '../../engine/surface';
-import { store } from '../../engine/store';
 import { Sky } from '../../engine/sky';
 import { type Textures, createTextures } from '../../engine/textures';
 import { Timeline, easeOut } from '../../engine/timeline';
 import { WORLDS } from '../../engine/worlds';
 import { Afield } from './afield';
 import { CABIN, Explore, FELLED, buildTelescope, cabinPoint, cabinShell } from './explore';
+import { EASE, HASTE, HOURS, Heavens, MOON_SIZE, onward } from './heavens';
+import { TOWER, TOWER_BASE, TOWER_H, buildCollar, buildShaft, keepLevels, shaftHoles } from './keep';
 import { MOODS, MOOD_ORDER, type Mood } from './moods';
 import { Pickup } from './pickup';
 import { TIERS, boughTexture, buildPine } from './pines';
@@ -54,6 +58,18 @@ const FIRE: [number, number] = [4.25, -8.95];
 const LANTERN: [number, number] = [-6.3, -8.5];
 // on the log by the fire
 const RADIO: [number, number] = [FIRE[0] + 1.3, FIRE[1] - 1.15];
+/** The log by the fire. It is thick enough to sit against as well as on: its left-hand end (as the
+ *  camp's own view has it) is where it always was, and it runs a little further to the right than it
+ *  did. `r` is its radius; `from` and `to` are how far its ends are from the radio's old place along
+ *  it; `turn` is how it lies (radians about Y). */
+const LOG = { r: 0.26, from: -0.9, to: 1.4, turn: -0.7 };
+/** along the log, toward its right-hand end; and square out from it on the fire's side (which is the side the camp's view sees) */
+const LOG_ALONG: [number, number] = [Math.cos(LOG.turn), -Math.sin(LOG.turn)];
+const LOG_OUT: [number, number] = [Math.sin(LOG.turn), Math.cos(LOG.turn)];
+/** Where Will sits: on the grass with his back against the log near its right-hand end, a console on
+ *  his knees, turned a little toward the fire. [x, z] of the ground under his seat, and the way he faces. */
+const WILL: [number, number] = [RADIO[0] + LOG_ALONG[0] * 0.92 + LOG_OUT[0] * (LOG.r + 0.25), RADIO[1] + LOG_ALONG[1] * 0.92 + LOG_OUT[1] * (LOG.r + 0.25)];
+const WILL_YAW = -122;
 // Where the fire and the log were when the rocks and the grass were scattered. They are still scattered
 // by these, so that moving the fire has not shuffled every stone and tuft on the cliff top.
 const FIRE0: [number, number] = [3.9, -8.9];
@@ -61,9 +77,11 @@ const RADIO0: [number, number] = [FIRE0[0] + 1.5, FIRE0[1] - 0.9];
 const SCOPE: [number, number] = [5.3, -14.7];
 const SNAG: [number, number] = [8.1, -15.4];
 const ARCH: [number, number] = [70, -600];
-const TOWER: [number, number] = [330, -1520];
-const TOWER_BASE = SEA + 8;
-const TOWER_H = 420;
+/** how long the tower holds its ring closed, and how long the signs of the three places stand over it, seconds */
+const RING_HOLDS = 30;
+const RUNES_STAND = 12;
+/** The Lamplighter: the figure the tower draws in the stars, as [bearing, elevation] with the sky at rest. */
+const FIGURE: [number, number][] = [[3.5, 18.5], [7, 22], [11, 20.5], [12.5, 25], [8.5, 26.5], [16, 19]];
 const EMBER: RGB = hex('#e8793f');
 const collarR = (t: number) => lerp(22, 8.5, t) * 1.9;
 /** where the pickup is parked, and the way it faces (degrees, like a walker's yaw): backed in under the
@@ -116,14 +134,17 @@ export default class Overlook implements Level {
       { kind: 'insects', gain: 0.022 },
     ],
   };
+  // Will is at the fire: sat on the grass with his back to the log, at its right-hand end, playing something
+  cast = { will: { at: [WILL[0], heightAt(WILL[0], WILL[1]), WILL[1]] as [number, number, number], yaw: WILL_YAW, pose: 'lounge' as const, holding: 'handheld' as const } };
   moods: [string, string][] = MOOD_ORDER.map((id) => [id, MOODS[id].label]);
   mood = 'night';
   onMood: ((name: string) => void) | null = null;
   debug: [string, () => void][] = [
     ['Wake the tower', () => this.wake()],
     ['Let it sleep', () => this.sleep()],
-    ['Answer (3 stokes)', () => this.acknowledge()],
-    ['All three answered', () => this.finale(true)],
+    ['Stoke three times', () => this.acknowledge()],
+    ['Close the ring', () => this.closeRing()],
+    ['Let a day go by', () => this.turnDay()],
     ['Something surfaces', () => (this.whaleIn = 0)],
   ];
 
@@ -151,18 +172,39 @@ export default class Overlook implements Level {
   private waterMat!: ShaderMaterial;
   private mistMat!: ShaderMaterial;
   private beamMat!: ShaderMaterial;
+  /** the tower's plating, and how dark it has gone (1 as the weather lights it, next to nothing for somebody inside it) */
+  private towerMat!: ShaderMaterial;
+  private towerDim = 1;
+  /** the tower; where in it the two triangles with doorways in them begin; and the same two with the doorways cut */
+  private tower!: Mesh;
+  private towerWhole = 0;
+  private towerCut!: Mesh;
   private ring!: Object3D;
   private ringTilt!: Object3D;
   private mendMat!: ShaderMaterial;
-  /** every world's signal is answered: the ring is whole again. `mend` follows it. */
+  /** The ring whole again, for a while: 1 while the tower holds it closed. `mend` follows it. */
   private whole = 0;
   private mend = 0;
+  /** seconds it has left to stay whole */
+  private held = 0;
+  /** how many times the ring has gone round since it was last closed, and the count at which the tower closes it next */
+  private ringTurns = 0;
+  private closeAt = 4;
   private runesT = 0;
   private topPos = new Vector3();
   private boat!: Object3D;
   private birds!: { mesh: Mesh; pos: Float32Array; list: { r: number; h: number; ph: number; sp: number; flap: number }[] };
   private owl!: { head: Object3D; pos: Vector3; facing: number; yaw: number; want: number; spin: number; blink: number; hold: number; eyes: number[] };
   private moonIt!: Interactable;
+  /** the turning of the sky: where the moon and the stars are */
+  private heavens = new Heavens();
+  /** the constellation's stars as they stand with the sky at rest */
+  private figLocal: Vector3[] = [];
+  /** the stars that are under the horizon when the sky is at rest, and come round as it turns */
+  private underStars!: ShaderMaterial;
+  private underPoints!: Points;
+  /** a day being let go by: the hours still to come, in order */
+  private lap: string[] = [];
 
   private firePos = new Vector3();
   private fireGlow = 0;
@@ -252,12 +294,11 @@ export default class Overlook implements Level {
     this.firePos.set(FIRE[0], heightAt(FIRE[0], FIRE[1]), FIRE[1]);
 
     this.sky = new Sky(shared, this.tex, {
-      figure: {
-        stars: [[3.5, 18.5], [7, 22], [11, 20.5], [12.5, 25], [8.5, 26.5], [16, 19]],
-        links: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 1], [2, 5]],
-      },
+      figure: { stars: FIGURE, links: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 1], [2, 5]] },
       aurora: [[-34, 46, 5200, 1500, 1500], [-16, 58, 6400, 1900, 1700]],
     });
+    this.figLocal = FIGURE.map(([az, el]) => dirFrom(az, el));
+    this.buildUnderStars();
     this.root.add(this.sky.group);
     this.buildLand();
     this.buildCamp();
@@ -269,7 +310,7 @@ export default class Overlook implements Level {
     this.root.add(this.flames.mesh, this.glows.mesh, this.embers.points, this.smoke.points, this.motes.points, this.streaks.points);
     engine.scene.add(this.root);
 
-    this.moonIt = { id: 'moon', label: 'Turn the hour', dir: this.sky.moonDir, angle: rad(3), onClick: () => this.nextMood() };
+    this.moonIt = { id: 'moon', label: 'Let a day go by', dir: this.sky.moonDir, angle: rad(Math.max(MOON_SIZE * 1.25, 2.6)), hidden: () => this.heavens.moonEl < 1 || this.lap.length > 0, onClick: () => this.turnDay() };
     this.interactables.push(
       { id: 'fire', label: 'Stoke the fire', center: this.firePos.clone().add(new Vector3(0, 0.45, 0)), radius: 0.85, onClick: () => this.stoke() },
       this.radio.interactable,
@@ -283,7 +324,6 @@ export default class Overlook implements Level {
     );
     this.interactables.push(this.boatV.interactable);
     this.applyMood(this.now);
-    this.whole = this.mend = store.hasAll(WORLDS.map((w) => w.id)) ? 1 : 0;
     this.extra = new Explore({
       engine,
       root: this.root,
@@ -306,6 +346,8 @@ export default class Overlook implements Level {
         this.whaleIn = 0;
       },
       surfaced: () => this.whaleT >= 0,
+      // (the lamps in the tower have lined up for somebody: it answers as it does the fire)
+      answer: () => this.acknowledge(),
       rand: this.r,
     });
     const lanternAt = new Vector3(LANTERN[0] + 0.4, heightAt(LANTERN[0], LANTERN[1]) + 1.8, LANTERN[1] + 0.25);
@@ -329,13 +371,15 @@ export default class Overlook implements Level {
     // an old pickup under the pines at the back of the camp, off to the right of anything the page's view takes in
     this.pickup = new Pickup(engine, this.root, this.tex, this.glows, PICKUP[0], heightAt(PICKUP[0], PICKUP[1]), PICKUP[1], PICKUP[2]);
     this.interactables.push(this.pickup.vehicle.interactable);
+    // the floatplane, kept round the point under the cliff (see dock.ts)
+    this.interactables.push(this.extra.dock.plane.interactable);
     // what the far places look like from close to: built when somebody comes near, and not before
-    this.afield = new Afield({ engine, root: this.root, tex: this.tex, solid: this.solid, fire: FIRE, arch: ARCH, tower: TOWER, pierEnd: this.pierEnd, clear: [[PICKUP[0], PICKUP[1], 3.4], [6.9, -11.7, 3.2]] });
+    this.afield = new Afield({ engine, root: this.root, tex: this.tex, solid: this.solid, fire: FIRE, arch: ARCH, tower: TOWER, quay: this.extra.quay, pierEnd: this.pierEnd, clear: [[PICKUP[0], PICKUP[1], 3.4], [6.9, -11.7, 3.2], [WILL[0], WILL[1], 1.8]] });
     this.walk = {
       solid: this.solid,
       water: SEA,
       surface: (x, z, y) => this.surfaceAt(x, z, y),
-      vehicles: [this.boatV, this.pickup.vehicle],
+      vehicles: [this.boatV, this.pickup.vehicle, this.extra.dock.plane],
       tick: (dt, player, vehicle) => {
         this.extra.tick(dt, player, vehicle);
         this.pickup.tick(dt, vehicle === this.pickup.vehicle);
@@ -376,23 +420,22 @@ export default class Overlook implements Level {
 
   subtitle = () => this.now.label;
 
-  /** Every world has been answered. The broken ring closes, the beam whitens,
-   *  and the three signs stand over the tower for a while. */
-  finale(force = false) {
-    if (!force && !store.hasAll(WORLDS.map((w) => w.id))) return;
-    const e = this.engine;
-    const audio = e.audio;
-    if (this.mood !== 'night') this.setMood('night', 3);
+  /** The tower closes its ring. The missing pieces come back as light, the ring levels out and runs
+   *  true, the beam whitens, and the signs of the three places stand over it; it holds, and lets go.
+   *  It does this by itself, every so many turns of the ring (see update), and at once for anybody who
+   *  answers its light with the fire. */
+  closeRing() {
+    if (this.whole) return;
+    const audio = this.engine.audio;
     this.wake();
+    this.whole = 1;
+    this.held = RING_HOLDS;
     this.pulse = 1;
-    const t = (this.timeline = new Timeline());
-    t.at(0.2, () => audio.tone({ f: [audio.hz(-24), audio.hz(-12)], dur: 3, type: 'sine', gain: 0.14, attack: 1.2, send: 1 }));
-    t.at(1.2, () => (this.whole = 1));
-    t.at(1.4, () => (this.runesT = 18));
-    t.at(2.0, () => [0, 7, 12, 14, 19, 24, 26].forEach((n, i) => audio.chime(n, { at: i * 0.2, gain: 0.12, decay: 5 })));
-    t.at(5.5, () => (this.pulse = 1));
-    t.at(7.5, () => e.hud.title('All three answered', 'The tower knows you now', 10));
-    t.at(18, () => undefined);
+    this.runesT = RUNES_STAND;
+    this.ringTurns = 0;
+    this.closeAt = 8;
+    audio.tone({ f: [audio.hz(-24), audio.hz(-12)], dur: 3, type: 'sine', gain: 0.14, attack: 1.2, send: 1 });
+    [0, 7, 12, 14, 19, 24, 26].forEach((n, i) => audio.chime(n, { at: 1.3 + i * 0.2, gain: 0.11, decay: 5 }));
   }
 
   /* ---- the opening ---- */
@@ -407,10 +450,12 @@ export default class Overlook implements Level {
       fov: home.fov + dFov,
     });
     this.timeline = null;
+    this.lap.length = 0;
     if (kind !== 'full') {
-      // already night, the tower already lit
+      // already night, the tower already lit, the moon where it rests
       this.setState(MOODS.night, 1);
       this.mood = 'night';
+      this.heavens.at('night');
       if (kind === 'none') return;
       e.setFade(1);
       void e.fadeTo(0, 1.2);
@@ -423,15 +468,18 @@ export default class Overlook implements Level {
       return;
     }
 
-    // The long way round: afternoon, with the moon not yet up. (For the
-    // opening the moon is kept below the horizon at its night-time bearing,
-    // so that it can rise behind the tower instead of drifting across.)
+    // The long way round: afternoon, with the moon not yet up. The hours are run through at one steady
+    // rate from first to last (see heavens.ts): the stars come out already wheeling, the moon comes over
+    // the horizon at a slant behind the tower and climbs to its place without hurrying or dawdling, and
+    // only in the last couple of degrees does the sky ease back to its own pace.
     const N = MOODS.night;
-    const down = { moonAz: N.moonAz, moonEl: -9, moonSize: N.moonSize, moonTint: N.moonTint, moonLight: N.moonLight };
-    const day: Mood = { ...MOODS.day, ...down };
-    const dusk: Mood = { ...MOODS.dusk, ...down };
+    const day = MOODS.day;
+    const dusk = MOODS.dusk;
+    const SETTLES = 9.4;                               // seconds in: when the easing-in begins
+    const RUN = EASE + HASTE * SETTLES;                // degrees the sky turns in the opening
     this.setState(day, 0);
     this.mood = 'night';
+    this.heavens.at('night', RUN);
     this.fireLit = 0;
     this.lampsOn = 0;
     this.beaconOn = false;
@@ -441,6 +489,8 @@ export default class Overlook implements Level {
     e.moveTo(e.shotName, 10.5, easeOut);
 
     const t = (this.timeline = new Timeline());
+    t.span(0, SETTLES, (k) => (this.heavens.turn = lerp(-RUN, -EASE, k)));
+    t.at(SETTLES, () => this.heavens.arrive(0));
     t.at(1.9, () => this.blendTo(dusk, 3.9));
     t.span(3.7, 5.0, (k) => {
       // the fire catches
@@ -453,12 +503,6 @@ export default class Overlook implements Level {
     t.at(9.7, () => this.wake());
     t.at(10.4, () => e.hud.title(this.title, N.label));
     t.at(13.2, () => e.hud.nudge(4.5));
-    // sound is off until asked for; say where the switch is (once: the opening plays every time, the hint need not)
-    t.at(14.5, () => {
-      if (e.audio.enabled || store.seen('sound-hint')) return;
-      store.markSeen('sound-hint');
-      e.hud.toast(`${G.note}  Sound is off. Try the radio by the fire`, 7);
-    });
   }
 
   hurry() {
@@ -484,7 +528,10 @@ export default class Overlook implements Level {
     const next = MOODS[name];
     if (!next) return;
     this.mood = name;
-    this.blendTo(next, this.engine.settings.motion ? seconds : 0);
+    const over = this.engine.settings.motion ? seconds : 0;
+    this.blendTo(next, over);
+    // the sky turns on to that hour (never back), and is there when the light is
+    this.heavens.go(name, over);
     this.onMood?.(name);
   }
 
@@ -497,11 +544,29 @@ export default class Overlook implements Level {
     if (seconds <= 0) this.base = next;
   }
 
-  nextMood() {
+  /** Let a day go by: the night passes, the day comes and goes, and the moon comes up again behind the
+   *  tower. The sky goes once round, an hour of the level at a time, and ends where it rests. */
+  turnDay() {
+    if (this.lap.length) return;
     const audio = this.engine.audio;
     [0, 7, 14].forEach((s, i) => audio.chime(s, { at: i * 0.14, gain: 0.1 }));
-    this.setMood(MOOD_ORDER[(MOOD_ORDER.indexOf(this.mood) + 1) % MOOD_ORDER.length]);
-    this.engine.hud.toast(MOODS[this.mood].label, 2.6);
+    const from = MOOD_ORDER.indexOf(this.mood);
+    // every hour after this one, round to night again
+    for (let i = 1; i <= MOOD_ORDER.length; i++) {
+      const name = MOOD_ORDER[(from + i) % MOOD_ORDER.length];
+      this.lap.push(name);
+      if (name === 'night') break;
+    }
+    this.nextHour();
+  }
+
+  /** The next hour of a day that is being let go by. */
+  private nextHour() {
+    const name = this.lap[0];
+    if (!name) return;
+    // (the moon's coming up is the thing to see: it is given the time the opening gives it)
+    this.setMood(name, name === 'night' ? 6.5 : 5);
+    this.engine.hud.toast(MOODS[name].label, 2.6);
   }
 
   /* ---- things you can do ---- */
@@ -544,13 +609,13 @@ export default class Overlook implements Level {
     this.awake = 0;
   }
 
-  /** You answered its signal (FIRE 3: three stokes, quickly). It answers back. */
+  /** Its beacon spells a word and a number, over and over: FIRE 3. Stoke the fire three times, quickly,
+   *  and it answers: three notes back, and it closes its ring there and then. */
   acknowledge() {
-    this.wake();
-    this.pulse = 1;
     const audio = this.engine.audio;
-    for (let i = 0; i < 3; i++) audio.tone({ f: audio.hz(-12), dur: 0.5, type: 'sine', gain: 0.12, at: 0.5 + i * 0.7, attack: 0.05, send: 0.9 });
-    if (!answerSignal(this.engine)) this.engine.hud.toast('The tower answers', 3);
+    for (let i = 0; i < 3; i++) audio.tone({ f: audio.hz(-12), dur: 0.5, type: 'sine', gain: 0.12, at: 0.3 + i * 0.7, attack: 0.05, send: 0.9 });
+    this.engine.hud.toast('The tower answers', 3);
+    this.closeRing();
   }
 
   hailTower() {
@@ -733,6 +798,8 @@ export default class Overlook implements Level {
       tuft.reset().translate(x, heightAt(x, z) - 0.03, z).rotateY(r() * TAU);
       // (nothing grows in the fire, under the log, or up through the pickup)
       if (Math.hypot(x - FIRE[0], z - FIRE[1]) < 1.9 || Math.hypot(x - RADIO[0], z - RADIO[1]) < 1 || Math.hypot(x - PICKUP[0], z - PICKUP[1]) < 2.9) continue;
+      // (nor where Will sits against the log, his feet toward the fire and his tail out beside him)
+      if (Math.hypot(x - WILL[0], z - WILL[1]) < 1.7) continue;
       for (let j = 0; j < 2; j++) {
         tuft.rotateY(Math.PI / 2);
         tuft.quad([-s, 0, 0], [s, 0, 0], [s, s * 1.3, 0], [-s, s * 1.3, 0], [0, 0, 1, 1], [k, k, k * 0.9]);
@@ -777,10 +844,12 @@ export default class Overlook implements Level {
     this.flameIds = [this.flames.add(fx, fy + 0.05, fz, 1.15, 1.55, 1), this.flames.add(fx + 0.12, fy + 0.05, fz + 0.1, 0.62, 1.0, 1)];
     this.fireGlow = this.glows.add(fx, fy + 0.6, fz, 2.4, EMBER);
 
-    // somewhere to sit, and the radio left on it
-    wood.reset().translate(RADIO[0], fy + 0.16, RADIO[1]).rotateY(-0.7).rotateZ(Math.PI / 2).translate(0, -0.9, 0);
-    wood.prism(0.18, 0.17, 1.8, 7, { color: [0.6, 0.55, 0.52], colorTop: [0.8, 0.75, 0.7], uRepeat: 2, vRepeat: 2, capTop: true, capBottom: true });
-    this.radio = new Radio(this.engine, this.root, this.glows, { x: RADIO[0] - 0.2, y: fy + 0.32, z: RADIO[1] - 0.17, yaw: -0.7, scale: 1.15 });
+    // somewhere to sit, or to sit against, and the radio left on it: a length of trunk with the stub of
+    // a branch on it and its bark split along the top
+    const logY = fy + LOG.r - 0.035;
+    wood.reset().translate(RADIO[0], logY, RADIO[1]).rotateY(LOG.turn).rotateZ(Math.PI / 2).translate(0, -LOG.to, 0);
+    wood.prism(LOG.r - 0.02, LOG.r, LOG.to - LOG.from, 8, { color: [0.6, 0.55, 0.52], colorTop: [0.8, 0.75, 0.7], uRepeat: 3, vRepeat: 3, capTop: true, capBottom: true });
+    this.radio = new Radio(this.engine, this.root, this.glows, { x: RADIO[0] - 0.2, y: logY + LOG.r - 0.02, z: RADIO[1] - 0.17, yaw: -0.7, scale: 1.15 });
 
     // the tent, open toward the fire
     const [tx, tz] = [6.9, -11.7];
@@ -938,19 +1007,25 @@ export default class Overlook implements Level {
     // as it always did, so these are only there for somebody on foot, who looks down into it.
     const boards = new Builder();
     boards.translate(0, 0.26, 0).scale(1, 1, 2.7).prism(0.92, 0.92, 0.04, 6, { color: [0.5, 0.46, 0.42], colorTop: [0.72, 0.68, 0.62], uRepeat: 3, capTop: true });
-    for (const z of [-1.2, 1.25]) boards.reset().translate(0, 0.5, z).box(1.56, 0.06, 0.3, [0.7, 0.65, 0.6], [0.92, 0.87, 0.8], 0.5);
+    for (const z of [-0.9, 1.25]) boards.reset().translate(0, 0.5, z).box(1.56, 0.06, 0.3, [0.7, 0.65, 0.6], [0.92, 0.87, 0.8], 0.5);
+    // the helmsman's thwart, in the stern, with a folded coat on it for a cushion
+    boards.reset().translate(0, 0.5, -1.95).box(1.26, 0.06, 0.36, [0.7, 0.65, 0.6], [0.92, 0.87, 0.8], 0.5);
+    boards.reset().translate(-0.3, 0.56, -1.95).box(0.42, 0.035, 0.32, [0.3, 0.36, 0.42], [0.4, 0.48, 0.54], 2);
     // a small outboard hung on the stern (the boat's own front points down its +Z), and a can of fuel for it
     boards.reset().translate(0, 0.62, -3.3).box(0.3, 0.44, 0.36, [0.3, 0.32, 0.36], [0.44, 0.47, 0.52], 2);
     boards.reset().translate(0, -0.3, -3.42).box(0.08, 0.95, 0.1, [0.3, 0.32, 0.36]);
-    boards.reset().translate(0, 0.86, -3.0).rotateX(-1.2).prism(0.025, 0.025, 0.5, 4, { color: [0.3, 0.3, 0.33] });
-    boards.reset().translate(0.45, 0.3, -2.2).box(0.24, 0.3, 0.16, [1.0, 0.3, 0.2], [1.2, 0.4, 0.26], 2);
+    // its tiller comes forward and to port, to the hand of whoever sits on that thwart, with a grip on the end of it
+    boards.reset().translate(0, 0.96, -3.18).rotateY(0.25).rotateX(1.6).prism(0.03, 0.022, 0.86, 5, { color: [0.3, 0.3, 0.33], colorTop: [0.36, 0.36, 0.4] });
+    boards.reset().translate(0, 0.96, -3.18).rotateY(0.25).rotateX(1.6).translate(0, 0.74, 0).prism(0.034, 0.034, 0.14, 5, { color: [0.16, 0.16, 0.18], capTop: true });
+    boards.reset().translate(0.42, 0.3, -1.3).box(0.24, 0.3, 0.16, [1.0, 0.3, 0.2], [1.2, 0.4, 0.26], 2);
     this.boatBoards = new Mesh(boards.build(), boat.material);
     this.boatBoards.frustumCulled = false;
     this.boatBoards.visible = false;
     boat.add(this.boatBoards);
     addLamp(boat.position.x, SEA + 3.6, boat.position.z, 1.3, scaleRGB(hex('#ffd28a'), 0.8));
     this.boatLamp = this.lamps[this.lamps.length - 1].id;
-    this.boatV = new Vehicle(this.engine, { object: boat, kind: 'boat', label: 'Take the boat', half: [1.25, 2.4], forward: Math.PI, maxSpeed: 13, chase: [9, 3.6], seat: [0, 1.5, -0.4], draft: 0.1 });
+    // (the eye of whoever has the tiller: they sit on the stern thwart, to starboard, their hips 0.62 m under this and their left hand on the tiller)
+    this.boatV = new Vehicle(this.engine, { object: boat, kind: 'boat', label: 'Take the boat', half: [1.25, 2.4], forward: Math.PI, maxSpeed: 13, chase: [9, 3.6], seat: [-0.3, 1.2, -1.95], draft: 0.1 });
   }
 
   /** The ruined arch out in the bay: this world's gate. */
@@ -982,18 +1057,42 @@ export default class Overlook implements Level {
     const cB: RGB = [1.15, 1.15, 1.25];
     const at = () => metal.reset().translate(tx, TOWER_BASE, tz);
     const radiusAt = (t: number) => lerp(22, 8.5, t);
-    at().prism(22, 8.5, TOWER_H, 8, { color: cA, colorTop: cB, uRepeat: 8, vRepeat: 26 });
+    // The shaft is the eight-sided column it always was, triangle for triangle, but that two doorways are
+    // cut in its skin: one behind the door at its foot, one out onto the first gallery (see keep.ts).
+    const holes = shaftHoles(keepLevels(this.solid));
+    at();
+    buildShaft(metal, cA, cB, holes, 'rest');
     for (const t of [0.3, 0.56, 0.8]) {
       const rr = collarR(t);
-      at().translate(0, TOWER_H * t, 0).prism(rr, rr * 0.85, 10, 8, { color: cA, colorTop: cB, uRepeat: 8, vRepeat: 1, capTop: true, capBottom: true, twist: 0.5 });
+      at().translate(0, TOWER_H * t, 0);
+      // (the lowest collar's top is that gallery; it and its underside are rings, so the shaft is open inside it)
+      if (t === 0.3) buildCollar(metal, rr, rr * 0.85, 10, cA, cB, 16.25, 15.9);
+      else metal.prism(rr, rr * 0.85, 10, 8, { color: cA, colorTop: cB, uRepeat: 8, vRepeat: 1, capTop: true, capBottom: true, twist: 0.5 });
     }
     for (let i = 0; i < 4; i++) at().rotateY((i / 4) * TAU + 0.4).translate(30, -6, 0).rotateZ(0.2).box(7, 96, 26, cA, cB, 0.05);
     at().translate(0, TOWER_H, 0).prism(2.4, 0.6, 66, 4, { color: cB, colorTop: cB });
     const mat = psxMaterial(shared, { map: this.tex.metal, vertexColors: true, emissive: scaleRGB(hex('#ffd9a0'), 1.1), texFade: [5000, 6000], fogScale: 0.55 });
+    // What is solid is the tower with its doorways in it; what is drawn is the tower as it always was,
+    // with the two triangles the doorways are in put last, so that they can be left out and the cut ones
+    // drawn in their place for somebody at its foot (see keep.ts: from far off the cut ones take the haze wrongly).
+    const cut = new Builder();
+    cut.translate(tx, TOWER_BASE, tz);
+    buildShaft(cut, cA, cB, holes, 'cut');
+    this.towerCut = new Mesh(cut.build(), mat);
+    this.towerCut.frustumCulled = false;
+    this.towerCut.visible = false;
+    this.root.add(this.towerCut);
+    const body = new Mesh(metal.build());
+    this.solid.add(body).add(this.towerCut);
+    body.geometry.dispose();
+    this.towerWhole = metal.triangles * 3;
+    at();
+    buildShaft(metal, cA, cB, holes, 'whole');
     const tower = new Mesh(metal.build(), mat);
     tower.frustumCulled = false;
+    this.tower = tower;
+    this.towerMat = mat;
     this.root.add(tower);
-    this.solid.add(tower);
 
     // the ring: broken, tilted, still turning
     const ringB = new Builder();
@@ -1005,7 +1104,7 @@ export default class Overlook implements Level {
     }
     const ringMesh = new Mesh(ringB.build(), mat);
     ringMesh.frustumCulled = false;
-    // the missing pieces, made of light: they show once every signal is answered
+    // the missing pieces, made of light: they show while the tower holds its ring closed
     const mendB = new Builder();
     for (const i of [3, 4, 9]) mendB.reset().rotateY((i / SEG) * TAU).translate(R, -5, 0).box(10, 10, 2 * R * Math.sin(Math.PI / SEG) * 1.03, [1, 1, 1]);
     this.mendMat = psxMaterial(shared, { map: this.tex.white, lit: false, blend: 'add', twoSided: true, alpha: 0, tint: [0.7, 1.2, 1.35], fogScale: 0.3 });
@@ -1124,6 +1223,46 @@ export default class Overlook implements Level {
     mesh.frustumCulled = false;
     this.root.add(mesh);
     this.birds = { mesh, pos, list: Array.from({ length: N }, () => ({ r: 36 + r() * 60, h: SEA + 26 + r() * 30, ph: r() * TAU, sp: 0.16 + r() * 0.1, flap: 5 + r() * 3 })) };
+  }
+
+  /** The stars that are under the horizon while the sky stands at rest. The engine's sky has stars over
+   *  the half of it that is up, which is all a sky that barely moves needs; this one goes right round,
+   *  so it has the other half as well. They are scattered by the same rule and ride with the same field. */
+  private buildUnderStars() {
+    const r = rng(1811);
+    const dirs: number[] = [];
+    const attr: number[] = [];
+    const star = (x: number, y: number, z: number, size: number, bright: number) => {
+      dirs.push(x, y, z);
+      attr.push(size, r() * 6.283, bright);
+    };
+    for (let i = 0; i < 1060; i++) {
+      const y = -0.02 - r() * 0.98;
+      const a = r() * TAU;
+      const h = Math.sqrt(Math.max(0, 1 - y * y));
+      const b = Math.pow(r(), 2.4);
+      star(Math.cos(a) * h, y, Math.sin(a) * h, b > 0.72 ? 2 : 1, 0.3 + b * 0.8);
+    }
+    // the band across the sky goes on round underneath
+    const axis = new Vector3(0.55, 0.45, 0.7).normalize();
+    const u = new Vector3().crossVectors(axis, new Vector3(0, 1, 0)).normalize();
+    const v = new Vector3().crossVectors(axis, u);
+    const d = new Vector3();
+    for (let i = 0; i < 900; i++) {
+      const a = r() * TAU;
+      const off = (r() + r() + r() - 1.5) * 0.14;
+      d.copy(u).multiplyScalar(Math.cos(a)).addScaledVector(v, Math.sin(a)).addScaledVector(axis, off).normalize();
+      if (d.y <= 0) star(d.x, d.y, d.z, 1, 0.16 + r() * 0.3);
+    }
+    const g = new BufferGeometry();
+    g.setAttribute('position', new Float32BufferAttribute(dirs, 3));
+    g.setAttribute('aStar', new Float32BufferAttribute(attr, 3));
+    this.underStars = starMaterial(this.engine.shared);
+    this.underPoints = new Points(g, this.underStars);
+    this.underPoints.frustumCulled = false;
+    this.underPoints.renderOrder = -90;
+    this.underPoints.visible = false;
+    this.sky.celestial.add(this.underPoints);
   }
 
   /* ---- particles ---- */
@@ -1343,9 +1482,7 @@ export default class Overlook implements Level {
   private applyMood(m: Mood) {
     applyAtmos(this.engine.shared, m);
     this.sky.setStars(m.stars);
-    this.sky.setMoon(m.moonAz, m.moonEl, m.moonSize, m.moonTint, m.moonLight);
-    this.moonIt.angle = rad(Math.max(m.moonSize * 1.25, 2.6));
-    this.moonIt.hidden = m.moonEl < 1;
+    this.underStars.uniforms.uStars.value = m.stars;
     this.sky.setClouds(m.cloudLit, m.cloudShade, m.clouds);
     const wu = this.waterMat.uniforms;
     (wu.uWaterDeep.value as Vector3).set(m.waterDeep[0], m.waterDeep[1], m.waterDeep[2]);
@@ -1368,6 +1505,11 @@ export default class Overlook implements Level {
       this.moodT = Math.min(1, this.moodT + dt / this.moodDur);
       this.base = blend(this.from, this.to, smooth(0, 1, this.moodT));
       turned = true;
+      // a day being let go by: on to its next hour
+      if (this.moodT >= 1 && this.lap.length) {
+        this.lap.shift();
+        this.nextHour();
+      }
     }
     // the page's scroll turns the hour on toward the next one: not while the opening is playing, and
     // gently once it is over rather than all at once
@@ -1380,6 +1522,14 @@ export default class Overlook implements Level {
       this.applyMood(this.now);
     }
     const m = this.now;
+    // The sky, turned to the hour: the moon and the stars go round together. Scrolling the page turns it
+    // on toward the next hour, as it does the light.
+    const hv = this.heavens;
+    const ahead = sk * onward(HOURS[this.mood], HOURS[MOOD_ORDER[(MOOD_ORDER.indexOf(this.mood) + 1) % MOOD_ORDER.length]]);
+    hv.update(dt);
+    hv.pose(ahead);
+    // (it is the same bright moon at every hour it is up: it comes up white into the last of the ember light)
+    this.sky.setMoon(hv.moonAz, hv.moonEl, MOON_SIZE, MOODS.night.moonTint, hv.light);
     // how much night there is for the tower's light to show against
     const dark = smooth(0.08, 0.6, m.stars);
 
@@ -1431,13 +1581,26 @@ export default class Overlook implements Level {
       const k = (0.55 + 0.45 * Math.sin(time * 0.7 + g.ph)) * (0.5 + a * 1.4) * shaft;
       this.glows.setColor(g.id, 1.0 * k, 0.82 * k, 0.55 * k);
     }
-    // once every signal is answered the ring is whole: it levels out and runs true
+    // while the tower holds its ring closed the ring is whole: it levels out and runs true
+    if (this.whole && (this.held -= dt) <= 0) {
+      // ...and then it lets go
+      this.whole = 0;
+      const audio = this.engine.audio;
+      audio.tone({ f: [audio.hz(-12), audio.hz(-24)], dur: 2.6, type: 'sine', gain: 0.1, attack: 0.6, send: 1 });
+    }
     this.mend = still ? this.whole : this.mend + (this.whole - this.mend) * (1 - Math.exp(-dt * 0.5));
     this.runesT = Math.max(0, this.runesT - dt);
     this.mendMat.uniforms.uAlpha.value = this.mend * (0.75 + 0.25 * Math.sin(time * 1.7));
     this.ringTilt.rotation.set(lerp(0.3, 0.22, this.mend), 0, lerp(0.17, 0.09, this.mend));
     (this.beamMat.uniforms.uTint.value as Vector3).set(lerp(3.2, 3.5, this.mend), lerp(2.2, 3.1, this.mend), lerp(1.5, 2.6, this.mend));
-    this.ring.rotation.y += dt * (0.06 + a * 0.2 + beat * 0.5 + this.mend * 0.12);
+    const spin = dt * (0.06 + a * 0.2 + beat * 0.5 + this.mend * 0.12);
+    this.ring.rotation.y += spin;
+    // The tower keeps its own count. Awake, at night, every so many turns of the broken ring it closes it
+    // (the first time after a few turns, so that somebody who stays a couple of minutes sees it done).
+    if (this.awake && !this.whole && !this.timeline && dark > 0.5) {
+      this.ringTurns += spin / TAU;
+      if (this.ringTurns >= this.closeAt) this.closeRing();
+    }
     this.ring.updateWorldMatrix(true, false);
     for (const g of this.ringGlows) {
       const p = this.tmp.copy(g.local).applyMatrix4(this.ring.matrixWorld);
@@ -1463,6 +1626,12 @@ export default class Overlook implements Level {
 
     // sky turning, cloud drifting, boat rocking, birds wheeling
     this.sky.update(dt);
+    // (the engine's sky drifts by itself; this one stands where the hour puts it, and the figure in it too.
+    // The stars from under the horizon are only drawn once the sky has turned far enough to bring any of them up.)
+    this.sky.celestial.quaternion.copy(hv.q);
+    this.figLocal.forEach((d, i) => this.sky.figure[i].copy(d).applyQuaternion(hv.q));
+    const round = (((hv.turn + ahead) % 360) + 360) % 360;
+    this.underPoints.visible = round > 0.8 && round < 359.2;
     if (!this.boatV.occupied && !this.boatV.moved) {
       this.boat.position.y = SEA - 0.15 + Math.sin(time * 0.9) * 0.16;
       this.boat.rotation.z = Math.sin(time * 0.7) * 0.05;
@@ -1480,6 +1649,19 @@ export default class Overlook implements Level {
     }
     this.extra.update(dt, time);
     this.radio.update(dt, time);
+    // Somebody inside the tower sees the heads of its four buttresses, which lean in through its wall, and
+    // the underside of a collar far overhead: no moon shines on those in there. So the tower's own plating
+    // goes all but dark for as long as they are inside (from where none of its outside can be seen).
+    const atFoot = this.engine.exploring && this.extra.keep.near;
+    if (atFoot !== this.towerCut.visible) {
+      this.towerCut.visible = atFoot;
+      this.tower.geometry.setDrawRange(0, atFoot ? this.towerWhole : Infinity);
+    }
+    const dimTo = this.engine.exploring && this.extra.keep.inside ? 0.1 : 1;
+    if (this.towerDim !== dimTo) {
+      this.towerDim = Math.abs(dimTo - this.towerDim) < 0.01 || dt <= 0 ? dimTo : this.towerDim + (dimTo - this.towerDim) * Math.min(1, dt * 7);
+      (this.towerMat.uniforms.uTint.value as Vector3).setScalar(this.towerDim);
+    }
 
     this.embers.update(dt, time);
     this.smoke.update(dt, time);
@@ -1494,7 +1676,7 @@ export default class Overlook implements Level {
     if (this.runesT > 0 && !this.engine.inScope && hud.place(this.topPos, this.at)) {
       // the signs, one after another, standing over the tower
       const u = hud.unit;
-      const shown = Math.min(WORLDS.length, Math.floor((18 - this.runesT) / 0.7) + 1);
+      const shown = Math.min(WORLDS.length, Math.floor((RUNES_STAND - this.runesT) / 0.7) + 1);
       const fade = Math.ceil(Math.min(1, this.runesT / 1.5) * 4) / 4;
       const gap = 22 * u;
       const x0 = Math.round(this.at.x - ((WORLDS.length - 1) * gap) / 2 - 7 * u);

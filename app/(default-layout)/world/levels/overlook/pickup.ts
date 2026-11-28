@@ -5,13 +5,17 @@
 // noise are its own, see engine/vehicle.ts); this is the truck itself, its
 // lamps, and the inside of its cab.
 //
+// Whoever drives it is seen at the wheel from outside, so the cab is a real
+// one: a tub with a bench in it, pillars with glass that can be seen through,
+// and a roof high enough to sit under.
+//
 // The model stands on its wheels at its own origin with its nose down -Z.
 import { type DataTexture, Group, Mesh, type Object3D, type ShaderMaterial, Vector3 } from 'three';
 import { spotLight } from '../../engine/atmos';
-import { Builder } from '../../engine/builder';
+import { Builder, type V3 } from '../../engine/builder';
 import type { Engine } from '../../engine/engine';
 import type { GlowBatch } from '../../engine/fx';
-import { type RGB, clamp, hash2, noise2 } from '../../engine/math';
+import { type RGB, clamp, hash2, lerp, noise2 } from '../../engine/math';
 import { Vehicle } from '../../engine/player';
 import { psxMaterial } from '../../engine/shaders';
 import { type Textures, makeTexture } from '../../engine/textures';
@@ -134,10 +138,18 @@ export class Pickup {
 
     /* ---- the cab ---- */
     const [zF, zR] = [-0.76, 0.56];           // where the cab starts and ends
-    const [yB, yT] = [1.14, 1.66];            // the belt line and the roof
+    const [yB, yT] = [1.14, 1.82];            // the belt line and the roof
     const [xB, xT] = [0.89, 0.76];            // half its width at each
     const zW = -0.42;                         // where the windscreen meets the roof
-    body.reset().translate(0, 0.46, (zF + zR) / 2).box(xB * 2, yB - 0.46, zR - zF, RED, RED_HI, 1);
+    // Below the belt line it is a tub: two door skins, the scuttle in front, a wall behind and a floor.
+    // (It was a solid block once. Somebody sits in it now, and is seen through the glass.)
+    const y0 = 0.46;
+    body.reset();
+    body.quad([-xB, y0, zF], [-xB, y0, zR], [-xB, yB, zR], [-xB, yB, zF], [0, 0, 1.3, 0.7], RED, RED, RED_HI, RED_HI);
+    body.quad([xB, y0, zR], [xB, y0, zF], [xB, yB, zF], [xB, yB, zR], [0, 0, 1.3, 0.7], RED, RED, RED_HI, RED_HI);
+    body.quad([xB, y0, zF], [-xB, y0, zF], [-xB, yB, zF], [xB, yB, zF], [0, 0, 1.8, 0.7], RED, RED, RED_HI, RED_HI);
+    body.quad([-xB, y0, zR], [xB, y0, zR], [xB, yB, zR], [-xB, yB, zR], [0, 0, 1.8, 0.7], RED, RED, RED_HI, RED_HI);
+    body.quad([-xB, y0, zF], [xB, y0, zF], [xB, y0, zR], [-xB, y0, zR], [0, 0, 1.8, 1.3], RED);
     // a bright strip along the belt line, and door handles
     for (const side of [-1, 1]) {
       body.reset().translate(side * (xB + 0.01), yB - 0.05, (zF + zR) / 2).box(0.02, 0.035, zR - zF, CHROME_LO, CHROME, 2);
@@ -146,22 +158,53 @@ export class Pickup {
       body.reset().translate(side * (xB + 0.006), 0.5, -0.66).box(0.012, 0.6, 0.02, [0.5, 0.08, 0.06]);
       body.reset().translate(side * (xB + 0.006), 0.5, 0.44).box(0.012, 0.6, 0.02, [0.5, 0.08, 0.06]);
     }
-    // the roof, and under it the glasshouse: cream pillars with the glass set in them
+    // the roof, and under it the glasshouse: cream pillars, with glass in them that can be seen through
     body.reset().translate(0, yT, (zW + zR) / 2 + 0.01).box(xT * 2 + 0.06, 0.07, zR - zW + 0.06, CREAM, CREAM, 1);
-    // windscreen, and the cream of its frame behind it
-    body.reset().quad([xB, yB, zF], [-xB, yB, zF], [-xT, yT, zW], [xT, yT, zW], [0, 0, 1.6, 0.6], CREAM_LO, CREAM_LO, CREAM, CREAM);
-    pane.quad([xB - 0.07, yB + 0.04, zF - 0.012], [-xB + 0.07, yB + 0.04, zF - 0.012], [-xT + 0.06, yT - 0.05, zW - 0.012], [xT - 0.06, yT - 0.05, zW - 0.012], [0, 0, 3, 1]);
-    // back of the cab and its window
-    body.quad([-xB, yB, zR], [xB, yB, zR], [xT, yT, zR], [-xT, yT, zR], [0, 0, 1.6, 0.5], CREAM_LO, CREAM_LO, CREAM, CREAM);
-    pane.quad([-0.56, yB + 0.08, zR + 0.012], [0.56, yB + 0.08, zR + 0.012], [0.5, yT - 0.1, zR + 0.012], [-0.5, yT - 0.1, zR + 0.012], [0, 0, 2, 0.8]);
-    // sides: left (seen from -X) and right (seen from +X)
-    body.quad([-xB, yB, zF], [-xB, yB, zR], [-xT, yT, zR], [-xT, yT, zW], [0, 0, 1.3, 0.5], CREAM_LO, CREAM_LO, CREAM, CREAM);
-    body.quad([xB, yB, zR], [xB, yB, zF], [xT, yT, zW], [xT, yT, zR], [0, 0, 1.3, 0.5], CREAM_LO, CREAM_LO, CREAM, CREAM);
-    const lean = (y: number) => xB + ((xT - xB) * (y - yB)) / (yT - yB) + 0.012;
+    /** how far up the glasshouse a height is (0 at the belt line, 1 at the roof) */
+    const up = (y: number) => (y - yB) / (yT - yB);
+    /** half the cab's width at a height, and where the windscreen is at that height */
+    const wide = (y: number) => lerp(xB, xT, up(y));
+    const screen = (y: number) => lerp(zF, zW, up(y));
+    const cream = (y: number): RGB => [lerp(CREAM_LO[0], CREAM[0], up(y)), lerp(CREAM_LO[1], CREAM[1], up(y)), lerp(CREAM_LO[2], CREAM[2], up(y))];
+    /** The frame round a window: what lies between the four corners of a wall and the four corners of
+     *  the opening in it (both counter-clockwise seen from outside). It is given a back as well, for
+     *  whoever looks out through the cab from the far side. */
+    const frame = (outer: V3[], hole: V3[]) => {
+      for (let k = 0; k < 4; k++) {
+        const n = (k + 1) % 4;
+        body.quad(outer[k], outer[n], hole[n], hole[k], [0, 0, 1, 0.2], cream(outer[k][1]), cream(outer[n][1]), cream(hole[n][1]), cream(hole[k][1]));
+        inside.quad(outer[n], outer[k], hole[k], hole[n], [0, 0, 1, 0.2], cream(outer[n][1]), cream(outer[k][1]), cream(hole[k][1]), cream(hole[n][1]));
+      }
+    };
+    body.reset();
+    inside.reset();
+    pane.reset();
+    // windscreen
+    const [sy0, sy1] = [yB + 0.06, yT - 0.07];
+    frame(
+      [[xB, yB, zF], [-xB, yB, zF], [-xT, yT, zW], [xT, yT, zW]],
+      [[wide(sy0) - 0.08, sy0, screen(sy0)], [-wide(sy0) + 0.08, sy0, screen(sy0)], [-wide(sy1) + 0.07, sy1, screen(sy1)], [wide(sy1) - 0.07, sy1, screen(sy1)]],
+    );
+    pane.quad([wide(sy0) - 0.08, sy0, screen(sy0) - 0.012], [-wide(sy0) + 0.08, sy0, screen(sy0) - 0.012], [-wide(sy1) + 0.07, sy1, screen(sy1) - 0.012], [wide(sy1) - 0.07, sy1, screen(sy1) - 0.012], [0, 0, 3, 1]);
+    // the back of the cab and its window
+    const [ry0, ry1] = [yB + 0.08, yT - 0.09];
+    frame(
+      [[-xB, yB, zR], [xB, yB, zR], [xT, yT, zR], [-xT, yT, zR]],
+      [[-wide(ry0) + 0.14, ry0, zR], [wide(ry0) - 0.14, ry0, zR], [wide(ry1) - 0.12, ry1, zR], [-wide(ry1) + 0.12, ry1, zR]],
+    );
+    pane.quad([-wide(ry0) + 0.14, ry0, zR + 0.012], [wide(ry0) - 0.14, ry0, zR + 0.012], [wide(ry1) - 0.12, ry1, zR + 0.012], [-wide(ry1) + 0.12, ry1, zR + 0.012], [0, 0, 2, 0.8]);
+    // the sides: left (seen from -X) and right (seen from +X)
     const [wy0, wy1] = [yB + 0.05, yT - 0.07];
-    const wz0 = (y: number) => zF + ((zW - zF) * (y - yB)) / (yT - yB) + 0.1;
-    pane.quad([-lean(wy0), wy0, wz0(wy0)], [-lean(wy0), wy0, zR - 0.1], [-lean(wy1), wy1, zR - 0.1], [-lean(wy1), wy1, wz0(wy1)], [0, 0, 2.4, 1]);
-    pane.quad([lean(wy0), wy0, zR - 0.1], [lean(wy0), wy0, wz0(wy0)], [lean(wy1), wy1, wz0(wy1)], [lean(wy1), wy1, zR - 0.1], [0, 0, 2.4, 1]);
+    for (const side of [-1, 1]) {
+      const x = (y: number, proud = 0) => side * (wide(y) + proud);
+      const outer: V3[] = [[x(yB), yB, zF], [x(yB), yB, zR], [x(yT), yT, zR], [x(yT), yT, zW]];
+      const hole = (proud: number): V3[] => [[x(wy0, proud), wy0, screen(wy0) + 0.1], [x(wy0, proud), wy0, zR - 0.1], [x(wy1, proud), wy1, zR - 0.1], [x(wy1, proud), wy1, screen(wy1) + 0.1]];
+      // (the right-hand side is the same wall seen from the other way round)
+      const turn = (q: V3[]) => (side < 0 ? q : [q[1], q[0], q[3], q[2]]);
+      frame(turn(outer), turn(hole(0)));
+      const g = turn(hole(0.012));
+      pane.quad(g[0], g[1], g[2], g[3], [0, 0, 2.4, 1]);
+    }
     // wing mirrors on stalks
     for (const side of [-1, 1]) {
       body.reset().translate(side * (xB + 0.07), yB + 0.02, zF + 0.12).box(0.14, 0.02, 0.02, CHROME_LO, CHROME, 2);
@@ -193,8 +236,13 @@ export class Pickup {
     body.reset().translate(0.55, 1.05, 2.05).prism(0.03, 0.03, 0.05, 5, { color: BLACK, capTop: true });
     wood.reset().translate(-0.2, 0.71, 1.95).rotateY(-0.2).box(0.8, 0.09, 0.5, [0.36, 0.42, 0.34], [0.5, 0.58, 0.46], 1.5);
 
-    /* ---- inside, for whoever is at the wheel ---- */
+    /* ---- inside: for whoever is at the wheel, and for whoever looks in at them ---- */
     const dash: RGB = [0.95, 0.2, 0.15];
+    // the floor of the tub, the wall under the dash and the wall behind the bench
+    const tub: RGB = [0.5, 0.12, 0.1];
+    inside.reset().quad([-xB + 0.03, 0.5, zR - 0.03], [xB - 0.03, 0.5, zR - 0.03], [xB - 0.03, 0.5, zF + 0.03], [-xB + 0.03, 0.5, zF + 0.03], [0, 0, 1.7, 1.3], [0.24, 0.22, 0.22]);
+    inside.quad([-xB + 0.03, 0.5, zF + 0.03], [xB - 0.03, 0.5, zF + 0.03], [xB - 0.03, 0.94, zF + 0.03], [-xB + 0.03, 0.94, zF + 0.03], [0, 0, 1.7, 0.5], tub, tub, dash, dash);
+    inside.quad([xB - 0.03, 0.5, zR - 0.03], [-xB + 0.03, 0.5, zR - 0.03], [-xB + 0.03, yB, zR - 0.03], [xB - 0.03, yB, zR - 0.03], [0, 0, 1.7, 0.6], tub, tub, dash, dash);
     inside.reset().translate(0, 0.94, zF + 0.16).box(xB * 2 - 0.08, 0.2, 0.3, dash, [1.2, 0.26, 0.18], 1);
     inside.reset().translate(0, 1.14, zF + 0.08).box(xB * 2 - 0.1, 0.02, 0.2, [0.2, 0.2, 0.22]);
     // dials: one big, two small, and a radio that has not worked in years
@@ -214,7 +262,7 @@ export class Pickup {
     // the inside of the doors, the pillars and the lining of the roof
     for (const side of [-1, 1]) {
       inside.reset().translate(side * (xB - 0.03), 0.5, (zF + zR) / 2).box(0.03, yB - 0.52, zR - zF - 0.04, [0.9, 0.2, 0.15], [1.1, 0.26, 0.18], 1);
-      inside.reset().translate(side * (xB - 0.045), yB, zF + 0.02).rotateX(0.578).rotateZ(side * 0.21).box(0.06, 0.62, 0.05, CREAM_LO, CREAM, 1);
+      inside.reset().translate(side * (xB - 0.045), yB, zF + 0.02).rotateX(Math.atan2(zW - zF, yT - yB)).rotateZ(side * Math.atan2(xB - xT, Math.hypot(yT - yB, zW - zF))).box(0.06, Math.hypot(yT - yB, zW - zF, xB - xT), 0.05, CREAM_LO, CREAM, 1);
       inside.reset().translate(side * (xT + 0.02), yB, zR - 0.04).box(0.05, yT - yB, 0.06, CREAM_LO, CREAM, 1);
     }
     inside.reset().translate(0, yT - 0.03, (zW + zR) / 2).box(xT * 2, 0.02, zR - zW, [0.8, 0.76, 0.66], [0.8, 0.76, 0.66], 1);
@@ -232,7 +280,9 @@ export class Pickup {
     };
     add(body, paintMat);
     add(wood, psxMaterial(shared, { map: tex.wood, vertexColors: true }));
-    this.panes = add(pane, psxMaterial(shared, { map: glassTex, tint: [0.2, 0.28, 0.4], twoSided: true }));
+    // (glass that is mostly clear: a streak of sky across it, and whoever is inside seen through it)
+    this.panes = add(pane, psxMaterial(shared, { map: glassTex, tint: [0.42, 0.56, 0.78], twoSided: true, blend: 'alpha', alpha: 0.22 }));
+    this.panes.renderOrder = 6;
     this.head = psxMaterial(shared, { map: tex.white, lit: false, tint: [0.42, 0.4, 0.34] });
     this.tail = psxMaterial(shared, { map: tex.white, lit: false, vertexColors: true, tint: [0.3, 0.3, 0.3] });
     add(lampF, this.head);
@@ -277,8 +327,11 @@ export class Pickup {
       wheel: WHEEL,
       wheels,
       chase: [7.6, 3.1],
-      // behind the wheel, which is on the left
-      seat: [-0.4, 1.42, 0.02],
+      // behind the wheel, which is on the left: the driver's eye. (Their hips are 0.62 m under it, on the
+      // bench, with their back to its back; the wheel is 0.4 m in front of their chest.)
+      seat: [-0.4, 1.42, 0.18],
+      // (the roof's lining is just under a metre over the driver's hips)
+      headroom: 0.97,
       reach: 3.6,
     });
   }
@@ -292,7 +345,8 @@ export class Pickup {
   tick(dt: number, driving: boolean) {
     const e = this.engine;
     const seat = driving && e.explore.seat;
-    for (const m of this.cabin) m.visible = seat;
+    // (the inside of the cab is there for anybody who is about: the glass can be seen through)
+    for (const m of this.cabin) m.visible = true;
     this.panes.visible = !seat;
     // lamps: on while somebody is driving, and for a moment after they get out
     this.lit += ((driving ? 1 : 0) - this.lit) * Math.min(1, dt * (driving ? 8 : 1.2));

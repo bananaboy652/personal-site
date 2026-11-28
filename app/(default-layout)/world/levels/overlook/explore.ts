@@ -2,8 +2,9 @@
 // Everything that is only found by stepping into the scene and walking about:
 // a stair down the cliff, the inside of the tent and the cabin, a swing, a
 // fishing rod at the end of the pier, three carved stones on the beach, a
-// cairn and a second telescope on the far headland, and a door at the foot of
-// the tower with a jetty and somebody's boat.
+// cairn and a second telescope on the far headland, a jetty at the foot of the
+// tower with somebody's boat tied to it, the tower's door and what is behind
+// it (keep.ts), and a floatplane kept round the point from the pier (dock.ts).
 //
 // The camp's own framed view is not to change. So: nothing here stands on the
 // cliff top where that view could see it (the stair hangs below the lip of
@@ -23,9 +24,10 @@ import { type RGB, TAU, clamp, lerp, rad, smooth } from '../../engine/math';
 import type { Player, Vehicle } from '../../engine/player';
 import { psxMaterial } from '../../engine/shaders';
 import type { Solid } from '../../engine/solid';
-import { store } from '../../engine/store';
 import { type Textures, makeTexture } from '../../engine/textures';
-import { WORLDS } from '../../engine/worlds';
+import { WORLDS, nextWorld } from '../../engine/worlds';
+import { Dock } from './dock';
+import { Keep } from './keep';
 import { SEA, brinkZ, heightAt } from './terrain';
 
 /** The cabin by the shore. Its shell is built with the valley's other
@@ -187,6 +189,8 @@ export interface Ctx {
   ripple(x: number, z: number, strength: number): void;
   /** have the visitor from the deep come up at this spot, heading this way (radians, as an object's rotation.y) */
   surface(x: number, z: number, yaw: number): void;
+  /** the tower gives its answer */
+  answer(): void;
   /** is it up at the moment */
   surfaced(): boolean;
   rand(): number;
@@ -219,6 +223,19 @@ const WOOD_A: RGB = [0.62, 0.56, 0.5];
 const WOOD_B: RGB = [0.92, 0.85, 0.77];
 const DARK: RGB = [0.42, 0.38, 0.36];
 
+/** The three places in the order the gate goes round them, starting from here. */
+const ROUND = (() => {
+  const out: (typeof WORLDS)[number][] = [];
+  let w = WORLDS.find((x) => x.id === 'overlook') ?? WORLDS[0];
+  for (let i = 0; i < WORLDS.length; i++) {
+    out.push(w);
+    w = nextWorld(w.id);
+  }
+  return out;
+})();
+/** How far round the gate's way a place is from here, in a word or two. */
+const wayRound = (id: string) => ['here', 'through the gate', 'through it twice'][Math.max(0, ROUND.findIndex((w) => w.id === id))] ?? 'further on';
+
 export class Explore {
   readonly interactables: Interactable[] = [];
   /** 1 while the lantern at the head of the stair is lit */
@@ -243,7 +260,6 @@ export class Explore {
   private hum = 0;
   private fish = 6;
   private deep = 30;
-  private poll = 0;
   private inGate = false;
   private told = false;
   private owlNear = false;
@@ -273,7 +289,13 @@ export class Explore {
   readonly stairPath: Vector3[] = [];
   /** Things made of boards, as boxes lying flat: [middle x, middle z, turn about Y, half width, half length, lowest y, highest y].
    *  Whoever stands inside one is standing on wood. */
-  private boards: number[][] = [];
+  readonly boards: number[][] = [];
+  /** where the floatplane is kept (dock.ts) */
+  readonly dock: Dock;
+  /** the tower's door and what is behind it (keep.ts) */
+  keep!: Keep;
+  /** the middle of the jetty at the tower's foot */
+  quay = { x: 0, z: 0 };
   /** the same, for things made of metal */
   private plates: number[][] = [];
   /** the ramp and the pickup's tracks: built the first time somebody steps in, and shown only while they are in */
@@ -299,6 +321,18 @@ export class Explore {
     this.buildShore(wood, stone, metal, runes, ground);
     this.buildHeadland(wood, stone, metal, ground);
     this.buildTowerFoot(wood, walk, metal, cloth, runes);
+    this.dock = new Dock({
+      engine: c.engine,
+      root: c.root,
+      tex: c.tex,
+      solid: c.solid,
+      rand: c.rand,
+      pierFoot: { x: c.pierEnd.x - c.pierEnd.dx * 40, z: c.pierEnd.z - c.pierEnd.dz * 40 },
+      thing: (id, label, center, radius, onClick, reach) => this.thing(id, label, center, radius, onClick, reach),
+      lamp: (pos, color, size, near, light, on, gain) => this.lamp(pos, color, size, near, light, on, gain),
+      read: (id, pages, at) => this.read(id, pages, at),
+      boards: this.boards,
+    });
     // (the sign at the head of the pickup's ramp: the ramp itself is built the first time somebody steps in)
     {
       const [tx, tz] = TRESTLE.top;
@@ -326,7 +360,14 @@ export class Explore {
     add(wood, psxMaterial(shared, { map: c.tex.wood, vertexColors: true }));
     add(stone, psxMaterial(shared, { map: c.tex.stone, vertexColors: true, texFade: [120, 400] }), true);
     add(cloth, psxMaterial(shared, { map: c.tex.canvas, vertexColors: true, twoSided: true }));
-    add(metal, psxMaterial(shared, { map: c.tex.metal, vertexColors: true, texFade: [200, 600], fogScale: 0.6 }), true);
+    // (What is solid of the metalwork is all of it but the tower's door, which opens. The door is added
+    // last, after the Solid has had its look, and so can be left out of what is drawn as well: see keep.ts.)
+    const metalSolid = new Mesh(metal.build());
+    c.solid.add(metalSolid);
+    metalSolid.geometry.dispose();
+    const doorFrom = metal.triangles * 3;
+    this.keep.slab(metal);
+    this.keep.attach(add(metal, psxMaterial(shared, { map: c.tex.metal, vertexColors: true, texFade: [200, 600], fogScale: 0.6 })) as Mesh, doorFrom);
     add(inside, psxMaterial(shared, { map: c.tex.wood, vertexColors: true, baked: true }), true);
     this.tentMesh = add(tent, psxMaterial(shared, { map: c.tex.canvas, vertexColors: true, twoSided: true })) as Mesh;
     this.tentMesh.visible = false;
@@ -573,10 +614,10 @@ export class Explore {
     this.thing('map', 'Look at the map', cab(0.85, floor + 0.85, -1.7), 0.32, () => this.read('map', [[]], table, true), 3.2);
     this.thing('log', 'Read the log', cab(1.62, floor + 0.86, -1.62), 0.24, () =>
       this.read('log', [
-        ['THE GATE GOES TWO WAYS', 'FROM HERE.'],
-        ['ONE WAY: A PLATFORM', 'OUT IN A STORM. THERE,', 'LIGHT ANSWERS LIGHT.'],
-        ['THE OTHER: A MOUNTAIN ROAD.', 'THE TOWER IS SHY THERE.', 'IT LIKES THE DARK.'],
-        ['THREE PLACES. ONE TOWER.', 'ANSWER IT IN ALL THREE', 'AND THE RING CLOSES.'],
+        ['THE GATE GOES ONE WAY', 'ROUND, AND COMES BACK.'],
+        ['FIRST: A MOUNTAIN ROAD', 'UNDER SNOW. THE TOWER', 'IS FAR OFF THERE, AND SHY.'],
+        ['THEN: A HILL ABOVE', 'THE CLOUD, AND A MAST', 'THAT NEVER GOES DARK.'],
+        ['THEN HERE AGAIN.', 'THREE PLACES. ONE TOWER,', 'IN SIGHT OF ALL THREE.'],
       ], table),
       3.2,
     );
@@ -620,7 +661,7 @@ export class Explore {
   }
 
   /** The shore: a rod at the end of the pier, a bottle, a wrecked rowboat,
-   *  and three standing stones, one for each world. */
+   *  and three standing stones, one for each of the three places the gate goes round. */
   private buildShore(wood: Builder, stone: Builder, metal: Builder, runes: Builder, ground: (x: number, z: number) => number) {
     const c = this.c;
     const pe = c.pierEnd;
@@ -682,11 +723,10 @@ export class Explore {
       runes.reset().quad([fx - tx, py + 1.3, fz - tz], [fx + tx, py + 1.3, fz + tz], [fx + tx, py + 1.98, fz + tz], [fx - tx, py + 1.98, fz - tz], [w.rune / 3 + 0.004, 0, (w.rune + 1) / 3 - 0.045, 1]);
       const pos = new Vector3(px, py + 1.6, pz);
       this.stones.push({ pos, world: i });
-      this.lamp(new Vector3(fx + nx * 0.2, py + 1.65, fz + nz * 0.2), [1.0, 0.5, 0.22], 0.5, 45, 5, () => (store.has(w.id) ? 1 : 0));
+      this.lamp(new Vector3(fx + nx * 0.2, py + 1.65, fz + nz * 0.2), [1.0, 0.5, 0.22], 0.5, 45, 5);
       this.thing(`stone${i}`, w.title, pos, 0.75, () => {
-        const got = store.has(w.id);
-        c.engine.audio.chime([0, 7, 14][i], { gain: 0.14, decay: got ? 4 : 1.6 });
-        c.engine.hud.toast(`${w.title}: ${got ? 'answered' : 'silent'}`, 3);
+        c.engine.audio.chime([0, 7, 14][i], { gain: 0.14, decay: 4 });
+        c.engine.hud.toast(`${w.title}: ${wayRound(w.id)}`, 3.4);
       });
     });
   }
@@ -728,8 +768,8 @@ export class Explore {
     });
   }
 
-  /** At the tower's foot: a jetty with somebody else's boat tied to it, and a
-   *  door with three lamps over it, one for each world's signal. */
+  /** At the tower's foot: a jetty with somebody else's boat tied to it, and the
+   *  door (which is keep.ts's business). */
   private buildTowerFoot(wood: Builder, walk: Builder, metal: Builder, cloth: Builder, runes: Builder) {
     const c = this.c;
     const [tx, tz] = [c.tower.x, c.tower.z];
@@ -737,41 +777,31 @@ export class Explore {
     const nx = Math.cos(rad(112.5));
     const nz = Math.sin(rad(112.5));
     const yaw = Math.atan2(nx, nz);
-    const dx = tx + nx * 19.6;
-    const dz = tz + nz * 19.6;
     // (the island's rock, not the collars and fins overhead)
     const rock = (x: number, z: number) => c.solid.floor(x, z, SEA + 45);
-    const gy = rock(tx + nx * 24, tz + nz * 24);
-    const frame: RGB = [0.8, 0.82, 0.9];
-    metal.reset().translate(dx, gy - 2, dz).rotateY(yaw).box(8.4, 14, 1.6, frame, [1.15, 1.15, 1.25], 0.22);
-    metal.reset().translate(dx, gy - 2, dz).rotateY(yaw).translate(0, 0, 0.5).box(5.4, 11.6, 1, [0.36, 0.38, 0.46], [0.5, 0.52, 0.62], 0.22);
-    metal.reset().translate(dx, gy - 2, dz).rotateY(yaw).translate(0, 0, 0.95).box(0.16, 11.4, 0.2, [0.2, 0.2, 0.26]);
-    this.doorPos.set(dx + nx * 1.4, gy + 3, dz + nz * 1.4);
-    WORLDS.slice(0, 3).forEach((w, i) => {
-      const off = (i - 1) * 2.5;
-      const lx = dx + nx * 1.75 + nz * off;
-      const lz = dz + nz * 1.75 - nx * off;
-      this.lamp(new Vector3(lx, gy + 11, lz), [1.35, 0.62, 0.24], 1.5, 520, i === 1 ? 32 : undefined, () => (store.has(w.id) ? 1 : 0.07));
-      const ux = nz * 0.75;
-      const uz = -nx * 0.75;
-      const fx = dx + nx * 1.06 + nz * off;
-      const fz = dz + nz * 1.06 - nx * off;
-      runes.reset().quad([fx - ux, gy + 7.9, fz - uz], [fx + ux, gy + 7.9, fz + uz], [fx + ux, gy + 9.4, fz + uz], [fx - ux, gy + 9.4, fz - uz], [w.rune / 3 + 0.004, 0, (w.rune + 1) / 3 - 0.045, 1]);
-    });
-    this.thing('door', 'The door', this.doorPos, 4, () => {
-      const n = WORLDS.filter((w) => store.has(w.id)).length;
-      const a = c.engine.audio;
-      a.tone({ f: a.hz(-24), dur: 1.6, type: 'sine', gain: 0.14, attack: 0.3, send: 0.9 });
-      this.read('door', [n >= WORLDS.length
-        ? ['THE DOOR DOES NOT OPEN.', 'ABOVE IT, THREE LAMPS.', 'ALL THREE ARE LIT.', 'ASK THE GATE.']
-        : ['THE DOOR DOES NOT OPEN.', 'ABOVE IT, THREE LAMPS.', n === 0 ? 'NONE IS LIT.' : n === 1 ? 'ONE IS LIT.' : 'TWO ARE LIT.']], this.doorPos);
-    }, 16);
+    // The door, and everything behind it, is keep.ts: the door opens for whoever walks up to it.
+    this.keep = new Keep({
+      engine: c.engine,
+      root: c.root,
+      tex: c.tex,
+      solid: c.solid,
+      rand: c.rand,
+      fire: c.fire,
+      answer: c.answer,
+      thing: (id, label, center, radius, onClick, reach) => this.thing(id, label, center, radius, onClick, reach),
+      lamp: (pos, color, size, near, light, on, gain) => this.lamp(pos, color, size, near, light, on, gain),
+      read: (id, pages, at) => this.read(id, pages, at),
+    }, metal, runes);
+    this.doorPos.copy(this.keep.doorAt);
 
     // the jetty: walk out along the same line until the rock goes under
     let r = 30;
     while (r < 220 && rock(tx + nx * r, tz + nz * r) > SEA + 0.4) r += 2;
     const jx = tx + nx * (r + 6);
     const jz = tz + nz * (r + 6);
+    this.quay = { x: jx, z: jz };
+    // (a lantern on the stage beside it, where a floatplane can come alongside: the stage itself is afield.ts's)
+    this.lamp(new Vector3(jx + nx * 2.2 - nz * 1.9, SEA + 2.55, jz + nz * 2.2 + nx * 1.9), [1.2, 0.72, 0.34], 0.6, 300, 9);
     wood.reset().translate(jx, SEA + 0.9, jz).rotateY(yaw).box(2.4, 0.25, 16, WOOD_A, WOOD_B, 0.4);
     walk.reset().translate(jx, SEA + 0.9, jz).rotateY(yaw).box(2.4, 0.25, 16);
     this.boards.push([jx, jz, yaw, 1.3, 8.1, SEA + 0.6, SEA + 2.5]);
@@ -980,14 +1010,10 @@ export class Explore {
     a.tone({ f: [520, 660], dur: 0.05, type: 'triangle', gain: 0.05, at: 0.02 });
   }
 
-  /** The carved signs take their colour from which signals have been answered. */
+  /** The carved signs glow, all of them, the colour of the fire. */
   private paintRunes() {
     const col = this.runeMesh.geometry.attributes.color as BufferAttribute;
-    const order = [...WORLDS.slice(0, 3), ...WORLDS.slice(0, 3)];
-    order.forEach((w, i) => {
-      const lit = store.has(w.id);
-      for (let v = 0; v < 6; v++) col.setXYZ(i * 6 + v, lit ? 2.4 : 0.42, lit ? 1.15 : 0.44, lit ? 0.42 : 0.52);
-    });
+    for (let v = 0; v < col.count; v++) col.setXYZ(v, 2.4, 1.15, 0.42);
     col.needsUpdate = true;
   }
 
@@ -1078,7 +1104,7 @@ export class Explore {
       c.glows.setColor(this.float, 1.2 * k, 0.5 * k, 0.3 * k);
       if (f.t > 40) this.cast = null;
     } else c.glows.setColor(this.float, 0, 0, 0);
-    void time;
+    this.keep.update(dt, time);
   }
 
   /** While somebody is walking about. */
@@ -1090,6 +1116,8 @@ export class Explore {
     const u = e.shared;
     const eye = this.tmp.set(p.x, p.y + 1.5, p.z);
 
+    this.dock.tick(dt, p);
+    this.keep.tick(dt, p);
     // lamps come up as you come near, and the two nearest light what is round them
     let best: [Lamp | null, Lamp | null] = [null, null];
     let bd: [number, number] = [1e9, 1e9];
@@ -1118,10 +1146,6 @@ export class Explore {
     const near = Math.min(...this.stones.map((s) => s.pos.distanceTo(eye)), this.doorPos.distanceTo(eye) * 0.12);
     const rk = 1 - smooth(14, 60, near);
     (this.runeMat.uniforms.uTint.value as Vector3).set(rk, rk, rk);
-    if ((this.poll -= dt) < 0) {
-      this.poll = 2;
-      this.paintRunes();
-    }
 
     // the fireflies that show the way to the stair: each wanders about its own spot, and pulses
     const now = e.time;
@@ -1314,13 +1338,13 @@ export class Explore {
       const y = Math.round(hud.h * 0.56);
       hud.panel(x, y, bw, bh);
       hud.text('Three places, one tower', x + 9 * u, y + 7 * u, HUD_EMBER, 1, false);
-      WORLDS.forEach((w, i) => {
-        const got = store.has(w.id);
+      // (in the order the gate goes round them, from here)
+      ROUND.forEach((w, i) => {
         const ry = y + (22 + i * 19) * u;
-        hud.text(G.rune(w.rune), x + 10 * u, ry, got ? HUD_EMBER : MUTED, 2, false);
+        hud.text(G.rune(w.rune), x + 10 * u, ry, i === 0 ? HUD_EMBER : MUTED, 2, false);
         hud.text(w.title, x + 32 * u, ry + 4 * u, INK, 1, false);
-        const state = got ? 'answered' : 'silent';
-        hud.text(state, x + bw - 9 * u - hud.measure(state), ry + 4 * u, got ? HUD_EMBER : MUTED, 1, false);
+        const state = wayRound(w.id);
+        hud.text(state, x + bw - 9 * u - hud.measure(state), ry + 4 * u, i === 0 ? HUD_EMBER : MUTED, 1, false);
       });
       return;
     }
@@ -1352,6 +1376,8 @@ export class Explore {
     const p = c.engine.player;
     this.last.set(p.x, p.y, p.z);
     this.tentMesh.visible = on;
+    this.dock.explore(on);
+    this.keep.explore(on);
     if (on && !this.drive) this.buildDrive();
     for (const m of this.drive ?? []) m.visible = on;
     if (on) return;

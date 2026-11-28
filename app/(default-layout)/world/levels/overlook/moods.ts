@@ -8,13 +8,9 @@ import { type RGB, hex, scaleRGB } from '../../engine/math';
 export interface Mood extends Atmos {
   label: string;
   stars: number;
-  moonAz: number;
-  moonEl: number;
-  /** angular radius in degrees */
-  moonSize: number;
+  /** the colour of the moon. (Only night's is used: it is the same moon at every hour it is up. Where it is, and which
+   *  side of it is lit, follow from the turning of the sky: see heavens.ts.) */
   moonTint: RGB;
-  /** which way the moon is lit from, in its own disc space */
-  moonLight: RGB;
   waterDeep: RGB;
   waterTint: RGB;
   glitter: RGB;
@@ -50,11 +46,7 @@ export const MOODS: Record<string, Mood> = {
     fillCol: k('#5774a4', 0.45),
     rim: k('#ffffff', 0.18),
     stars: 0,
-    moonAz: 27,
-    moonEl: 31,
-    moonSize: 1.5,
     moonTint: k('#dfe8f5', 0.6),
-    moonLight: [0.6, 0.1, 0.5],
     waterDeep: k('#12325a'),
     waterTint: [0.9, 0.95, 1],
     glitter: k('#fff4d6', 0.85),
@@ -86,11 +78,7 @@ export const MOODS: Record<string, Mood> = {
     fillCol: k('#3d4c80', 0.5),
     rim: k('#ff8e4e', 0.5),
     stars: 0.62,
-    moonAz: 20.5,
-    moonEl: 21.5,
-    moonSize: 2.3,
     moonTint: k('#ffe9c6'),
-    moonLight: [-0.7, -0.5, -0.38],
     waterDeep: k('#0c1228'),
     waterTint: [0.96, 0.9, 0.92],
     glitter: k('#ffcf9a', 0.85),
@@ -122,11 +110,7 @@ export const MOODS: Record<string, Mood> = {
     fillCol: k('#1e2f56', 0.5),
     rim: k('#a6ccff', 0.5),
     stars: 1,
-    moonAz: 14.6,
-    moonEl: 12.6,
-    moonSize: 4.7,
     moonTint: k('#eaf2ff'),
-    moonLight: [0.28, 0.22, 0.93],
     waterDeep: k('#040a18'),
     waterTint: [0.9, 0.96, 1],
     glitter: k('#cfe6ff', 0.8),
@@ -158,11 +142,7 @@ export const MOODS: Record<string, Mood> = {
     fillCol: k('#4c5c8c', 0.5),
     rim: k('#ffc29c', 0.5),
     stars: 0.16,
-    moonAz: 21,
-    moonEl: 19,
-    moonSize: 2,
     moonTint: k('#f2eaff', 0.9),
-    moonLight: [0.6, -0.25, 0.5],
     waterDeep: k('#151b34'),
     waterTint: [0.98, 0.93, 0.95],
     glitter: k('#ffdcbc', 0.8),
@@ -174,5 +154,5 @@ export const MOODS: Record<string, Mood> = {
   },
 };
 
-/** The order the moon turns the hours in. */
+/** The order the hours come round in. */
 export const MOOD_ORDER = ['night', 'dawn', 'day', 'dusk'];
