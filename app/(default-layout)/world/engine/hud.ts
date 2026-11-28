@@ -192,6 +192,11 @@ export class Hud {
     this.card = { title, sub, t: 0, life: seconds };
   }
 
+  /** The place's name is up at the moment (anything else that wants the same patch of frame can wait for it). */
+  get titled() {
+    return !!this.card;
+  }
+
   open(menu: Menu) {
     this.menu = menu;
     this.sel = menu.items.findIndex((i) => !i.disabled);

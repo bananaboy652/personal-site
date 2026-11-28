@@ -178,7 +178,8 @@ class Host {
     const x0 = s.x0 * hud.w + 3 * u;
     const x1 = s.x1 * hud.w - bw - 3 * u;
     const y0 = s.y0 * hud.h + 3 * u;
-    const y1 = s.y1 * hud.h - bh - 8 * u;
+    // (on an upright screen the place's name is written across the foot of the clear part: keep above it)
+    const y1 = s.y1 * hud.h - bh - (hud.centred && hud.titled ? 40 : 8) * u;
     const wantX = Math.round(this.at.x - bw / 2);
     const wantY = Math.round(this.at.y - bh - 7 * u);
     const x = Math.round(Math.max(x0, Math.min(x1, wantX)));
@@ -267,7 +268,9 @@ export class People {
   update(dt: number, time: number) {
     const e = this.engine;
     const p = this.pending;
-    if (p && this.will && (p.t -= dt) <= 0) {
+    // (what he has to say about a project waits for the place's name to have been and gone: on a
+    // small screen the two are written in the same patch of the frame)
+    if (p && this.will && !e.hud.titled && (p.t -= dt) <= 0) {
       this.pending = null;
       if (!e.exploring) this.will.remark(p.beat, 'project');
     }
