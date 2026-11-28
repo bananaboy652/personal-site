@@ -2,11 +2,15 @@
   "name": "personal-site",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "materials": "node scripts/build-materials.mjs"
   },
   "dependencies": {
     "@radix-ui/react-hover-card": "^1.0.7",
@@ -22,13 +26,14 @@
     "react-dom": "^18",
     "react-simple-typewriter": "^5.0.1",
     "redis": "^4.6.14",
-    "steamwidgets.js": "^2.0.2",
-    "tailwind-merge": "^2.3.0"
+    "tailwind-merge": "^2.3.0",
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/three": "^0.187.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.3",
     "postcss": "^8",

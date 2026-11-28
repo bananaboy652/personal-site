@@ -1,21 +1,29 @@
 .main{
     display: flex;
     flex-wrap: wrap;
-    color: #b0b0b0;
-    font-size: 0.66rem;
-    margin-top: 1.2rem;
-    line-height: 0.9rem;
+    margin-top: 1rem;
     max-width: 20rem;
-    font-weight: 250;
 }
 
+/* Small raised tabs of resin. */
 .TagText{
-    border-radius: 1rem;
-    padding-top: 0.2rem;
-    padding-bottom: 0.2rem;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-    margin-right: 0.3rem;
-    margin-bottom: 0.3rem;
-    box-shadow: inset 0 0 0 1px #999999,0 2px 8px rgba(0, 0, 0, 0.101);
+    font-family: var(--font-label);
+    font-size: 0.54rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    line-height: 0.9rem;
+    color: var(--ink-soft);
+
+    border-radius: var(--small-r);
+    padding: 0.2rem 0.52rem;
+    margin-right: 0.28rem;
+    margin-bottom: 0.32rem;
+
+    background-color: rgba(255, 255, 255, 0.09);
+    background-image: var(--relief-tag);
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    box-shadow: inset 0.5px 0.5px 0.5px rgba(255, 255, 255, 0.2), inset -0.5px -1px 0.8px rgba(0, 0, 0, 0.4),
+        0 1px 1px rgba(0, 0, 0, 0.5);
 }

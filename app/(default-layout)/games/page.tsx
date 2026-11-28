@@ -76,7 +76,9 @@ export default function Games(){
     
     return(
         <MousePositionProvider>
-            <div>
+            {/* <main>, as on the other pages: the world behind the page looks inside it for the
+                page's title and panels, and the page's entrance is keyed on it too. */}
+            <main>
                 <Hero />
                 <ContentBreaker title="S-Tier" subheading="The greatest of all time (in my opinion at least...) 🐐"/>
                 <GameList games={Stier}/>
@@ -87,7 +89,7 @@ export default function Games(){
                 <ContentBreaker title="Nintendo games" subheading="It's dangerous to go alone. Play these!" />
                 <NintendoGames/>
                 <Footer/>
-            </div>
+            </main>
         </MousePositionProvider>
     )
 }

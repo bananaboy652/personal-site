@@ -1,17 +1,13 @@
 .main{
-    margin: auto;
-    margin-top: 0.5rem;
-    max-width: 62.5rem;
-    padding: 1.4rem;
-    border-radius: 1rem;
-    box-shadow: inset 0 0 0 1px #b0b0b0,0 2px 8px rgba(0, 0, 0, 0.101);
-    
-    background-color: rgba(0,0,0, 70%);
-    backdrop-filter: blur(5px);
-    
-    color: #b0b0b0;
-    font-weight: 225;
-    font-size: 1rem;
-    letter-spacing: -0.0225rem;
-    line-height: 1.2rem;
+    composes: glassFrame from global;
+
+    flex: 1;
+    min-width: 0;
+    padding: calc(var(--ft) + 0.85rem) calc(var(--ft) + 1rem);
+
+    color: var(--ink-soft);
+    font-weight: 400;
+    font-size: 0.95rem;
+    letter-spacing: -0.005em;
+    line-height: 1.42rem;
 }

@@ -1,103 +1,126 @@
 .main{
-    margin: auto;
-    max-width: 58rem;
+    margin-left: var(--edge);
+    max-width: min(58rem, calc(100vw - 2 * var(--edge)));
     margin-top: 11rem;
 }
 
 .SteamContent{
     display: flex;
-    color: white;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--ink);
 }
 
-.SteamContent steam-user{
-    background-color: transparent;
-    padding: 0;
-    margin: 0;
-    width: 24rem;
-    margin-right: -0.5rem;
-    margin-top: -2rem;
-    margin-left: -0.5rem;
-}
-
-.CounterText{
-    background-color: transparent;
-    float: right;
-}
-
-.CounterText h1{
-    padding-left: 0rem;
-    width: 12rem;
-    margin-right: -3rem;
-    background-color: transparent;
-}
-
-.SteamContent span{
-    font-size: 3.2rem;
-    display: flex;
-    font-weight: 500;
-    margin-top:  -0.5rem;
-    margin-bottom: 0.9rem;
-    margin-right: -0.5rem;
-    margin-left: 0rem;
-    margin-bottom: -1rem;
-    margin-top: 0rem;
-    max-width: 29rem;
-    line-height: 3rem;
+/* "3,266 Hours / And counting..." */
+.Counter{
+    font-family: var(--font-display);
     text-align: right;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
+    /* the world's controls hang under the count, against the right as it is, the place's name leading */
+    --controls-justify: flex-end;
+    --controls-place-order: -1;
 }
 
-.SteamContent h1{
-    font-size: 3.2rem;
+.CounterLine{
     display: flex;
-    font-weight: 500;
-    margin-top:  -0.5rem;
-    margin-bottom: 0.9rem;
-    margin-right: -0.5rem;
-    margin-left: -3rem;
-    max-width: 29rem;
-    line-height: 3rem;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 0.9rem;
+    font-size: 4rem;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
 }
 
 .Hours{
-    background-color: transparent;
-    margin-left: -50rem;
-    left:-0.75rem;
-    position: relative;
+    font-weight: 500;
 }
 
-.SteamContent h2{
-    font-size: 1.8rem;
-    font-weight: 250;
-    margin-top:  -0.25rem;
-    margin-bottom: 0.9rem;
-    margin-left: 0.75rem;
-    margin-top: -0.6rem;
-    max-width: 29rem;
-    line-height: 3rem;
+.Counter h2{
+    font-size: 1.7rem;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    color: var(--ink-soft);
+    margin-top: 0.45rem;
 }
-
 
 .PageDescription{
-    margin-top: 0.5rem;
-    padding: 1.4rem;
-    border-radius: 1rem;
-    box-shadow: inset 0 0 0 1px #b0b0b0,0 2px 8px rgba(0, 0, 0, 0.101);
-    
-    background-color: rgba(0,0,0, 70%);
-    backdrop-filter: blur(5px);
-    
-    color: #b0b0b0;
-    font-weight: 225;
+    composes: glassFrame from global;
+
+    margin-top: 1.5rem;
+    padding: calc(var(--ft) + 1.1rem) calc(var(--ft) + 1.3rem);
+
+    color: var(--ink-soft);
+    font-weight: 400;
     font-size: 1rem;
-    letter-spacing: -0.0225rem;
-    line-height: 1.2rem;
+    line-height: 1.5rem;
 }
 
 .PageDescription h1{
-    color: white;
+    font-family: var(--font-display);
+    color: var(--ink);
     font-size: 2.4rem;
-    font-weight: 175;
-    max-width: 58rem;
-    padding-top: 0.75rem;
-    padding-bottom: 1.5rem;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    padding-top: 0.2rem;
+    padding-bottom: 0.9rem;
+}
+
+/* Narrow screens: side by side, the card and the count are wider than the
+   screen, so the count goes under the card. */
+@media (max-width: 46rem) {
+    .SteamContent{
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.8rem;
+    }
+    .Counter{
+        /* (no wider than the screen, whatever is in it: the place's name beside the controls gives way) */
+        max-width: 100%;
+        text-align: left;
+        --controls-justify: flex-start;
+        --controls-place-order: 0;
+    }
+    .CounterLine{
+        justify-content: flex-start;
+        font-size: min(3.3rem, 13.6vw);
+    }
+    .Counter h2{
+        font-size: 1.4rem;
+    }
+}
+
+/* An upright screen (a phone, or a tablet held upright) opens as a title
+   screen: the nav and the count at the top, and the rest of the first screen
+   left empty as a window on the world. The Steam card and everything after it
+   start below the fold. (9/10 is the shape at which the world's own camera
+   switches to its upright view.) */
+@media (max-aspect-ratio: 9/10) {
+    .main{
+        margin-top: 0;
+    }
+    .SteamContent{
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+    }
+    .Counter{
+        order: -1;
+        box-sizing: border-box;
+        min-height: 100vh;
+        min-height: 100svh;
+        max-width: 100%;
+        padding-top: var(--title-top);
+        text-align: left;
+        --controls-justify: flex-start;
+        --controls-place-order: 0;
+    }
+    .CounterLine{
+        justify-content: flex-start;
+    }
+    .PageDescription{
+        margin-top: 0.8rem;
+    }
 }

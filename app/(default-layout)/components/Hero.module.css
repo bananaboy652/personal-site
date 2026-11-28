@@ -1,38 +1,35 @@
+/* The opening block: the name, a greeting and the contact icons, hung under
+   the nav in the top-left corner like the title on a title screen. The rest of
+   the window is left to the view. */
 .main{
-    display: flex;
-    margin: auto;
-    background-color: transparent;
-    max-width: 62.5rem;
-    margin-top: 10rem;
-    justify-content: space-between;
-}
-
-.img{
-    border-radius: 1rem;
-    border-style: solid;
-    border-width: 0.05rem;
-    border-color: #b0b0b0;
-}
-
-.profile{
-    color: #b0b0b0;
-    text-align: center;
-    font-weight: 250;
-    font-size: 0.75rem;
+    width: var(--col);
+    max-width: calc(100vw - 2 * var(--edge));
+    margin-left: var(--edge);
+    margin-top: var(--title-top);
 }
 
 .titlecard{
-    color: white;
-    font-size: 4.8rem;
-    font-weight: 290;
-    margin-left: -2rem;
-    margin-top: -1.5rem;
+    font-family: var(--font-display);
+    color: var(--ink);
+    font-size: 4.9rem;
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    line-height: 1.1;
+    min-width: 0;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
 }
 
+.titlecard h1{
+    white-space: nowrap;
+}
+
+
 .titlecard_h2{
-    font-size: 2.7rem;
-    font-weight: 175;
-    margin-top:  -0.7rem;
+    font-size: 2.6rem;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    color: var(--ink-soft);
+    margin-top: 0.1rem;
     margin-bottom: 0.9rem;
     margin-right: -0.5rem;
     margin-left: 0.05rem;
@@ -76,5 +73,32 @@
 }
 
 .highlight{
-    color: #5EB0FC;
+    color: var(--accent);
+}
+
+/* Narrow screens: the same block, set smaller. */
+@media (max-width: 46rem) {
+    .titlecard{
+        font-size: min(3.3rem, 13.6vw);
+    }
+    .titlecard_h2{
+        font-size: 1.7rem;
+        line-height: 2.1rem;
+        margin-bottom: 0.6rem;
+    }
+}
+
+/* An upright screen (a phone, or a tablet held upright) opens as a title
+   screen: the nav and this block at the top, and the rest of the first screen
+   left empty as a window on the world. The page proper starts below the fold.
+   (9/10 is the shape at which the world's own camera switches to its upright
+   view.) */
+@media (max-aspect-ratio: 9/10) {
+    .main{
+        box-sizing: border-box;
+        margin-top: 0;
+        padding-top: var(--title-top);
+        min-height: 100vh;
+        min-height: 100svh;
+    }
 }

@@ -1,0 +1,302 @@
+/* A project's own page. One reading column down the left, the width of the
+   home page's opening column, so the right of the window stays with the view. */
+.page{
+    --breaker-width: var(--col);   /* the section headings stop where the panels do */
+}
+
+/* The title block: the project's name hung under the nav, like the name on
+   the home page, with its status and its tags beneath. */
+.head{
+    width: var(--col);
+    max-width: calc(100vw - 2 * var(--edge));
+    margin-left: var(--edge);
+    /* (set smaller than the name on the home page, it would otherwise ride up into the nav's captions) */
+    margin-top: calc(var(--title-top) + 0.4rem);
+}
+
+.title{
+    min-width: 0;
+}
+
+.name{
+    font-family: var(--font-display);
+    color: var(--ink);
+    font-size: 3.3rem;
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    line-height: 1.06;
+    text-wrap: balance;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+
+.status{
+    composes: label from global;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.7rem;
+    margin-top: 0.85rem;
+    margin-left: 0.15rem;
+    color: var(--ink-soft);
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* an ember between the two facts on the status line */
+.dot{
+    width: 4px;
+    height: 4px;
+    background: var(--accent);
+}
+
+/* (the tags are the same row of tabs as on a project's card, let run the width of the column) */
+.title .tags{
+    max-width: none;
+    margin-top: 0.75rem;
+    margin-left: 0.1rem;
+}
+
+/* The picture and the summary share a panel. */
+.lead{
+    composes: glassFrame from global;
+
+    box-sizing: border-box;
+    width: var(--col);
+    max-width: calc(100vw - 2 * var(--edge));
+    margin-left: var(--edge);
+    margin-top: 1.5rem;
+    padding: calc(var(--ft) + 0.9rem);
+}
+
+/* The picture is let into the glass, as on the cards: a dark seat around it
+   and a thin catch of light along its lower edge. Its corners take the
+   panel's radius less their distance in from its edge. */
+.picture{
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    border-radius: max(2px, calc(var(--fr) - var(--ft) - 0.9rem));
+    background-color: rgba(0, 0, 0, 0.35);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1.5px 0 1px rgba(255, 255, 255, 0.1), 0 8px 16px rgba(0, 0, 0, 0.45);
+}
+
+.image{
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.summary{
+    margin: 1.15rem 0.35rem 0.2rem;
+    color: var(--ink-soft);
+    font-size: 1.05rem;
+    font-weight: 400;
+    letter-spacing: -0.005em;
+    line-height: 1.6rem;
+}
+
+.links{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 1rem 0.3rem 0.25rem;
+}
+
+/* A raised resin key, like the one on the Steam card. */
+.key{
+    composes: resinKey from global;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1;
+    padding: 0.6rem 0.9rem;
+    white-space: nowrap;
+    transition: transform 0.12s, filter 0.12s;
+}
+
+.key:hover{
+    transform: translateY(-1px);
+    filter: brightness(1.12);
+}
+
+.key:active{
+    transform: translateY(1px);
+    filter: brightness(0.95);
+}
+
+.out{
+    color: var(--accent-soft);
+    font-size: 0.8rem;
+}
+
+/* A section of the write-up. */
+.panel{
+    composes: glassFrame from global;
+
+    box-sizing: border-box;
+    width: var(--col);
+    max-width: calc(100vw - 2 * var(--edge));
+    margin-left: var(--edge);
+    padding: calc(var(--ft) + 1.05rem) calc(var(--ft) + 1.25rem);
+
+    color: var(--ink-soft);
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.55rem;
+}
+
+.panel p + p{
+    margin-top: 0.9rem;
+}
+
+/* A section nobody has written yet says so, quietly. */
+.empty{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.45rem 0.8rem;
+    color: var(--ink-muted);
+}
+
+.emptyTag{
+    composes: label from global;
+    flex: none;
+    padding: 0.28rem 0.5rem 0.24rem;
+    border-radius: var(--small-r);
+    color: var(--accent-soft);
+    font-size: 0.56rem;
+    line-height: 1;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* The way on: the project before, the whole list, the project after. */
+.more{
+    display: flex;
+    align-items: center;
+    gap: var(--site-gap);
+    box-sizing: border-box;
+    width: var(--col);
+    max-width: calc(100vw - 2 * var(--edge));
+    margin-left: var(--edge);
+    margin-top: 2.2rem;
+}
+
+.step{
+    composes: glassFrameCapsule from global;
+
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    box-sizing: border-box;
+    padding: 0 calc(var(--ft) + 1.15rem);
+    color: var(--ink);
+}
+
+.next{
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.stepText{
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+    min-width: 0;
+}
+
+.stepLabel{
+    composes: label from global;
+    color: var(--ink-muted);
+    font-size: 0.56rem;
+    line-height: 1;
+}
+
+.stepTitle{
+    font-family: var(--font-display);
+    font-size: 1.08rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.arrow{
+    flex: none;
+    color: var(--accent);
+    font-size: 1.15rem;
+    line-height: 1;
+    transition: transform 0.15s;
+}
+
+.previous:hover .arrow{
+    transform: translateX(-3px);
+}
+
+.next:hover .arrow{
+    transform: translateX(3px);
+}
+
+.all{
+    composes: resinKey from global;
+    flex: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1;
+    padding: 0.7rem 1rem;
+    white-space: nowrap;
+    transition: transform 0.12s, filter 0.12s;
+}
+
+.all:hover{
+    transform: translateY(-1px);
+    filter: brightness(1.12);
+}
+
+.all:active{
+    transform: translateY(1px);
+    filter: brightness(0.95);
+}
+
+/* Narrow screens: the name set smaller, and the way on stacked. */
+@media (max-width: 46rem) {
+    .name{
+        font-size: min(2.6rem, 10.6vw);
+    }
+    .summary{
+        font-size: 1rem;
+        line-height: 1.5rem;
+    }
+    .more{
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .step{
+        flex: none;
+    }
+    .all{
+        order: 3;
+        align-self: flex-start;
+    }
+}
+
+/* An upright screen: the title block over the world, and the write-up starting
+   a little over half-way down the first screen. (The home, Games and Media
+   pages leave the whole first screen clear; somebody who has come to read
+   about a project should see that there is something to read.) */
+@media (max-aspect-ratio: 9/10) {
+    .head{
+        box-sizing: border-box;
+        margin-top: 0;
+        padding-top: calc(var(--title-top) + 0.4rem);
+        min-height: 58vh;
+        min-height: 58svh;
+    }
+    .lead{
+        margin-top: 0;
+    }
+}

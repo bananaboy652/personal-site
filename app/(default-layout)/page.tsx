@@ -8,6 +8,8 @@ import ExperiencePill from "./components/ExperiencePill";
 import Footer from "./components/Footer";
 import { MousePositionProvider } from "./components/MousePositionContext";
 import { Projects } from "./components/Projects";
+import InfoPill from "./components/InfoPill";
+import styles from "./page.module.css";
 
 export default function Home() {
   return (
@@ -15,7 +17,10 @@ export default function Home() {
       <main>
         <section id="hero">
           <Hero />
-          <About />
+          <div className={styles.intro}>
+            <About />
+            <InfoPill />
+          </div>
         </section>
         <section id="project">
           <ContentBreaker title="Projects" subheading="" />

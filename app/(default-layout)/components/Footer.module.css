@@ -1,24 +1,52 @@
-.main{
-    margin: auto;
-    margin-top: 2.5rem;
-    max-width: 62.5rem;
-    margin-bottom: -10rem;
-    padding-bottom: -1rem;
-    padding: 1.4rem;
-    border-radius: 1rem 1rem 0rem 0rem;
-    border: 1px solid #b0b0b0; 
-    border-bottom: none; 
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.101);
+/* ── The frame's bottom bar ────────────────────────────────────────────────
+   A zero-height sticky anchor placed directly above the footer. Its bar hangs
+   upwards from it. While the footer is off screen the anchor sticks to the
+   bottom of the window, so the bar is the frame's bottom edge; at the end of
+   the page the anchor returns to its place on top of the footer and the two
+   read as one piece of resin.                                               */
+.dock{
+    position: sticky;
+    bottom: 0;
+    height: 0;
+    margin-top: 4.5rem;
+    z-index: 910;
+    pointer-events: none;
+}
+
+.dockBar{
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--site-radius) + var(--site-frame));
+    background-image: var(--site-dock);
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+}
+
+/* ── The footer: the frame, grown tall ─────────────────────────────────── */
+.slab{
     position: relative;
-    
-    background-color: rgba(0,0,0, 70%);
-    backdrop-filter: blur(5px);
-    
-    color: #b0b0b0;
-    font-weight: 225;
+    z-index: 910;
+    padding: 1.4rem calc(var(--site-frame) + 2rem) 1.6rem;
+    background-color: var(--resin);
+    background-image: var(--site-slab);
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+}
+
+.main{
+    /* lines up with the headings above it (which move in with the stage on a very wide window) */
+    margin-left: calc(var(--site-gap) + var(--indent) - 2rem + var(--stage-inset));
+    max-width: 62.5rem;
+    position: relative;
+
+    color: var(--ink-soft);
+    font-weight: 400;
     font-size: 1rem;
-    letter-spacing: -0.0225rem;
     line-height: 1.2rem;
+    /* lettering pressed into the resin */
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
 }
 
 .UpperContent{
@@ -28,7 +56,7 @@
 }
 
 .Highlight{
-    color: #5EB0FC;
+    color: var(--accent);
 }
 
 .Contact{
@@ -41,7 +69,8 @@
 }
 
 .ContactWidgetf{
-    margin-left: 0.5rem;
+    margin-top: 0.9rem;
+    margin-left: 0.05rem;
     padding-left: 0rem;
     background-color: transparent;
 }
@@ -49,6 +78,7 @@
 .PagesContainer{
     display: flex;
     margin-right: -1rem;
+    padding-top: 0.5rem;
 }
 
 .Collumn{
@@ -58,63 +88,79 @@
 .LowerContent{
     text-align: center;
     margin: auto;
+    margin-top: 1.5rem;
 }
 
 .NoIdea{
     display: flex;
+    justify-content: center;
+    align-items: center;
     margin: auto;
-    width: 13.59454rem;
 }
 
 .Heart{
     width: 0.9rem;
     height: 0.9rem;
-    margin-top: 0.2rem;
-    margin-left: 0.25rem;
-    margin-right: 0.25rem;
+    margin-left: 0.4rem;
+    margin-right: 0.4rem;
 }
 
 .h1{
+    font-family: var(--font-display);
     font-size: 3.2rem;
-    color: white;
-    font-weight: 175;
-    margin-top:  0.25rem;
-    margin-bottom: 1.25rem;
-    margin-right: -0.5rem;
-    margin-left: 0.25rem;
+    color: var(--ink);
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    margin-top: 0.25rem;
+    margin-bottom: 0.5rem;
     max-width: 29rem;
-    line-height: 3rem;
+    line-height: 3.2rem;
 }
 
 .h2{
-    color: #b0b0b0;
-    font-weight: 225;
+    color: var(--ink-soft);
+    font-weight: 400;
     font-size: 1rem;
-    letter-spacing: -0.0225rem;
-    line-height: 1.2rem;
+    line-height: 1.55rem;
+    transition: color 0.15s;
 }
 
 .h2:hover{
-    color: white;
-    font-weight: 225;
-    font-size: 1rem;
-    letter-spacing: -0.0225rem;
-    line-height: 1.2rem;
+    color: var(--ink);
 }
 
 .h3{
-    color: #b0b0b0;
-    font-weight: 225;
-    font-size: 0.85rem;
-    letter-spacing: -0.0225rem;
-    line-height: 1.2rem;
-    
+    font-family: var(--font-label);
+    color: var(--ink-soft);
+    font-weight: 400;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    line-height: 1.3rem;
 }
 
 .h4{
-    color: #b0b0b0;
-    font-weight: 250;
-    font-size: 0.85rem;
-    margin-top: -1rem;
-    margin-left: 0.6rem;
+    color: var(--ink-soft);
+    font-weight: 400;
+    font-size: 0.95rem;
+    margin-left: 0.1rem;
+}
+
+/* On a phone the two halves of the footer stack, so nothing is wider than
+   the screen. */
+@media (max-width: 46rem) {
+    .slab{
+        padding-left: calc(var(--site-frame) + 1.1rem);
+        padding-right: calc(var(--site-frame) + 1.1rem);
+    }
+    .main{
+        margin-left: var(--stage-inset);
+    }
+    .UpperContent{
+        flex-direction: column;
+        gap: 1.4rem;
+    }
+    .PagesContainer{
+        margin-right: 0;
+        padding-top: 0;
+    }
 }

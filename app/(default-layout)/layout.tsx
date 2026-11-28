@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { JetBrains_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react"
 import { SpeedInsights } from "@vercel/speed-insights/next"
 import "./globals.css";
+import "./materials.css";
 import Navbar from "./components/Navbar";
+import World from "./world/World";
 
-const inter = Inter({ subsets: ["latin"] });
+// Display and body faces (Clash Grotesk, Supreme) load from Fontshare in globals.css.
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Will Donnelly",
@@ -19,11 +22,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={mono.variable}>
+        {/* Runs before anything is painted: tells the styles that the live
+            world is on its way (so the still image is held back) and that
+            this is a first arrival (so the page makes its entrance). */}
+        <script dangerouslySetInnerHTML={{ __html: "document.documentElement.dataset.world='boot';document.documentElement.dataset.enter='first'" }} />
+        <World />
         <Analytics/>
         <SpeedInsights/>
         <Navbar />
         {children}
+        <div className="siteFrame" aria-hidden="true" />
       </body>
     </html>
   );

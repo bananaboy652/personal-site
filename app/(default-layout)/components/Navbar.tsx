@@ -52,60 +52,54 @@ export default function Navbar(){
     // Function to check if the current path matches the given path
     const isActive = (path: any) => pathname === path;
 
+    // A home-page section link is active only while that section is on screen.
+    // "Projects" is also active on any project's own page (/projects/...).
+    const onProjectPage = pathname.startsWith('/projects/');
+    const sectionClass = (section: string) =>
+        (isActive('/') && activeSection === section) || (section === 'project' && onProjectPage) ? styles.active : styles.inactive;
+    const pageClass = (path: string) => isActive(path) ? styles.active : styles.inactive;
+    const trimClass = scrolled ? `${styles.trim} ${styles.trimHidden}` : styles.trim;
+
     return(
         <div className={styles.main}>
-            <a href="/">
-                <img className={styles.logo}
-                    src = "/images/logo.png"
-                    alt = "Main logo"
-                    width={50}
-                    height={50}
-                />
-            </a>
-            <nav className= {styles.nav}>
-                <a href="/" className={isActive('/') ? (activeSection === 'hero' ? styles.active : styles.inactive) : styles.inactive}>
-                    ✨ About me
+            <nav className={styles.nav}>
+                <a href="/" className={styles.home}>
+                    <img className={styles.logo}
+                        src = "/images/logo.png"
+                        alt = "Main logo"
+                        width={22}
+                        height={22}
+                    />
                 </a>
-                <Link href="/#project" className={isActive('/') ? (activeSection === 'project' ? styles.active : styles.inactive) : styles.inactive}>
-                    💻 Projects
-                </Link>
-                <Link href="/#tools" className={isActive('/') ? (activeSection === 'tools' ? styles.active : styles.inactive) : styles.inactive}>
-                    🛠️ Tools
-                </Link>
-                <Link href="/#experience" className={isActive('/') ? (activeSection === 'experience' ? styles.active : styles.inactive) : styles.inactive}>
-                    🧠 Experience
-                </Link>
-                <Link href="/games" className={isActive('/games') ? styles.active : styles.inactive}>
-                    🎮 Games
-                </Link>
-                <Link href="/media" className={isActive('/media') ? styles.active : styles.inactive}>
-                    🍿 Media
-                </Link>
-                <Link href="/cv" className={isActive('/cv') ? styles.active : styles.inactive}>
-                    📄 CV
-                </Link>
+                <div className={`${styles.group} ${styles.portfolio}`}>
+                    <a href="/" className={sectionClass('hero')}>
+                        ✨ About me
+                    </a>
+                    <Link href="/#project" className={sectionClass('project')}>
+                        💻 Projects
+                    </Link>
+                    <Link href="/#tools" className={sectionClass('tools')}>
+                        🛠️ Tools
+                    </Link>
+                    <Link href="/#experience" className={sectionClass('experience')}>
+                        🧠 Experience
+                    </Link>
+                    <div className={trimClass} aria-hidden="true">
+                        <p className={styles.trimText}>(Boring portfolio stuff.)</p>
+                    </div>
+                </div>
+                <div className={`${styles.group} ${styles.personal}`}>
+                    <Link href="/games" className={pageClass('/games')}>
+                        🎮 Games
+                    </Link>
+                    <Link href="/media" className={pageClass('/media')}>
+                        🍿 Media
+                    </Link>
+                    <div className={trimClass} aria-hidden="true">
+                        <p className={styles.trimText}>(Fun personal stuff.)</p>
+                    </div>
+                </div>
             </nav>
-            <br />
-            <div className={scrolled ? styles.navTrimScrolled : styles.navTrim}>
-                <div className={styles.navTrimPortfolio}>
-                    <div className={styles.navTrimLeftBarPortfolio} />
-                    <div className={styles.navTrimRightBarPortfolio} />
-                    <br/>
-                    <div className={styles.navTrimCrossbarPortfolio} />
-                    <div className={styles.navTrimCentrebarPortfolio} />
-                    <br/>
-                    <p className={styles.navTrimTextPortfolio}>(Boring portfolio stuff.)</p>
-                </div>
-                <div className={styles.navTrimPersonal}>
-                    <div className={styles.navTrimLeftBarPersonal} />
-                    <div className={styles.navTrimRightBarPersonal} />
-                    <br/>
-                    <div className={styles.navTrimCrossbarPersonal} />
-                    <div className={styles.navTrimCentrebarPersonal} />
-                    <br/>
-                    <p className={styles.navTrimTextPersonal}>(Fun personal stuff.)</p>
-                </div>
-            </div>
         </div>
     )
 }

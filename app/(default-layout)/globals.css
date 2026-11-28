@@ -1,52 +1,126 @@
+@import url("https://api.fontshare.com/v2/css?f[]=clash-grotesk@400,500,600,700&display=swap");
+@import url("https://api.fontshare.com/v2/css?f[]=supreme@300,400,500,700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background-image: url("/images/outerWildsBackground.jpg");
+  /* A still of the 3D world, shown until the live one fades in over it. */
+  --background-image: url("/images/overlook.png");
   --foreground-rgb: 0, 0, 0;
   --background-start-rgb: 55, 55, 220;
   --background-end-rgb: 55, 150, 255;
+
+  color-scheme: dark;
+
+  /* Type */
+  --font-display: "Clash Grotesk", "Supreme", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "Supreme", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-label: var(--font-mono), ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  /* Ink */
+  --ink: #f1eee7;
+  --ink-soft: #cfccc5;
+  --ink-muted: #a9a69f;
+
+  /* One accent. Change it here and the whole site follows. */
+  --accent: #e8793f;
+  --accent-soft: #f3a47d;
+  --accent-ink: #26160d;
+
+  /* Resin (the frame material) */
+  --resin: #3d3b40;
+  --resin-raised: #4a474d;
+  --resin-well: #1c1b1e;
+
+  /* Layout: everything docks to the left, a title screen over the view.
+     On an ultrawide monitor the page keeps to a stage twice as wide as the
+     window is tall, centred in the window (the world's camera is composed for
+     the same shape: STAGE in world/engine/engine.ts), so nothing sits against
+     the far-left edge of the glass. --stage-inset is what is left over at each
+     side of that stage; it is nothing on a laptop, a tablet or any 16:9
+     display (see the rule below this block). */
+  --stage-inset: 0px;
+  --edge-y: calc(var(--site-frame) + var(--site-gap));   /* in from the top or bottom of the bezel */
+  --edge: calc(var(--edge-y) + var(--stage-inset));      /* where panels start, in from the left (or right) */
+  --indent: 1.8rem;                                    /* text set straight on the scene */
+  --title-top: 7.4rem;                                 /* where a page's name hangs: just under the nav's captions */
+  --col: 44rem;                                        /* the opening column */
+
+  /* Corners. A frame's inner corner is its outer radius less its thickness,
+     and anything set inside takes the outer radius less its distance from the
+     outer edge, so nested corners always share one centre. */
+  --panel-r: 30px;
+  --panel-t: 15px;
+  --card-r: 28px;
+  --card-t: 14px;
+  --pill-r: 29px;
+  --pill-t: 10px;
+  --capsule-r: 36px;
+  --capsule-t: 10px;
+  --chip-r: 14px;
+  --chip-t: 7px;
+  --small-r: 2px;                                      /* keys, tags, wells: deep inside a frame, so all but square */
+
+  /* Glass (what sits inside the frames) */
+  --glass-tint: rgba(6, 6, 8, 0.68);
+  --glass-blur: blur(7px) saturate(1.25);
+  --glass-sheen: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.07) 0%,
+    rgba(255, 255, 255, 0) 32%,
+    rgba(255, 255, 255, 0) 74%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+  --frame-shadow: 0 1px 1px rgba(0, 0, 0, 0.55), 0 10px 26px rgba(0, 0, 0, 0.42),
+    inset 0.6px 0.6px 0.8px rgba(255, 255, 255, 0.22), inset -0.8px -1px 0.8px rgba(0, 0, 0, 0.4);
+  --key-shadow: inset 0.5px 0.5px 0.5px rgba(255, 255, 255, 0.24), inset -0.5px -1.2px 1px rgba(0, 0, 0, 0.36),
+    0 1.5px 1px rgba(0, 0, 0, 0.5), 0 4px 7px rgba(0, 0, 0, 0.28);
+  --well-shadow: inset 1px 2px 3px rgba(0, 0, 0, 0.55), 0 0.6px 0.6px rgba(255, 255, 255, 0.12);
 }
 
-/* styles/globals.css */
+/* The stage. A 16:9 display with the browser's own bars round the page comes to
+   about 2:1, and there the page must stay docked in the corner of the bezel. So
+   it only starts to move in once the window is 2.2 times as wide as it is tall,
+   and by 2.3 it is exactly on the stage: a 21:9 monitor and anything wider.
+   (Not on a landscape phone, which can be that shape but has no room to give.) */
+@media (min-height: 37.5rem) {
+  :root {
+    --stage-inset: clamp(0px, calc((100vw - 220vh) * 1.5), max(0px, calc((100vw - 200vh) / 2)));
+  }
+}
 
-/* WebKit Browsers (Chrome, Safari) */
+/* Under this width the nav has no captions hanging below it, so a page's name can sit closer to it. */
+@media (max-width: 48rem) {
+  :root {
+    --title-top: 6.5rem;
+  }
+}
+
+/* Scrollbar: made of the same resin as the frame it sits beside. */
 ::-webkit-scrollbar {
   width: 12px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: #29272c;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #555;
-  border-radius: 6px;
-  border: 3px solid #1e1e1e;
+  background-color: #5c5960;
+  border-radius: 2px;
+  border: 3px solid #29272c;
 }
 
-/* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #555 #1e1e1e;
-}
-
-::-webkit-selection {
-    background-color: #fffffff0; /* Background color for WebKit browsers */
-    color: #1033e0; /* Text color for WebKit browsers */
+  scrollbar-color: #5c5960 #29272c;
 }
 
 ::selection {
-    background-color: #fffffff0; /* Background color for other browsers */
-    color: #1033e0; /* Text color for other browsers */
-}
-
-/* styles/globals.css */
-
-@font-face {
-  font-family: 'Inter';
-  src: url('/fonts/Inter-Regular.ttf') format('ttf')
+  background-color: var(--accent);
+  color: var(--accent-ink);
 }
 
 body {
@@ -54,24 +128,30 @@ body {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  background-color: black;
+  background-color: #0a0e1d;
   background-attachment: fixed;
-  font-family: 'Inter', Arial, sans-serif;
+  image-rendering: pixelated;
+  font-family: var(--font-body);
+  color: var(--ink-soft);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-.Link{
-  color:#5EB0FC;
+.Link {
+  color: var(--accent-soft);
   text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
 
-.Link:hover{
-  color:white;
+.Link:hover {
+  color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-.LinkPreview{
+.LinkPreview {
   border-radius: 0.5rem;
   display: block;
   padding: 0.05rem;
@@ -80,13 +160,181 @@ body {
   border: transparent;
 }
 
-.LinkPreview:hover{
+.LinkPreview:hover {
   border-radius: 0.5rem;
   display: block;
   padding: 0.1rem;
   background-color: #ffffff;
   border-width: 0.1rem;
   border: transparent;
+}
+
+/* ── Materials ───────────────────────────────────────────────────────────
+   Dark tinted glass set into a rounded resin frame. The frame, its grain and
+   its lighting all come from the generated SVGs in materials.css; the element
+   itself supplies the glass (tint + blur of whatever is behind it).
+   --ft is the frame thickness, for padding content clear of it.            */
+.glassFrame,
+.glassFrameCard,
+.glassFramePill,
+.glassFrameCapsule,
+.glassFrameChip {
+  background-color: var(--glass-tint);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--frame-shadow);
+}
+
+/* Thicknesses and radii must match scripts/build-materials.mjs.
+   --ft is the frame thickness and --fr its outer radius, for anything nested. */
+.glassFrame {
+  --ft: var(--panel-t);
+  --fr: var(--panel-r);
+  border-radius: var(--panel-r);
+  background-image: var(--frame-panel), var(--glass-sheen);
+}
+
+.glassFrameCard {
+  --ft: var(--card-t);
+  --fr: var(--card-r);
+  border-radius: var(--card-r);
+  background-image: var(--frame-card), var(--glass-sheen);
+}
+
+/* Capsules are drawn for one height each (58px and 72px): give the element that height. */
+.glassFramePill {
+  --ft: var(--pill-t);
+  --fr: var(--pill-r);
+  height: 58px;
+  border-radius: var(--pill-r);
+  background-image: var(--frame-pill), var(--glass-sheen);
+}
+
+.glassFrameCapsule {
+  --ft: var(--capsule-t);
+  --fr: var(--capsule-r);
+  height: 72px;
+  border-radius: var(--capsule-r);
+  background-image: var(--frame-capsule), var(--glass-sheen);
+}
+
+.glassFrameChip {
+  --ft: var(--chip-t);
+  --fr: var(--chip-r);
+  border-radius: var(--chip-r);
+  background-image: var(--frame-chip), var(--glass-sheen);
+}
+
+/* A solid raised piece of resin: buttons and small tags. */
+.resinKey {
+  background-color: var(--resin-raised);
+  background-image: var(--relief-key), var(--resin-tile-raised);
+  background-size: 100% 100%, var(--resin-texel) var(--resin-texel);
+  background-repeat: no-repeat, repeat;
+  border-radius: var(--small-r);
+  box-shadow: var(--key-shadow);
+  color: var(--ink);
+}
+
+/* A recess pressed into the surface: holds a picture or a reading. */
+.resinWell {
+  background-color: var(--resin-well);
+  background-image: var(--relief-well);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  border-radius: var(--small-r);
+  box-shadow: var(--well-shadow);
+}
+
+/* Small technical captions. */
+.label {
+  font-family: var(--font-label);
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* The bezel around the whole site. Fixed to the window; the page scrolls
+   inside it. With a footer on the page the bottom bar is supplied by the
+   footer's dock instead, so the footer can grow out of it. */
+.siteFrame {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: none;
+  background-image: var(--site-ring);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
+body:has(.frameDock) .siteFrame {
+  background-image: var(--site-open);
+}
+
+/* While the live world is on its way or running, the still image is held
+   back and the page starts from black: the world dissolves in by itself. The
+   still is for browsers that cannot draw the world (data-world="still") and
+   for pages with scripts turned off (no attribute at all). */
+html[data-world="boot"] body,
+html[data-world="live"] body {
+  background-image: none;
+  background-color: #04050a;
+}
+
+/* ── The page's entrance ─────────────────────────────────────────────────
+   On a first arrival the world comes up alone for a moment; then the bezel,
+   the nav and the panels step into place one after another. Moving between
+   pages afterwards, the new page's panels simply rise, quickly. */
+@keyframes enter-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes enter-drop {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes enter-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* the bezel, including the bottom bar that the footer supplies */
+  html[data-enter="first"] .siteFrame,
+  html[data-enter="first"] .frameDock {
+    animation: enter-fade 1.3s 0.25s both;
+  }
+  html[data-enter="first"] nav {
+    animation: enter-drop 0.75s 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  html[data-enter] main > :not(#hero):not(footer):not(.frameDock),
+  html[data-enter] main > #hero > * {
+    --enter-base: 0.02s;
+    --enter-step: 0.07s;
+    animation: enter-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(var(--enter-base) + var(--enter-i, 0) * var(--enter-step));
+  }
+  html[data-enter="first"] main > :not(#hero):not(footer):not(.frameDock),
+  html[data-enter="first"] main > #hero > * {
+    --enter-base: 1.35s;
+    --enter-step: 0.22s;
+    animation-duration: 0.85s;
+  }
+  html[data-enter] main > #hero > :nth-child(2),
+  html[data-enter] main > :nth-child(2):not(#hero) { --enter-i: 1; }
+  html[data-enter] main > :nth-child(3) { --enter-i: 2; }
+  html[data-enter] main > :nth-child(4) { --enter-i: 3; }
+  html[data-enter] main > :nth-child(n + 5) { --enter-i: 4; }
+}
+
+/* "Hide page" in the scene-select menu: the world on its own. */
+html[data-world-only] body > *:not([data-world]) {
+  opacity: 0 !important;      /* has to beat the entrance animation, which holds its last frame */
+  pointer-events: none;
+  transition: opacity 0.4s;
 }
 
 @layer utilities {

@@ -1,34 +1,45 @@
 .main{
-    color: white;
+    font-family: var(--font-display);
+    color: var(--ink);
     font-size: 2.4rem;
-    font-weight: 175;
-    max-width: 58rem;
-    padding-top: 1.1rem;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    /* (as wide as the panels under it: 58rem unless a page sets --breaker-width) */
+    max-width: calc(min(var(--breaker-width, 58rem), 100vw - 2 * var(--edge)) - var(--indent));
+    padding-top: 1.6rem;
     padding-bottom: 1.1rem;
-    margin: auto;
+    margin-left: calc(var(--edge) + var(--indent));
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
 }
 
 .Heading{
     width: 100%;
     display: flex;
+    align-items: center;
 }
 
 .SubHeading{
-    color: #b0b0b0;
-    margin-top: -0.5rem;
-    font-size: 1.2rem;
-    letter-spacing: -0.75px;
-    font-weight: 200;
+    font-family: var(--font-body);
+    color: var(--ink-soft);
+    margin-top: -0.3rem;
+    font-size: 1.1rem;
+    letter-spacing: -0.005em;
+    font-weight: 400;
 }
 
 .main h1{
     white-space: nowrap;
 }
 
+/* A fine groove running out from the heading, lit like everything else:
+   dark on top, a catch of light underneath, an ember at the start. */
 .BreakLine{
-    width: 100%;
-    height: 0.05rem;
-    margin-top: 1.9rem;
-    margin-left: 0.55rem;
-    background-color: #5EB0FC;
+    flex: 1;
+    height: 3px;
+    margin-top: 0.35rem;
+    margin-left: 1rem;
+    background:
+        linear-gradient(90deg, var(--accent) 0, var(--accent) 1.6rem, transparent 1.6rem),
+        rgba(0, 0, 0, 0.55);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 1px 1px rgba(0, 0, 0, 0.6);
 }

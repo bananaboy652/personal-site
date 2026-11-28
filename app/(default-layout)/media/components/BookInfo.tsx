@@ -26,7 +26,9 @@ const BookInfoList: React.FC<BookInfoListProps> = ({ isbns }) => {
           const data = await response.json();
           if (data[`ISBN:${isbn}`]) {
             const book = data[`ISBN:${isbn}`];
-            const authors = book.authors.map((author: { name: string }) => author.name);
+            // OpenLibrary leaves `authors` out for some books; one missing field
+            // must not take the whole shelf down with it.
+            const authors = (book.authors ?? []).map((author: { name: string }) => author.name);
             return {
               title: book.title,
               authors: authors,

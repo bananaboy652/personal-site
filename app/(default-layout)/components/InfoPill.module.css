@@ -1,27 +1,22 @@
 .main{
-    height: 240px;
-    width: 240px;
-    padding: 1.25rem;
-    padding-top: 1.5rem;
-    border-radius: 1rem;
-    box-shadow: inset 0 0 0 1px #b0b0b0,0 2px 8px rgba(0, 0, 0, 0.101);
-    
-    background-color: rgba(0,0,0, 70%);
-    backdrop-filter: blur(5px);
-    
-    color: #b0b0b0;
-    font-weight: 250;
-    font-size: 1rem;
+    composes: glassFrame from global;
 
-    float: right;
+    flex: none;
+    width: 240px;
+    padding: calc(var(--ft) + 0.85rem) calc(var(--ft) + 0.8rem);
+
+    color: var(--ink-soft);
+    font-weight: 400;
+    font-size: 0.93rem;
 }
 
 .main_h3{
-    margin-bottom: 0.45rem;
+    margin-bottom: 0.42rem;
+    white-space: nowrap;
 }
 
-@media (max-width: 63rem) {
+@media (max-width: 46rem) {
     .main{
-        display: none;    
+        width: auto;
     }
 }

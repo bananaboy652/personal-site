@@ -1,179 +1,154 @@
+/* The bar docks in the top-left corner of the bezel. It sits --site-gap in
+   from the bezel on both sides, and the bezel's corner radius is the bar's
+   radius plus that gap, so the two curves share a centre. */
 .main{
-    justify-content: center; /* Center contents horizontally */
-    align-items: center;     /* Center contents vertically */
-    position: fixed;      /* Ensure relative positioning for absolute children */
-    top: 1.5rem;
-    margin: auto;
-    align-self: center;
+    position: fixed;
+    top: var(--edge-y);
+    left: var(--edge);
     z-index: 1000;
-    width: 100%;
+    max-width: calc(100vw - 2 * var(--edge));
+    pointer-events: none;   /* only the bar itself takes clicks */
+}
+
+.main > *{
+    pointer-events: auto;
+}
+
+/* The bar: a capsule of dark glass set in a resin frame. */
+.nav{
+    composes: glassFramePill from global;
+    display: flex;
+    align-items: center;
+    width: var(--col);
+    max-width: 100%;
+    padding-right: calc(var(--ft) + 1.1rem);
+
+    font-size: 0.93rem;
+    font-weight: 400;
+    letter-spacing: 0.005em;
+    color: var(--ink-muted);
+}
+
+/* The mark sits in the round end of the bar: a circle inside the capsule's
+   cap, sharing its centre. */
+.home{
+    --inset: calc(var(--ft) + 3px);
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: calc(58px - 2 * var(--inset));
+    height: calc(58px - 2 * var(--inset));
+    margin-left: var(--inset);
+    margin-right: 0.5rem;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    transition: background 0.15s;
+}
+
+.home:hover{
+    background: rgba(255, 255, 255, 0.14);
 }
 
 .logo{
-    position: absolute;
-    left: 3rem;
+    width: 22px;
+    height: 22px;
 }
 
-.nav{
-    border-radius: 2rem;
-    box-shadow: inset 0 0 0 1px #999999,0 2px 8px rgba(0, 0, 0, 0.101);
-    
-    background-color: rgba(0,0,0, 70%);
-    backdrop-filter: blur(5px);
-    
-    margin:auto;
-    
-    padding-top: 0.8rem;
-    padding-bottom: 0.8rem;
-    padding-left: 4rem;
-    padding-right: 4rem;
-    
-    font-size: 1rem;
-    font-weight: 250;
-    
-    color: #b0b0b0;
-    
-    max-width: 60rem;
-    
+/* Portfolio links and personal links sit in two groups, each with its own
+   bracket hanging below the bar. */
+.group{
+    position: relative;
     display: flex;
+    align-items: center;
     justify-content: space-between;
+    height: 100%;
 }
 
-.navTrim{
-    background-color: transparent;
-    max-width: 60rem;
-    height: 1rem;
-    margin: auto;
-    margin-top: -1.25rem;
-    display: flex;
+.portfolio{
+    flex: 4.5;
+    color: var(--ink-muted);
 }
 
-.navTrimScrolled{
-    display: none;
+.personal{
+    flex: 2;
+    margin-left: 1.5rem;
+    --trim: var(--accent);
 }
 
-.navTrimPortfolio{
-    background-color: transparent;
-    max-width: 30.5rem;
-    flex-grow: 1;
-    height: 1rem;
-    margin-left: 4.75rem;
-}
-
-.navTrimRightBarPortfolio{
-    height: 50%;
-    width: 0.05rem;
-    background-color: #999999;
-}
-
-.navTrimLeftBarPortfolio{
-    height: 50%;
-    width: 0.05rem;
-    background-color: #999999;
-    float: right;
-}
-
-.navTrimLeftBarPortfolio{
-    height: 50%;
-    width: 0.05rem;
-    background-color: #999999;
-    float: right;
-}
-
-.navTrimCrossbarPortfolio{
-    height: 0.05rem;
-    width: 100%;
-    background-color: #999999;
-    float: left;
-    margin-top: -1.5rem;
-}
-
-.navTrimCentrebarPortfolio{
-    height: 50%;
-    width: 0.05rem;
-    background-color: #999999;
-    margin: auto;
-    margin-top: -1.5rem;
-}
-
-.navTrimTextPortfolio{
-    background-color: transparent;
-    color: #999999;
-    margin: auto;
-    text-align: center;
-    margin-top: -1.75rem;
-    padding-top: 0.125rem;
-    font-size: 0.75rem;
-}
-
-.navTrimPersonal{
-    background-color: transparent;
-    max-width: 12.5rem;
-    flex-grow: 1;
-    height: 1rem;
-    margin-left: 2.5rem;
-}
-
-.navTrimRightBarPersonal{
-    height: 50%;
-    width: 0.05rem;
-    background-color: #5EB0FC;
-}
-
-.navTrimLeftBarPersonal{
-    height: 50%;
-    width: 0.05rem;
-    background-color: #5EB0FC;
-    float: right;
-}
-
-.navTrimLeftBarPersonal{
-    height: 50%;
-    width: 0.05rem;
-    background-color: #5EB0FC;
-    float: right;
-}
-
-.navTrimCrossbarPersonal{
-    height: 0.05rem;
-    width: 100%;
-    background-color: #5EB0FC;
-    float: left;
-    margin-top: -1.5rem;
-}
-
-.navTrimCentrebarPersonal{
-    height: 50%;
-    width: 0.05rem;
-    background-color: #5EB0FC;
-    margin: auto;
-    margin-top: -1.5rem;
-}
-
-.navTrimTextPersonal{
-    background-color: transparent;
-    color: #5EB0FC;
-    margin: auto;
-    text-align: center;
-    margin-top: -1.75rem;
-    padding-top: 0.125rem;
-    font-size: 0.75rem;
+.active,
+.inactive{
+    padding: 0 0.55rem;
+    white-space: nowrap;
+    transition: color 0.15s;
 }
 
 .active{
-    font-weight: 400;
-    color: white;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
+    font-weight: 500;
+    color: var(--ink);
 }
 
 .inactive{
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
+    color: var(--ink-muted);
 }
 
 .inactive:hover{
-    color: white;    
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
+    color: var(--ink);
+}
+
+.trim{
+    position: absolute;
+    left: 0.55rem;
+    right: 0.55rem;
+    top: calc(100% + 0.55rem);
+    color: var(--trim, var(--ink-muted));
+    opacity: 1;
+    transition: opacity 0.25s;
+    pointer-events: none;
+}
+
+/* the bracket */
+.trim::before{
+    content: "";
+    display: block;
+    height: 0.45rem;
+    border: 1px solid currentColor;
+    border-top: 0;
+}
+
+.trimHidden{
+    opacity: 0;
+}
+
+.trimText{
+    composes: label from global;
+    text-align: center;
+    font-size: 0.62rem;
+    line-height: 1;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* the centre tick joining bracket and caption */
+.trimText::before{
+    content: "";
+    display: block;
+    width: 1px;
+    height: 0.4rem;
+    margin: 0 auto 0.3rem;
+    background: currentColor;
+}
+
+/* Narrow screens: the bar keeps its shape and scrolls sideways. */
+@media (max-width: 48rem) {
+    .nav{
+        width: auto;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .nav::-webkit-scrollbar{
+        display: none;
+    }
+    .trim{
+        display: none;
+    }
 }
