@@ -111,7 +111,8 @@ export interface VehicleOptions {
   /** the thing that moves. Its origin is where it touches the ground; by
    *  default its front points down its own -Z (set `forward` otherwise). */
   object: Object3D;
-  kind: 'car' | 'boat';
+  /** ('plane' is the Plane's own: see plane.ts) */
+  kind: 'car' | 'boat' | 'plane';
   /** what sort of machine it is: its weight, its gearing and its voice follow from this.
    *  Default: 'kei' for a car, 'outboard' for a boat. */
   make?: MakeName;
@@ -135,6 +136,12 @@ export interface VehicleOptions {
   chase?: [number, number];
   /** the driver's eye, in the model's own space */
   seat?: [number, number, number];
+  /** Where the driver's hips are, in the model's own space: where their figure is sat. Default: 0.62 m
+   *  straight under `seat`. */
+  rider?: [number, number, number];
+  /** How much room there is over the driver's hips before a roof, metres. A figure that is taller than
+   *  that sat down keeps its head (and its ears) under it. Default: no roof. */
+  headroom?: number;
   /** boats: how far the hull sits below the waterline */
   draft?: number;
   /** how close you must be to get in */
@@ -221,6 +228,10 @@ export class Vehicle {
   camFov = 0;
   camY = 0;
   jolt = 0;
+  /** degrees of its own attitude that the view takes on: nose up, and right side down. Nothing for a
+   *  car or a boat; a plane's camera climbs, dives and banks with it. */
+  camPitch = 0;
+  camRoll = 0;
   readonly o: Required<Omit<VehicleOptions, 'object'>> & { object: Object3D };
   readonly interactable: Interactable;
   readonly motor: Motor;
@@ -281,9 +292,12 @@ export class Vehicle {
       track: hw * 0.85,
       wheel: 0.3,
       wheels: [],
+      headroom: 99,
+      rider: [0, 0, 0],
       ...options,
       make,
     };
+    if (!options.rider) this.o.rider = [this.o.seat[0], this.o.seat[1] - 0.62, this.o.seat[2]];
     if (isCar) {
       const car = { ...(CARS[make as 'kei'] ?? CARS.kei) };
       if (options.maxSpeed) {
@@ -377,6 +391,17 @@ export class Vehicle {
     this.motor.horn();
   }
 
+  /** May whoever is in it get out just now? (A plane in the air says no, and says why, unless asked `quietly`.) */
+  canLeave(quietly = false) {
+    void quietly;
+    return true;
+  }
+
+  /** Where somebody getting out of it should be put (their feet), or null for the usual place: a step to its left. */
+  alight(): [number, number, number] | null {
+    return null;
+  }
+
   /** Put it somewhere, pointing some way. */
   place(x: number, y: number, z: number, heading: number) {
     Object.assign(this, { x, y, z, heading });
@@ -411,6 +436,9 @@ export class Vehicle {
     });
     ob.updateMatrixWorld(true);
     this.center.set(h.x, h.y + 1, h.z);
+    // (and it falls silent: nothing goes on working it out once it has been put back, so its voice
+    // would otherwise hold whatever note it was last on)
+    this.motor.dispose();
   }
 
   /** Everything that moves, stopped. */

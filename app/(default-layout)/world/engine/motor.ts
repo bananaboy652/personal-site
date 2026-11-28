@@ -12,7 +12,8 @@ import type { AudioEngine } from './audio';
 import { clamp, rng, smooth } from './math';
 import type { Surface } from './surface';
 
-export type MakeName = 'kei' | 'pickup' | 'buggy' | 'outboard' | 'skiff';
+/** ('airframe' is an aeroplane on its wheels or skis: no engine of its own here, see planevoice.ts) */
+export type MakeName = 'kei' | 'pickup' | 'buggy' | 'outboard' | 'skiff' | 'airframe';
 
 /** What a vehicle tells its voice every frame. */
 export interface MotorState {
@@ -86,6 +87,8 @@ const VOICES: Record<MakeName, Voice | null> = {
   outboard: { idle: 700, red: 5500, order: 2, sub: [0.5, 'square', 0.4], over: [2.01, 0.2], lp: [800, 2200, 1300], body: [360, 6, 1.6], rasp: [1500, 8, 1.8], hp: 120, drive: [1.6, 2.4], hiss: [0.9, 700, 2100], lope: [0.03, 0.2, 2.3], level: 0.17, horn: [233, 277, 0.6, 'sawtooth'] },
   // oars
   skiff: null,
+  // (an aeroplane's engine and propeller are another voice altogether: here it is only wheels on the ground)
+  airframe: null,
 };
 
 /** What a rolling tyre (or a hull) sounds like on each kind of ground: a low part [Hz, level], a
@@ -354,7 +357,11 @@ export class Motor {
     // -- from where it is heard
     n.cab.frequency.setTargetAtTime(s.inside ? 1500 : 16000, t, 0.1);
     const near = 1 / (1 + Math.pow(Math.max(0, s.far - 9) / 16, 2));
+    // (Told nothing for half a second, it has been forgotten: its world was left with the engine running.
+    // It dies away by itself rather than hold its last note for ever. Each telling puts that off again.)
+    n.out.gain.cancelScheduledValues(t);
     n.out.gain.setTargetAtTime(LEVEL * near, t, 0.1);
+    n.out.gain.setTargetAtTime(0, t + 0.6, 0.15);
   }
 
   /** Sound the horn (each make has its own). */

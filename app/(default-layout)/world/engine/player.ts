@@ -17,6 +17,12 @@ export interface Controls {
   /** asked to sound the horn of whatever is being driven. Whoever sounds it clears this (a level
    *  whose horn does more than make a noise takes it in its tick; otherwise the engine does). */
   horn?: boolean;
+  /** Flying: the stick fore and aft, -1..1 (+1 pulls the nose up). The arrow keys and the thumb stick
+   *  set it; Space and Shift (jump and run) are the same thing for those who would rather. */
+  stick?: number;
+  /** Flying: the throttle lever set outright, 0..1, while a thumb is on it (keys nudge the lever
+   *  instead, with `f`). Undefined when nothing is holding it: the lever stays where it was left. */
+  power?: number;
 }
 
 const STEP = 0.6;
