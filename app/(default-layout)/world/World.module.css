@@ -52,28 +52,6 @@
     }
 }
 
-/* The radio in the scene switches the sound; this is the same switch for
-   keyboards and screen readers. Out of sight until it has focus. */
-.sound{
-    composes: label from global;
-    position: fixed;
-    left: var(--edge);
-    bottom: var(--edge-y);
-    z-index: 1100;
-    padding: 0.55rem 0.8rem;
-    color: var(--ink);
-    background: rgba(8, 8, 12, 0.86);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
-    opacity: 0;
-    pointer-events: none;
-}
-
-.sound:focus-visible{
-    opacity: 1;
-    pointer-events: auto;
-}
-
 /* ── Scene select ────────────────────────────────────────────────────────
    A debug menu for trying the scene's options (add ?debug to the address, or
    press the ` key). It docks in the top-right corner the way the nav docks in

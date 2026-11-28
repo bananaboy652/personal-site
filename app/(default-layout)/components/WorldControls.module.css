@@ -1,0 +1,215 @@
+/* The world's controls, at the foot of a page's title block: Play, and beside
+   it full screen and sound. (What they are made of is set out in
+   WorldControls.tsx.) Sizes here are in px on purpose: the faces are drawn in
+   the world's own pixels, two CSS px to each, and must land on whole ones. */
+.row{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* The room is kept whether or not the world has arrived, so nothing on the
+       page moves when the buttons do. */
+    height: 44px;
+    margin-top: var(--controls-gap, 1.05rem);
+    /* (a title block set against the right says so: see the Games page) */
+    justify-content: var(--controls-justify, flex-start);
+
+    /* (the title blocks these sit in set type large and tight: none of that is wanted here) */
+    font-size: 1rem;
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1;
+    text-align: left;
+    text-shadow: none;
+}
+
+/* No world, no controls: a browser that cannot draw it shows the still image
+   instead (data-world="still"), and with scripts off there is no attribute. */
+:global(html:not([data-world])) .row,
+:global(html[data-world="still"]) .row{
+    display: none;
+}
+
+/* ── A key ───────────────────────────────────────────────────────────────
+   The ring is the page's resin frame, 7px thick; a capsule 44px tall has a
+   22px radius, and the face inside it takes that less the ring: 15px. */
+.key{
+    --ring: 7px;
+    /* the world's own colours (hud.ts): ink, the edge of a panel, the panel itself */
+    --ink: #edebe6;
+    --mark: var(--accent);
+    --edge: rgba(204, 201, 214, 0.5);
+    --well: transparent;
+    --grain: rgba(255, 255, 255, 0.055);
+
+    position: relative;
+    flex: none;
+    height: 44px;
+    padding: var(--ring);
+    border-radius: 22px;
+    box-shadow: var(--frame-shadow);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: transform 0.12s;
+}
+
+/* The ring lies over the face, so the shadow it casts falls on the face; and
+   under the ring, over the face, the same sheen the page's glass has. */
+.key::after{
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-image: var(--frame-control), var(--glass-sheen);
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    pointer-events: none;
+}
+
+.round{
+    width: 44px;
+}
+
+/* The face: a panel of the world's, behind the page's glass. */
+.face{
+    display: block;
+    height: 30px;
+    border-radius: calc(22px - var(--ring));
+    overflow: hidden;
+    background-color: rgba(8, 8, 13, 0.86);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+}
+
+.pixels{
+    display: block;
+}
+
+.well{ fill: var(--well); }
+.grain{ fill: var(--grain); }
+.edge{ fill: var(--edge); }
+.ink{ fill: var(--ink); }
+.mark{ fill: var(--mark); }
+
+/* Under the pointer, or holding the keyboard's focus, it is the chosen row of
+   one of the world's menus: filled ember, written in dark ink. That happens
+   at once, as it does there. The key itself rises a little and goes down when
+   pressed, as the page's keys do. */
+@media (hover: hover) {
+    .key:hover{
+        --well: var(--accent);
+        --ink: #0f0d0d;
+        --mark: #0f0d0d;
+        --grain: rgba(0, 0, 0, 0.09);
+        transform: translateY(-1px);
+    }
+}
+
+.key:focus-visible,
+.key:active{
+    --well: var(--accent);
+    --ink: #0f0d0d;
+    --mark: #0f0d0d;
+    --grain: rgba(0, 0, 0, 0.09);
+}
+
+.key:focus-visible{
+    outline: 2px solid var(--accent-soft);
+    outline-offset: 3px;
+}
+
+.key:active{
+    transform: translateY(1px);
+}
+
+/* Sound switched off: the loudspeaker goes grey. */
+.round[aria-pressed="false"]{
+    --ink: #9a99a6;
+}
+
+@media (hover: hover) {
+    .round[aria-pressed="false"]:hover{
+        --ink: #0f0d0d;
+    }
+}
+
+.round[aria-pressed="false"]:focus-visible,
+.round[aria-pressed="false"]:active{
+    --ink: #0f0d0d;
+}
+
+/* The name of the place you would be stepping into, in the page's small
+   capitals. It is there when there is room for it beside the keys and not
+   otherwise: its slot is one line high and hides what wraps off that line,
+   and the empty first item makes the name the thing that wraps. */
+.slot{
+    display: flex;
+    flex-wrap: wrap;
+    flex: 0 1 auto;
+    order: var(--controls-place-order, 0);
+    justify-content: var(--controls-justify, flex-start);
+    align-content: flex-start;
+    min-width: 0;
+    height: 44px;
+    overflow: hidden;
+}
+
+.slot::before{
+    content: "";
+    width: 0;
+    height: 44px;
+}
+
+.place{
+    composes: label from global;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    height: 44px;
+    margin: 0 0.45rem;
+    color: var(--ink-soft);
+    font-size: 0.62rem;
+    line-height: 1;
+    white-space: nowrap;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* an ember before it, as on a project's status line */
+.place::before{
+    content: "";
+    flex: none;
+    width: 4px;
+    height: 4px;
+    background: var(--accent);
+}
+
+/* ── Arriving, and waiting ───────────────────────────────────────────────
+   The world is loaded after the page, so the keys arrive a moment after it.
+   They come up in four steps, the way things in the world's frame fade; and
+   the arrow on Play breathes in steps while it waits, as "press start" does. */
+@keyframes controls-arrive {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes controls-beckon {
+    0%, 100% { opacity: 1; }
+    58% { opacity: 0.8; }
+    72% { opacity: 0.6; }
+    86% { opacity: 0.8; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .key,
+    .place{
+        animation: controls-arrive 0.4s steps(4, jump-none) both;
+    }
+    .play .mark{
+        animation: controls-beckon 2.2s step-end infinite;
+    }
+    .play:hover .mark,
+    .play:focus-visible .mark{
+        animation: none;
+    }
+}

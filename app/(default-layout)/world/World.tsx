@@ -8,6 +8,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import styles from './World.module.css';
 import { publishWorld } from './controls';
 import type { Settings } from './engine/engine';
+import type { Look } from './engine/figure';
 import type { Runtime } from './runtime';
 
 export default function World() {
@@ -93,15 +94,8 @@ export default function World() {
         <canvas ref={canvas} className={live ? `${styles.canvas} ${styles.live}` : styles.canvas} />
         {!away && <div className={styles.scrim} />}
       </div>
-      {/* the radio in the scene does this too; this is for keyboards and screen readers */}
-      <button type="button" className={styles.sound} data-world="" data-world-ui="" onClick={() => runtime.current?.toggleSound()}>
-        {rt?.engine.audio.wanted === false ? 'Turn the background sound on' : 'Turn the background sound off'}
-      </button>
-      {rt?.level?.walk && !rt.exploring && (
-        <button type="button" className={styles.sound} data-world="" data-world-ui="" onClick={() => runtime.current?.enterExplore()}>
-          Walk around in the background world (Escape comes back)
-        </button>
-      )}
+      {/* (Stepping into the world, filling the screen and switching the sound are buttons of the
+          page's own, in each page's title block: components/WorldControls.tsx. They go by controls.ts.) */}
       {panel && !bare && rt && rt.level && <Panel rt={rt} onClose={() => setPanel(false)} onBare={() => setBare(true)} />}
       {bare && (
         <div className={styles.back} data-world="" data-world-ui="" onClick={() => setBare(false)}>
@@ -119,7 +113,8 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
   const [stats, setStats] = useState('');
   const [cam, setCam] = useState('');
   const [worlds, setWorlds] = useState<{ id: string; title: string }[]>([]);
-  const [signals, setSignals] = useState(0);
+  const [kept, setKept] = useState(0);
+  const [looks, setLooks] = useState<Look[]>([]);
   const engine = rt.engine;
   const level = rt.level;
 
@@ -128,14 +123,15 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
     void import('./runtime').then((m) => {
       if (dead) return;
       setWorlds(m.WORLDS.map((w) => ({ id: w.id, title: w.title })));
-      setSignals(m.store.signals.length);
+      setLooks([...m.looksFor('will'), ...m.looksFor('visitor')]);
+      setKept(m.store.kept);
     });
     const id = window.setInterval(() => {
       const s = engine.stats;
       setStats(`${Math.round(s.fps)} fps · ${s.w}×${s.h} · ×${s.scale} · ${s.calls} draws · ${Math.round(s.tris / 1000)}k tris`);
       const f = engine.free;
       if (f.on) setCam(`${f.x.toFixed(1)}, ${f.y.toFixed(1)}, ${f.z.toFixed(1)} · yaw ${f.yaw.toFixed(1)} · pitch ${f.pitch.toFixed(1)} · fov ${f.fov.toFixed(0)}`);
-      void import('./runtime').then((m) => !dead && setSignals(m.store.signals.length));
+      void import('./runtime').then((m) => !dead && setKept(m.store.kept));
     }, 500);
     return () => {
       dead = true;
@@ -195,6 +191,15 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
           ))}
         </div>
       )}
+      {/* each character's looks, to choose between: Will's, and the visitor's own */}
+      {(['will', 'visitor'] as const).map((role) => (
+        <div className={styles.row} key={role}>
+          <div className={styles.rowLabel}>{role === 'will' ? 'Will' : 'You'}</div>
+          {looks.filter((l) => l.role === role).map((l) => (
+            <Opt key={l.id} on={engine.people.wearing(role) === l.id} label={l.name} pick={() => { engine.people.wear(l); redraw(); }} />
+          ))}
+        </div>
+      ))}
       <div className={styles.row}>
         <div className={styles.rowLabel}>Lines</div>
         {[240, 300, 360, 480, 600].map((n) => (
@@ -244,7 +249,7 @@ function Panel({ rt, onClose, onBare }: { rt: Runtime; onClose: () => void; onBa
       <div className={styles.row}>
         <div className={styles.rowLabel}>Sound</div>
         <Opt on={engine.audio.wanted} label={engine.audio.wanted ? 'On' : 'Off'} pick={() => { rt.toggleSound(); redraw(); }} />
-        <Opt on={false} label={`Forget signals (${signals}/${worlds.length || 3})`} pick={() => void import('./runtime').then((m) => { m.store.forget(); setSignals(0); })} />
+        <Opt on={false} label={`Forget what the worlds remember (${kept})`} pick={() => void import('./runtime').then((m) => { m.store.forget(); setKept(0); })} />
       </div>
       <div className={styles.stats}>{stats}</div>
     </div>

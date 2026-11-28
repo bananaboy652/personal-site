@@ -5,6 +5,7 @@ import React from 'react';
 
 import SteamHours from './SteamHours';
 import SteamProfileCard from './SteamProfileCard';
+import WorldControls from '../../components/WorldControls';
 
 export default function Hero(){
 
@@ -20,6 +21,8 @@ export default function Hero(){
                             <h1 className={styles.Hours}>Hours</h1>
                         </div>
                         <h2>And counting...</h2>
+                        {/* Play, full screen and sound: the way into the world behind the page. */}
+                        <WorldControls />
                     </div>
                 </div>
             </div>

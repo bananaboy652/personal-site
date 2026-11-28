@@ -9,6 +9,7 @@ import { notFound } from "next/navigation";
 import ContentBreaker from "../../components/ContentBreaker";
 import Footer from "../../components/Footer";
 import ToolTags from "../../components/ToolTags";
+import WorldControls from "../../components/WorldControls";
 import { type Project, projectBySlug, projects } from "../data";
 import styles from "./page.module.css";
 
@@ -62,6 +63,8 @@ export default function ProjectPage({ params }: Props) {
                             : project.status}
                     </p>
                     <ToolTags tags={project.tags} className={styles.tags} />
+                    {/* Play, full screen and sound: the way into the world behind the page. */}
+                    <WorldControls />
                 </div>
             </header>
 

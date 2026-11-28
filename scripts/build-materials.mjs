@@ -218,6 +218,8 @@ export const materials = (look = LOOK) => ({
   'frame-pill': frame({ t: 10, r: 29, height: 7 }, look),      // nav bar: 58px tall capsule
   'frame-capsule': frame({ t: 10, r: 36, height: 7 }, look),   // 72px tall capsule
   'frame-chip': frame({ t: 7, r: 14, height: 5.5 }, look),
+  // the ring round the world's controls (Play, full screen, sound): 44px tall, a capsule or a circle
+  'frame-control': frame({ t: 7, r: 22, height: 5.5 }, look),
   // the bezel around the site
   'site-ring': bezel({ ...SITE, kind: 'ring' }, look),
   'site-open': bezel({ ...SITE, kind: 'open' }, look),

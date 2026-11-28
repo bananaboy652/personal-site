@@ -16,6 +16,9 @@
     font-family: var(--font-display);
     text-align: right;
     text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
+    /* the world's controls hang under the count, against the right as it is, the place's name leading */
+    --controls-justify: flex-end;
+    --controls-place-order: -1;
 }
 
 .CounterLine{
@@ -74,7 +77,11 @@
         gap: 0.8rem;
     }
     .Counter{
+        /* (no wider than the screen, whatever is in it: the place's name beside the controls gives way) */
+        max-width: 100%;
         text-align: left;
+        --controls-justify: flex-start;
+        --controls-place-order: 0;
     }
     .CounterLine{
         justify-content: flex-start;
@@ -104,8 +111,11 @@
         box-sizing: border-box;
         min-height: 100vh;
         min-height: 100svh;
+        max-width: 100%;
         padding-top: var(--title-top);
         text-align: left;
+        --controls-justify: flex-start;
+        --controls-place-order: 0;
     }
     .CounterLine{
         justify-content: flex-start;

@@ -3,7 +3,7 @@
 
     margin-left: var(--edge);
     max-width: min(58rem, calc(100vw - 2 * var(--edge)));
-    margin-top: 10rem;
+    margin-top: 1.1rem;
     padding: calc(var(--ft) + 1.1rem) calc(var(--ft) + 1.3rem);
 
     color: var(--ink-soft);
@@ -23,12 +23,26 @@
     padding-bottom: 0.9rem;
 }
 
-/* The page's name on its own, for an upright screen (see below). */
+/* The title block. The world's controls hang where a page's name would, just
+   under the nav's captions; the name itself is the panel's heading, except on
+   an upright screen (see below). */
 .head{
-    display: none;
+    margin-left: var(--edge);
+    max-width: calc(100vw - 2 * var(--edge));
+    margin-top: calc(var(--title-top) + 0.85rem);
+    --controls-gap: 0rem;
+}
+
+/* (No wider than what is in it: the world behind the page turns its view clear
+   of the page's title block, and must not take this one for the whole width of
+   the window.) */
+.block{
+    width: fit-content;
+    max-width: 100%;
 }
 
 .title{
+    display: none;
     font-family: var(--font-display);
     color: var(--ink);
     font-size: 4rem;
@@ -51,13 +65,15 @@
    switches to its upright view.) */
 @media (max-aspect-ratio: 9/10) {
     .head{
-        display: block;
         box-sizing: border-box;
         min-height: 100vh;
         min-height: 100svh;
-        margin-left: var(--edge);
-        max-width: calc(100vw - 2 * var(--edge));
+        margin-top: 0;
         padding-top: var(--title-top);
+        --controls-gap: 1.05rem;
+    }
+    .title{
+        display: block;
     }
     .main{
         margin-top: 0;
